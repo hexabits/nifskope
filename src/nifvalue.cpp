@@ -107,6 +107,8 @@ void NifValue::initialize()
 	typeMap.insert( "stringoffset",   NifValue::tStringOffset );
 	typeMap.insert( "stringindex",    NifValue::tStringIndex );
 	typeMap.insert( "blocktypeindex", NifValue::tBlockTypeIndex );
+	typeMap.insert( "hkversionstring", NifValue::tHKVersionString );
+	typeMap.insert( "hksectionheadertag", NifValue::tHKSectionHeaderTag );
 	typeMap.insert( "char8string",    NifValue::tChar8String );
 	typeMap.insert( "string",   NifValue::tString );
 	typeMap.insert( "filepath", NifValue::tFilePath );
@@ -375,6 +377,8 @@ void NifValue::clear()
 	case tShortString:
 	case tHeaderString:
 	case tLineString:
+	case tHKVersionString:
+	case tHKSectionHeaderTag:
 	case tChar8String:
 		delete static_cast<QString *>( val.data );
 		break;
@@ -440,6 +444,8 @@ void NifValue::changeType( Type t )
 	case tShortString:
 	case tHeaderString:
 	case tLineString:
+	case tHKVersionString:
+	case tHKSectionHeaderTag:
 	case tChar8String:
 		val.data = new QString();
 		return;
@@ -504,6 +510,8 @@ void NifValue::operator=( const NifValue & other )
 	case tShortString:
 	case tHeaderString:
 	case tLineString:
+	case tHKVersionString:
+	case tHKSectionHeaderTag:
 	case tChar8String:
 		*static_cast<QString *>( val.data ) = *static_cast<QString *>( other.val.data );
 		return;
@@ -566,6 +574,8 @@ bool NifValue::operator==( const NifValue & other ) const
 	case tShortString:
 	case tHeaderString:
 	case tLineString:
+	case tHKVersionString:
+	case tHKSectionHeaderTag:
 	case tChar8String:
 	case tFilePath:
 	{
@@ -780,6 +790,8 @@ bool NifValue::setFromString( const QString & s )
 	case tShortString:
 	case tHeaderString:
 	case tLineString:
+	case tHKVersionString:
+	case tHKSectionHeaderTag:
 	case tChar8String:
 		*static_cast<QString *>( val.data ) = s;
 		return true;
@@ -853,6 +865,8 @@ QString NifValue::toString() const
 	case tShortString:
 	case tHeaderString:
 	case tLineString:
+	case tHKVersionString:
+	case tHKSectionHeaderTag:
 	case tChar8String:
 		return *static_cast<QString *>( val.data );
 	case tColor3:
@@ -1327,6 +1341,36 @@ bool NifIStream::read( NifValue & val )
 			*static_cast<QString *>( val.val.data ) = QString( string );
 			return true;
 		}
+	case NifValue::tHKVersionString:
+		{
+			QByteArray string;
+			int c = 0;
+			char chr = 0;
+
+			while ( c++ < 16 && device->getChar( &chr ) )
+				string.append( chr );
+
+			if ( c == 16 )
+				string.append( '\0' );
+
+			*static_cast<QString *>( val.val.data ) = QString( string );
+			return true;
+		}
+	case NifValue::tHKSectionHeaderTag:
+		{
+			QByteArray string;
+			int c = 0;
+			char chr = 0;
+
+			while ( c++ < 19 && device->getChar( &chr ) )
+				string.append( chr );
+
+			if ( c == 19 )
+				string.append( '\0' );
+
+			*static_cast<QString *>( val.val.data ) = QString( string );
+			return true;
+		}
 	case NifValue::tChar8String:
 		{
 			QByteArray string;
@@ -1626,6 +1670,36 @@ bool NifOStream::write( const NifValue & val )
 
 			return ( device->write( "\n", 1 ) == 1 );
 		}
+	case NifValue::tHKVersionString:
+		{
+			QByteArray string = static_cast<QString *>( val.val.data )->toLatin1();
+			quint32 n = std::min<quint32>( 16, string.length() );
+
+			if ( device->write( string.constData(), n ) != n )
+				return false;
+
+			for ( quint32 i = n; i < 16; ++i ) {
+				if ( device->write( "\uFF", 1 ) != 1 )
+					return false;
+			}
+
+			return true;
+		}
+	case NifValue::tHKSectionHeaderTag:
+		{
+			QByteArray string = static_cast<QString *>( val.val.data )->toLatin1();
+			quint32 n = std::min<quint32>( 19, string.length() );
+
+			if ( device->write( string.constData(), n ) != n )
+				return false;
+
+			for ( quint32 i = n; i < 19; ++i ) {
+				if ( device->write( "\0", 1 ) != 1 )
+					return false;
+			}
+
+			return true;
+		}
 	case NifValue::tChar8String:
 		{
 			QByteArray string = static_cast<QString *>( val.val.data )->toLatin1();
@@ -1819,6 +1893,10 @@ int NifSStream::size( const NifValue & val )
 			QByteArray string = static_cast<QString *>( val.val.data )->toLatin1();
 			return string.length() + 1;
 		}
+	case NifValue::tHKVersionString:
+		return 16;
+	case NifValue::tHKSectionHeaderTag:
+		return 19;
 	case NifValue::tChar8String:
 		{
 			return 8;

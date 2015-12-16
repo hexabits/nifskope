@@ -56,16 +56,44 @@ ValueEdit::ValueEdit( QWidget * parent ) : QWidget( parent ), typ( NifValue::tNo
 
 bool ValueEdit::canEdit( NifValue::Type t )
 {
-	return t == NifValue::tByte || t == NifValue::tWord || t == NifValue::tInt || t == NifValue::tFlags
-		|| t == NifValue::tLink || t == NifValue::tUpLink || t == NifValue::tFloat || t == NifValue::tText
-		|| t == NifValue::tSizedString || t == NifValue::tLineString || t == NifValue::tChar8String
-		|| t == NifValue::tShortString || t == NifValue::tStringIndex || t == NifValue::tString
-		|| t == NifValue::tVector4 || t == NifValue::tVector3 || t == NifValue::tVector2
-		|| t == NifValue::tColor3 || t == NifValue::tColor4 || t == NifValue::tByteColor4
-		|| t == NifValue::tMatrix || t == NifValue::tQuat || t == NifValue::tQuatXYZW
-		|| t == NifValue::tTriangle || t == NifValue::tShort || t == NifValue::tUInt
-		|| t == NifValue::tHfloat || t == NifValue::tHalfVector3 || t == NifValue::tByteVector3
-		|| t == NifValue::tHalfVector2;
+	switch (t)
+	{
+	case NifValue::tByte:
+	case NifValue::tWord:
+	case NifValue::tInt:
+	case NifValue::tFlags:
+	case NifValue::tLink:
+	case NifValue::tUpLink:
+	case NifValue::tFloat:
+	case NifValue::tText:
+	case NifValue::tSizedString:
+	case NifValue::tLineString:
+	case NifValue::tHKVersionString:
+	case NifValue::tHKSectionHeaderTag:
+	case NifValue::tChar8String:
+	case NifValue::tShortString:
+	case NifValue::tStringIndex:
+	case NifValue::tString:
+	case NifValue::tVector4:
+	case NifValue::tVector3:
+	case NifValue::tVector2:
+	case NifValue::tColor3:
+	case NifValue::tColor4:
+	case NifValue::tByteColor4:
+	case NifValue::tMatrix:
+	case NifValue::tQuat:
+	case NifValue::tQuatXYZW:
+	case NifValue::tTriangle:
+	case NifValue::tShort:
+	case NifValue::tUInt:
+	case NifValue::tHfloat:
+	case NifValue::tHalfVector3:
+	case NifValue::tByteVector3:
+	case NifValue::tHalfVector2:
+		return true;
+	default:
+		return false;
+	}
 }
 
 class CenterLabel final : public QLabel
@@ -197,6 +225,8 @@ void ValueEdit::setValue( const NifValue & v )
 		break;
 	case NifValue::tLineString:
 	case NifValue::tShortString:
+	case NifValue::tHKVersionString:
+	case NifValue::tHKSectionHeaderTag:
 	case NifValue::tChar8String:
 		{
 			QLineEdit * le = new QLineEdit( this );
@@ -369,6 +399,8 @@ NifValue ValueEdit::getValue() const
 			break;
 		case NifValue::tLineString:
 		case NifValue::tShortString:
+		case NifValue::tHKVersionString:
+		case NifValue::tHKSectionHeaderTag:
 		case NifValue::tChar8String:
 			val.setFromString( qobject_cast<QLineEdit *>( edit )->text() );
 			break;
