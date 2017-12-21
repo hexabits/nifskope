@@ -202,7 +202,17 @@ HEADERS += \
 	src/version.h \
 	lib/dds.h \
 	lib/dxgiformat.h \
-	lib/half.h
+	lib/half.h \
+    src/spells/animation.h \
+    src/spells/bounds.h \
+    src/spells/color.h \
+    src/spells/flags.h \
+    src/spells/fo3only.h \
+    src/spells/havok.h \
+    src/spells/headerstring.h \
+    src/spells/light.h \
+    src/spells/materialedit.h \
+    src/spells/moppcode.h
 
 SOURCES += \
 	src/data/niftypes.cpp \

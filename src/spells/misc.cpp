@@ -5,10 +5,10 @@
 
 // Brief description is deliberately not autolinked to class Spell
 /*! \file misc.cpp
- * \brief Miscellaneous helper spells
- *
- * All classes here inherit from the Spell class.
- */
+* \brief Miscellaneous helper spells
+*
+* All classes here inherit from the Spell class.
+*/
 
 //! Update an array if eg. the size has changed
 class spUpdateArray final : public Spell
@@ -118,7 +118,7 @@ public:
 		QModelIndex idx = nif->getBlock( nif->getLink( index ) );
 
 		if ( idx.isValid() )
-			return idx;
+		return idx;
 
 		return index;
 	}
@@ -141,11 +141,11 @@ public:
 	{
 		int ofs = nif->fileOffset( index );
 		Message::info( nif->getWindow(),
-			Spell::tr( "Estimated file offset is %1 (0x%2)" ).arg( ofs ).arg( ofs, 0, 16 ),
-			Spell::tr( "Block: %1\nOffset: %2 (0x%3)" ).arg( index.data( Qt::DisplayRole ).toString() ).arg( ofs ).arg( ofs, 0, 16 )
-		);
-		return index;
-	}
+		Spell::tr( "Estimated file offset is %1 (0x%2)" ).arg( ofs ).arg( ofs, 0, 16 ),
+		Spell::tr( "Block: %1\nOffset: %2 (0x%3)" ).arg( index.data( Qt::DisplayRole ).toString() ).arg( ofs ).arg( ofs, 0, 16 )
+	);
+	return index;
+}
 };
 
 REGISTER_SPELL( spFileOffset )
@@ -185,7 +185,7 @@ public:
 		QString filestring = QString( "%1-%2" ).arg( nif->getFilename() ).arg( suffix );
 
 		QString filename = QFileDialog::getSaveFileName( qApp->activeWindow(), tr( "Export Binary File" ),
-														 filestring, "*.*" );
+		filestring, "*.*" );
 		QFile file( filename );
 		if ( file.open( QIODevice::WriteOnly ) ) {
 			file.write( data );
@@ -234,9 +234,9 @@ public:
 				nif->set<int>( iParent.parent(), parent->arr1(), data.count() );
 				nif->updateArray( iParent );
 			}
-			
+
 			nif->set<QByteArray>( idx, data );
-			
+
 			file.close();
 		}
 
@@ -250,7 +250,7 @@ REGISTER_SPELL( spImportBinary )
 bool spCollapseArray::isApplicable( const NifModel * nif, const QModelIndex & index )
 {
 	if ( nif->isArray( index ) && index.isValid()
-	     && ( nif->getBlockType( index ) == "Ref" || nif->getBlockType( index ) == "Ptr" ) )
+	&& ( nif->getBlockType( index ) == "Ref" || nif->getBlockType( index ) == "Ptr" ) )
 	{
 		// copy from spUpdateArray when that changes
 		return true;
@@ -278,7 +278,7 @@ QModelIndex spCollapseArray::numCollapser( NifModel * nif, QModelIndex & iNumEle
 			qint32 l = nif->getLink( iArray.child( r, 0 ) );
 
 			if ( l >= 0 )
-				links.append( l );
+			links.append( l );
 		}
 
 		if ( links.count() < nif->rowCount( iArray ) ) {
@@ -292,4 +292,3 @@ QModelIndex spCollapseArray::numCollapser( NifModel * nif, QModelIndex & iNumEle
 }
 
 REGISTER_SPELL( spCollapseArray )
-

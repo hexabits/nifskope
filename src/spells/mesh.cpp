@@ -9,10 +9,10 @@
 
 // Brief description is deliberately not autolinked to class Spell
 /*! \file mesh.cpp
- * \brief Mesh spells
- *
- * All classes here inherit from the Spell class.
- */
+* \brief Mesh spells
+*
+* All classes here inherit from the Spell class.
+*/
 
 //! Find shape data of triangle geometry
 static QModelIndex getShape( const NifModel * nif, const QModelIndex & index )
@@ -20,11 +20,11 @@ static QModelIndex getShape( const NifModel * nif, const QModelIndex & index )
 	QModelIndex iShape = nif->getBlock( index );
 
 	if ( nif->isNiBlock( iShape, "NiTriBasedGeomData" ) )
-		iShape = nif->getBlock( nif->getParent( nif->getBlockNumber( iShape ) ) );
+	iShape = nif->getBlock( nif->getParent( nif->getBlockNumber( iShape ) ) );
 
 	if ( nif->isNiBlock( iShape, { "NiTriShape", "BSLODTriShape", "NiTriStrips" } ) )
-		if ( nif->getBlock( nif->getLink( iShape, "Data" ), "NiTriBasedGeomData" ).isValid() )
-			return iShape;
+	if ( nif->getBlock( nif->getLink( iShape, "Data" ), "NiTriBasedGeomData" ).isValid() )
+	return iShape;
 
 
 	return QModelIndex();
@@ -32,19 +32,19 @@ static QModelIndex getShape( const NifModel * nif, const QModelIndex & index )
 
 //! Find triangle geometry
 /*!
- * Subtly different to getShape(); that requires
- * <tt>nif->getBlock( nif->getLink( getShape( nif, index ), "Data" ) );</tt>
- * to return the same result.
- */
+* Subtly different to getShape(); that requires
+* <tt>nif->getBlock( nif->getLink( getShape( nif, index ), "Data" ) );</tt>
+* to return the same result.
+*/
 static QModelIndex getTriShapeData( const NifModel * nif, const QModelIndex & index )
 {
 	QModelIndex iData = nif->getBlock( index );
 
 	if ( nif->isNiBlock( index, { "NiTriShape", "BSLODTriShape" } ) )
-		iData = nif->getBlock( nif->getLink( index, "Data" ) );
+	iData = nif->getBlock( nif->getLink( index, "Data" ) );
 
 	if ( nif->isNiBlock( iData, "NiTriShapeData" ) )
-		return iData;
+	return iData;
 
 	return QModelIndex();
 }
@@ -54,7 +54,7 @@ template <typename T> static void removeFromArray( QVector<T> & array, QMap<quin
 {
 	for ( int x = array.count() - 1; x >= 0; x-- ) {
 		if ( !map.contains( x ) )
-			array.remove( x );
+		array.remove( x );
 	}
 }
 
@@ -80,14 +80,14 @@ static void removeWasteVertices( NifModel * nif, const QModelIndex & iData, cons
 			texco << nif->getArray<Vector2>( iUVSets.child( r, 0 ) );
 
 			if ( texco.last().count() != verts.count() )
-				throw QString( Spell::tr( "UV array size differs" ) );
+			throw QString( Spell::tr( "UV array size differs" ) );
 		}
 
 		int numVerts = verts.count();
 
 		if ( numVerts != nif->get<int>( iData, "Num Vertices" )
-		     || ( norms.count() && norms.count() != numVerts )
-		     || ( colors.count() && colors.count() != numVerts ) )
+		|| ( norms.count() && norms.count() != numVerts )
+		|| ( colors.count() && colors.count() != numVerts ) )
 		{
 			throw QString( Spell::tr( "Vertex array size differs" ) );
 		}
@@ -118,14 +118,14 @@ static void removeWasteVertices( NifModel * nif, const QModelIndex & iData, cons
 		Message::info( nullptr, Spell::tr( "Removed %1 vertices" ).arg( verts.count() - used.count() ) );
 
 		if ( verts.count() == used.count() )
-			return;
+		return;
 
 		removeFromArray( verts, used );
 		removeFromArray( norms, used );
 		removeFromArray( colors, used );
 
 		for ( int c = 0; c < texco.count(); c++ )
-			removeFromArray( texco[c], used );
+		removeFromArray( texco[c], used );
 
 		// adjust the faces
 
@@ -134,7 +134,7 @@ static void removeWasteVertices( NifModel * nif, const QModelIndex & iData, cons
 
 		for ( quint16 x = 0; x < numVerts; x++ ) {
 			if ( used.contains( x ) )
-				map.insert( x, y++ );
+			map.insert( x, y++ );
 		}
 
 		QMutableVectorIterator<Triangle> itri( tris );
@@ -144,7 +144,7 @@ static void removeWasteVertices( NifModel * nif, const QModelIndex & iData, cons
 
 			for ( int t = 0; t < 3; t++ ) {
 				if ( map.contains( tri[t] ) )
-					tri[t] = map[ tri[t] ];
+				tri[t] = map[ tri[t] ];
 			}
 
 		}
@@ -156,7 +156,7 @@ static void removeWasteVertices( NifModel * nif, const QModelIndex & iData, cons
 
 			for ( int s = 0; s < strip.size(); s++ ) {
 				if ( map.contains( strip[s] ) )
-					strip[s] = map[ strip[s] ];
+				strip[s] = map[ strip[s] ];
 			}
 		}
 
@@ -165,7 +165,7 @@ static void removeWasteVertices( NifModel * nif, const QModelIndex & iData, cons
 		nif->setArray<Triangle>( iData, "Triangles", tris );
 
 		for ( int r = 0; r < nif->rowCount( iPoints ); r++ )
-			nif->setArray<quint16>( iPoints.child( r, 0 ), strips[r] );
+		nif->setArray<quint16>( iPoints.child( r, 0 ), strips[r] );
 
 		nif->set<int>( iData, "Num Vertices", verts.count() );
 		nif->updateArray( iData, "Vertices" );
@@ -197,7 +197,7 @@ static void removeWasteVertices( NifModel * nif, const QModelIndex & iData, cons
 
 			for ( int x = weights.count() - 1; x >= 0; x-- ) {
 				if ( !used.contains( weights[x].first ) )
-					weights.remove( x );
+				weights.remove( x );
 			}
 
 			QMutableVectorIterator<QPair<int, float> > it( weights );
@@ -206,7 +206,7 @@ static void removeWasteVertices( NifModel * nif, const QModelIndex & iData, cons
 				QPair<int, float> & w = it.next();
 
 				if ( map.contains( w.first ) )
-					w.first = map[ w.first ];
+				w.first = map[ w.first ];
 			}
 
 			nif->set<int>( iBones.child( b, 0 ), "Num Vertices", weights.count() );
@@ -223,7 +223,7 @@ static void removeWasteVertices( NifModel * nif, const QModelIndex & iData, cons
 		QModelIndex iSkinPart = nif->getBlock( nif->getLink( iSkinInst, "Skin Partition" ), "NiSkinPartition" );
 
 		if ( !iSkinPart.isValid() )
-			iSkinPart = nif->getBlock( nif->getLink( iSkinData, "Skin Partition" ), "NiSkinPartition" );
+		iSkinPart = nif->getBlock( nif->getLink( iSkinData, "Skin Partition" ), "NiSkinPartition" );
 
 		if ( iSkinPart.isValid() ) {
 			nif->removeNiBlock( nif->getBlockNumber( iSkinPart ) );
@@ -260,14 +260,14 @@ public:
 		static const char * const flipCmds[3] = { "S = 1.0 - S", "T = 1.0 - T", "S <=> T" };
 
 		for ( int c = 0; c < 3; c++ )
-			menu.addAction( flipCmds[c] );
+		menu.addAction( flipCmds[c] );
 
 		QAction * act = menu.exec( QCursor::pos() );
 
 		if ( act ) {
 			for ( int c = 0; c < 3; c++ ) {
 				if ( act->text() == flipCmds[c] )
-					flip( nif, idx, c );
+				flip( nif, idx, c );
 			}
 
 		}
@@ -283,12 +283,12 @@ public:
 
 			if ( idx.isValid() ) {
 				if ( nif->isArray( idx ) )
-					flip( nif, idx, f );
+				flip( nif, idx, f );
 				else {
 					QVector<Vector2> tc = nif->getArray<Vector2>( index );
 
 					for ( int c = 0; c < tc.count(); c++ )
-						flip( tc[c], f );
+					flip( tc[c], f );
 
 					nif->setArray<Vector2>( index, tc );
 				}
@@ -304,13 +304,13 @@ public:
 	void flip( Vector2 & v, int f )
 	{
 		switch ( f ) {
-		case 0:
+			case 0:
 			v[0] = 1.0 - v[0];
 			break;
-		case 1:
+			case 1:
 			v[1] = 1.0 - v[1];
 			break;
-		default:
+			default:
 			{
 				float x = v[0];
 				v[0] = v[1];
@@ -332,7 +332,7 @@ public:
 	bool isApplicable( const NifModel * nif, const QModelIndex & index ) override final
 	{
 		return ( nif->getValue( index ).type() == NifValue::tTriangle )
-		       || ( nif->isArray( index ) && nif->getValue( index.child( 0, 0 ) ).type() == NifValue::tTriangle );
+		|| ( nif->isArray( index ) && nif->getValue( index.child( 0, 0 ) ).type() == NifValue::tTriangle );
 	}
 
 	QModelIndex cast( NifModel * nif, const QModelIndex & index ) override final
@@ -341,7 +341,7 @@ public:
 			QVector<Triangle> tris = nif->getArray<Triangle>( index );
 
 			for ( int t = 0; t < tris.count(); t++ )
-				tris[t].flip();
+			tris[t].flip();
 
 			nif->setArray<Triangle>( index, tris );
 		} else {
@@ -375,7 +375,7 @@ public:
 		QVector<Triangle> tris = nif->getArray<Triangle>( iData, "Triangles" );
 
 		for ( int t = 0; t < tris.count(); t++ )
-			tris[t].flip();
+		tris[t].flip();
 
 		nif->setArray<Triangle>( iData, "Triangles", tris );
 
@@ -428,8 +428,8 @@ public:
 				const Triangle & r = tris[j];
 
 				if ( ( t[0] == r[0] && t[1] == r[1] && t[2] == r[2] )
-				     || ( t[0] == r[1] && t[1] == r[2] && t[2] == r[0] )
-				     || ( t[0] == r[2] && t[1] == r[0] && t[2] == r[1] ) )
+				|| ( t[0] == r[1] && t[1] == r[2] && t[2] == r[0] )
+				|| ( t[0] == r[2] && t[1] == r[0] && t[2] == r[1] ) )
 				{
 					tris.removeAt( j );
 					cnt++;
@@ -479,7 +479,7 @@ public:
 			QVector<Vector3> verts = nif->getArray<Vector3>( iData, "Vertices" );
 
 			if ( !verts.count() )
-				throw QString( Spell::tr( "No vertices" ) );
+			throw QString( Spell::tr( "No vertices" ) );
 
 			QVector<Vector3> norms = nif->getArray<Vector3>( iData, "Normals" );
 			QVector<Color4> colors = nif->getArray<Color4>( iData, "Vertex Colors" );
@@ -490,14 +490,14 @@ public:
 				texco << nif->getArray<Vector2>( iUVSets.child( r, 0 ) );
 
 				if ( texco.last().count() != verts.count() )
-					throw QString( Spell::tr( "UV array size differs" ) );
+				throw QString( Spell::tr( "UV array size differs" ) );
 			}
 
 			int numVerts = verts.count();
 
 			if ( numVerts != nif->get<int>( iData, "Num Vertices" )
-			     || ( norms.count() && norms.count() != numVerts )
-			     || ( colors.count() && colors.count() != numVerts ) )
+			|| ( norms.count() && norms.count() != numVerts )
+			|| ( colors.count() && colors.count() != numVerts ) )
 			{
 				throw QString( Spell::tr( "Vertex array size differs" ) );
 			}
@@ -511,23 +511,23 @@ public:
 
 				for ( int b = 0; b < a; b++ ) {
 					if ( !( v == verts[b] ) )
-						continue;
+					continue;
 
 					if ( norms.count() && !( norms[a] == norms[b] ) )
-						continue;
+					continue;
 
 					if ( colors.count() && !( colors[a] == colors[b] ) )
-						continue;
+					continue;
 
 					int t = 0;
 
 					for ( t = 0; t < texco.count(); t++ ) {
 						if ( !( texco[t][a] == texco[t][b] ) )
-							break;
+						break;
 					}
 
 					if ( t < texco.count() )
-						continue;
+					continue;
 
 					map.insert( b, a );
 				}
@@ -545,7 +545,7 @@ public:
 
 				for ( int p = 0; p < 3; p++ ) {
 					if ( map.contains( t[p] ) )
-						t[p] = map.value( t[p] );
+					t[p] = map.value( t[p] );
 				}
 
 			}
@@ -562,7 +562,7 @@ public:
 					quint16 & p = istrp.next();
 
 					if ( map.contains( p ) )
-						p = map.value( p );
+					p = map.value( p );
 				}
 
 				nif->setArray<quint16>( iPoints.child( r, 0 ), strip );
@@ -609,8 +609,8 @@ public:
 REGISTER_SPELL( spRemoveWasteVertices )
 
 /*
- * spUpdateCenterRadius
- */
+* spUpdateCenterRadius
+*/
 bool spUpdateCenterRadius::isApplicable( const NifModel * nif, const QModelIndex & index )
 {
 	return nif->getBlock( index, "NiGeometryData" ).isValid();
@@ -623,17 +623,17 @@ QModelIndex spUpdateCenterRadius::cast( NifModel * nif, const QModelIndex & inde
 	QVector<Vector3> verts = nif->getArray<Vector3>( iData, "Vertices" );
 
 	if ( !verts.count() )
-		return index;
+	return index;
 
 	Vector3 center;
 	float radius = 0.0f;
 
 	/*
-	    Oblivion and CT_volatile meshes require a
-	    different center algorithm
+	Oblivion and CT_volatile meshes require a
+	different center algorithm
 	*/
 	if ( ( ( nif->getVersionNumber() & 0x14000000 ) && ( nif->getUserVersion() == 11 ) )
-	     || ( nif->get<ushort>( iData, "Consistency Flags" ) & 0x8000 ) )
+	|| ( nif->get<ushort>( iData, "Consistency Flags" ) & 0x8000 ) )
 	{
 		/* is a Oblivion mesh! */
 		float xMin( FLT_MAX ), xMax( -FLT_MAX );
@@ -641,19 +641,19 @@ QModelIndex spUpdateCenterRadius::cast( NifModel * nif, const QModelIndex & inde
 		float zMin( FLT_MAX ), zMax( -FLT_MAX );
 		for ( const Vector3& v : verts ) {
 			if ( v[0] < xMin )
-				xMin = v[0];
+			xMin = v[0];
 			else if ( v[0] > xMax )
-				xMax = v[0];
+			xMax = v[0];
 
 			if ( v[1] < yMin )
-				yMin = v[1];
+			yMin = v[1];
 			else if ( v[1] > yMax )
-				yMax = v[1];
+			yMax = v[1];
 
 			if ( v[2] < zMin )
-				zMin = v[2];
+			zMin = v[2];
 			else if ( v[2] > zMax )
-				zMax = v[2];
+			zMax = v[2];
 		}
 
 		center = Vector3( xMin + xMax, yMin + yMax, zMin + zMax ) / 2;
@@ -667,7 +667,7 @@ QModelIndex spUpdateCenterRadius::cast( NifModel * nif, const QModelIndex & inde
 	float d;
 	for ( const Vector3& v : verts ) {
 		if ( ( d = ( center - v ).length() ) > radius )
-			radius = d;
+		radius = d;
 	}
 
 	nif->set<Vector3>( iData, "Center", center );
@@ -701,7 +701,7 @@ public:
 		}
 
 		if ( verts.isEmpty() )
-			return index;
+		return index;
 
 		// Creating a bounding sphere from the verts
 		BoundSphere bounds = BoundSphere( verts );
@@ -727,10 +727,10 @@ public:
 	bool isApplicable( const NifModel * nif, const QModelIndex & idx ) override final
 	{
 		if ( !nif || idx.isValid() )
-			return false;
+		return false;
 
 		if ( nif->getUserVersion2() == 130 )
-			return true;
+		return true;
 
 		return false;
 	}
@@ -745,7 +745,7 @@ public:
 			QModelIndex idx = nif->getBlock( n );
 
 			if ( updBounds.isApplicable( nif, idx ) )
-				indices << idx;
+			indices << idx;
 		}
 
 		for ( const QModelIndex& idx : indices ) {
@@ -771,12 +771,12 @@ QModelIndex spUpdateTrianglesFromSkin::cast( NifModel * nif, const QModelIndex &
 	auto iSkin = nif->getBlock( nif->getLink( index, "Skin Instance" ) );
 	auto iSkinPart = nif->getBlock( nif->getLink( iSkin, "Skin Partition" ) );
 	if ( !iSkinPart.isValid() || !iData.isValid() )
-		return QModelIndex();
+	return QModelIndex();
 
 	QVector<Triangle> tris;
 	auto iParts = nif->getIndex( iSkinPart, "Skin Partition Blocks" );
 	for ( int i = 0; i < nif->rowCount( iParts ) && iParts.isValid(); i++ )
-		tris << SkinPartition( nif, iParts.child( i, 0 ) ).getRemappedTriangles();
+	tris << SkinPartition( nif, iParts.child( i, 0 ) ).getRemappedTriangles();
 
 	nif->set<bool>( iData, "Has Triangles", true );
 	nif->set<ushort>( iData, "Num Triangles", tris.size() );

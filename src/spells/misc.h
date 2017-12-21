@@ -6,10 +6,10 @@
 
 // Brief description is deliberately not autolinked to class Spell
 /*! \file misc.h
- * \brief Miscellaneous spells header
- *
- * All classes here inherit from the Spell class.
- */
+* \brief Miscellaneous spells header
+*
+* All classes here inherit from the Spell class.
+*/
 
 //! Removes empty links from a link array
 class spCollapseArray final : public Spell

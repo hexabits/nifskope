@@ -42,7 +42,7 @@ protected:
 	//! String to replace with
 	QLineEdit * replace;
 
-public slots:
+	public slots:
 	//! Performs regex replacement of \link search \endlink to \link replace \endlink in \link listmodel \endlink
 	void stringlistRegex();
 	//! Set the string palette entries
