@@ -212,7 +212,11 @@ HEADERS += \
     src/spells/headerstring.h \
     src/spells/light.h \
     src/spells/materialedit.h \
-    src/spells/moppcode.h
+    src/spells/moppcode.h \
+    src/spells/morphctrl.h \
+    src/spells/normals.h \
+    src/spells/optimize.h \
+    src/spells/strippify.h
 
 SOURCES += \
 	src/data/niftypes.cpp \

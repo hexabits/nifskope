@@ -303,8 +303,8 @@ public:
 					/*
 					if ( ! child )
 					{
-					    qDebug() << "unassigned parent link";
-					    return idx;
+						qDebug() << "unassigned parent link";
+						return idx;
 					}
 					*/
 				} else if ( l >= nif->getBlockCount() ) {
