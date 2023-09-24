@@ -212,15 +212,15 @@ QModelIndex spApplyTransformation::cast( NifModel * nif, const QModelIndex & ind
 				nif->set<ByteVector3>( iVert, "Tangent", t.rotation * tangent );
 
 				// Unpack, Transform, Pack Bitangent
-				auto bitX = nif->get<float>( iVert, "Bitangent X" );
-				auto bitYi = nif->get<unsigned int>( iVert, "Bitangent Y" );
-				auto bitZi = nif->get<unsigned int>( iVert, "Bitangent Z" );
+				auto bitX = nif->get<float>(iVert, "Bitangent X");
+				auto bitY = nif->get<float>(iVert, "Bitangent Y");
+				auto bitZ = nif->get<float>(iVert, "Bitangent Z");
 
-				auto bit = t.rotation * Vector3( bitX, (bitYi / 255.0) * 2.0 - 1.0, (bitZi / 255.0) * 2.0 - 1.0 );
+				auto bit = t.rotation * Vector3(bitX, bitY, bitZ);
 
-				nif->set<float>( iVert, "Bitangent X", bit[0] );
-				nif->set<quint8>( iVert, "Bitangent Y", round( ((bit[1] + 1.0) / 2.0) * 255.0 ) );
-				nif->set<quint8>( iVert, "Bitangent Z", round( ((bit[2] + 1.0) / 2.0) * 255.0 ) );
+				nif->set<float>(iVert, "Bitangent X", bit[0]);
+				nif->set<float>(iVert, "Bitangent Y", bit[1]);
+				nif->set<float>(iVert, "Bitangent Z", bit[2]);
 			}
 		}
 

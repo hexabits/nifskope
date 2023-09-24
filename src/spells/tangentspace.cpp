@@ -290,13 +290,9 @@ QModelIndex spTangentSpace::cast( NifModel * nif, const QModelIndex & iBlock )
 			auto idx = nif->index( i, 0, iData );
 
 			nif->set<ByteVector3>( idx, "Tangent", tan[i] );
-			nif->set<float>( idx, "Bitangent X", bin[i][0] );
-
-			auto bitYi = round( ((bin[i][1] + 1.0) / 2.0) * 255.0 );
-			auto bitZi = round( ((bin[i][2] + 1.0) / 2.0) * 255.0 );
-			
-			nif->set<quint8>( idx, "Bitangent Y", bitYi );
-			nif->set<quint8>( idx, "Bitangent Z", bitZi );
+			nif->set<float>(idx, "Bitangent X", bin[i][0]);
+			nif->set<float>(idx, "Bitangent Y", bin[i][1]);
+			nif->set<float>(idx, "Bitangent Z", bin[i][2]);
 		}
 		nif->restoreState();
 	}
