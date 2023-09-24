@@ -827,7 +827,7 @@ void NifSkope::onLoadComplete( bool success, QString & fname )
 
 	ui->aSave->setDisabled(false);
 	ui->aSaveAs->setDisabled(false);
-	ui->aReload->setDisabled(false);
+	ui->aReload->setEnabled(success);
 
 	int timeout = 2500;
 	if ( success ) {
@@ -871,7 +871,8 @@ void NifSkope::onLoadComplete( bool success, QString & fname )
 	ogl->center();
 
 	// Expand the top level of Block List tree
-	ui->list->expandToDepth(0);
+	if ( success && gListMode->checkedAction() != aList )
+		ui->list->expandToDepth(0);
 
 	// Hide Progress Bar
 	QTimer::singleShot( timeout, progress, SLOT( hide() ) );
