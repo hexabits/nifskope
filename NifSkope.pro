@@ -144,7 +144,7 @@ HEADERS += \
 	src/data/nifvalue.h \
 	src/gl/marker/constraints.h \
 	src/gl/marker/furniture.h \
-	srg/gl/BSMesh.h \
+	src/gl/BSMesh.h \
 	src/gl/bsshape.h \
 	src/gl/controllers.h \
 	src/gl/glcontroller.h \
@@ -218,7 +218,7 @@ SOURCES += \
 	src/data/nifitem.cpp \
 	src/data/niftypes.cpp \
 	src/data/nifvalue.cpp \
-	srg/gl/BSMesh.cpp \
+	src/gl/BSMesh.cpp \
 	src/gl/bsshape.cpp \
 	src/gl/controllers.cpp \
 	src/gl/glcontroller.cpp \
