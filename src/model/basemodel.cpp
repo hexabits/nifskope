@@ -663,8 +663,12 @@ const NifItem * BaseModel::getItem( const NifItem * parent, int childIndex, bool
 			reportError( parent, tr( "Subitem with index %1 has failed condition check." ).arg( repr ) );
 		}
 	} else {
-		if ( reportErrors && childIndex >= 0 )
-			reportError( parent, tr( "Invalid child index %1." ).arg( childIndex ) );
+		if ( reportErrors ) {
+			if ( childIndex >= 0 )
+				reportError( parent, tr( "No subitem with index %1." ).arg( childIndex ) );
+			else
+				reportError( parent, tr( "Invalid child index %1." ).arg( childIndex ) );
+		}
 	}
 
 	return nullptr;
