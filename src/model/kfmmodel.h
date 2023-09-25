@@ -50,7 +50,7 @@ class KfmModel final : public BaseModel
 	Q_OBJECT
 
 public:
-	KfmModel( QObject * parent = 0 );
+	KfmModel( QObject * parent = nullptr, MsgMode msgMode = BaseModel::MSG_TEST );
 
 	// call this once on startup to load the XML descriptions
 	static bool loadXML();

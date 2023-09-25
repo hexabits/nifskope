@@ -261,7 +261,7 @@ void setupArrayPseudonyms()
 	registerMultiPseudonym("Vertex Weights", "Vertex", "Weight");
 }
 
-NifModel::NifModel( QObject * parent ) : BaseModel( parent )
+NifModel::NifModel( QObject * parent, MsgMode msgMode ) : BaseModel( parent, msgMode )
 {
 	setupArrayPseudonyms();
 	updateSettings();

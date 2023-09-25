@@ -157,14 +157,12 @@ NifSkope::NifSkope()
 	// Create models
 	/* ********************** */
 
-	nif = new NifModel( this );
+	nif = new NifModel( this, BaseModel::MSG_USER );
 	proxy = new NifProxyModel( this );
 	proxy->setModel( nif );
 
 	nifEmpty = new NifModel( this );
 	proxyEmpty = new NifProxyModel( this );
-
-	nif->setMessageMode( BaseModel::MSG_USER );
 
 	// Setup QUndoStack
 	nif->undoStack = new QUndoStack( this );
@@ -178,7 +176,7 @@ NifSkope::NifSkope()
 			setWindowModified( true );
 	} );
 
-	kfm = new KfmModel( this );
+	kfm = new KfmModel( this, BaseModel::MSG_USER );
 	kfmEmpty = new KfmModel( this );
 
 	book = SpellBookPtr( new SpellBook( nif, QModelIndex(), this, SLOT( select( const QModelIndex & ) ) ) );

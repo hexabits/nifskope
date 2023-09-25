@@ -77,7 +77,12 @@ class BaseModel : public QAbstractItemModel
 	friend class BaseModelEval;
 
 public:
-	BaseModel( QObject * parent = nullptr );
+	enum MsgMode
+	{
+		MSG_USER, MSG_TEST
+	};
+
+	BaseModel( QObject * parent, MsgMode msgMode );
 	~BaseModel();
 
 	//! Get parent window
@@ -252,11 +257,6 @@ public:
 	Qt::ItemFlags flags( const QModelIndex & index ) const override;
 
 	// end QAbstractItemModel
-
-	enum MsgMode
-	{
-		MSG_USER, MSG_TEST
-	};
 
 	void setMessageMode( MsgMode mode );
 	MsgMode getMessageMode() const { return msgMode; }

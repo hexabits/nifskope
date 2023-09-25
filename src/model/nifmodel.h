@@ -69,7 +69,7 @@ class NifModel final : public BaseModel
 	friend class ArrayUpdateCommand;
 
 public:
-	NifModel( QObject * parent = 0 );
+	NifModel( QObject * parent = nullptr, MsgMode msgMode = BaseModel::MSG_TEST );
 
 	static const NifModel * fromIndex( const QModelIndex & index );
 	static const NifModel * fromValidIndex( const QModelIndex & index );

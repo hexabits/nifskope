@@ -48,12 +48,11 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *  BaseModel
  */
 
-BaseModel::BaseModel( QObject * p ) : QAbstractItemModel( p )
+BaseModel::BaseModel( QObject * p, MsgMode msgMode ) : QAbstractItemModel( p ), msgMode(msgMode)
 {
 	root = new NifItem( this, nullptr );
 	root->setIsConditionless( true );
 	parentWindow = qobject_cast<QWidget *>(p);
-	msgMode = MSG_TEST;
 }
 
 BaseModel::~BaseModel()
