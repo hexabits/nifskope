@@ -205,7 +205,12 @@ void BSMesh::forMeshIndex(const NifModel* nif, std::function<void(const QString&
 		auto mesh = meshArray.child(1, 0);
 		if ( hasMesh ) {
 			auto meshPath = nif->get<QString>(mesh, "Mesh Path");
-			meshPath = "geometries\\" + meshPath + ".mesh";
+			if ( !meshPath.startsWith("geometries", Qt::CaseInsensitive) ) {
+				meshPath = "geometries\\" + meshPath;
+			}
+			if ( !meshPath.endsWith(".mesh") ) {
+				meshPath += ".mesh";
+			}
 			f(meshPath, i);
 		}
 	}
