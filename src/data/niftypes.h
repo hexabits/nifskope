@@ -72,8 +72,13 @@ constexpr inline float deg2rad( float deg ) { return deg2radf( deg ); }
 constexpr inline double deg2rad( double deg ) { return deg2radd( deg ); }
 
 
+class NifItem;
 class NifModel;
 class QModelIndex;
+
+template <typename ModelPtr, typename ItemPtr> class NifFieldTemplate;
+using NifField = NifFieldTemplate<NifModel *, NifItem *>;
+using NifFieldConst = NifFieldTemplate<const NifModel *, const NifItem *>;
 
 //! Format a float with out of range values
 QString NumOrMinMax( float val, char f = 'g', int prec = 6 );

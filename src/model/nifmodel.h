@@ -59,10 +59,6 @@ const char * const readFailFinal = QT_TR_NOOP( "Failed to load %1" );
 
 template<typename ModelPtr, typename ItemPtr> class NifFieldIteratorSimple;
 
-template <typename ModelPtr, typename ItemPtr> class NifFieldTemplate;
-using NifField = NifFieldTemplate<NifModel *, NifItem *>;
-using NifFieldConst = NifFieldTemplate<const NifModel *, const NifItem *>;
-
 //! The main data model for the NIF file.
 class NifModel final : public BaseModel
 {
