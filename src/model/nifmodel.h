@@ -1744,13 +1744,13 @@ public:
 
 	qint32 getLink() const
 	{
-		return m_item ? m_item->valueToLink() : -1;
+		return m_item ? m_item->getLinkValue() : -1;
 	}
 
 	NifFieldTemplate getLinkBlock() const
 	{
 		if ( m_item ) {
-			auto link = m_item->valueToLink();
+			auto link = m_item->getLinkValue();
 			if ( _model()->isValidBlockNumber( link ) )
 				return NifFieldTemplate( _model()->root->child( link + _model()->firstBlockRow() ) );
 		}
