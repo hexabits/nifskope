@@ -123,6 +123,7 @@ NifSkope * NifSkope::createWindow( const QString & fname )
 	skope->setAttribute( Qt::WA_DeleteOnClose );
 	skope->restoreUi();
 	skope->loadTheme();
+	skope->updateUiWidgets();
 	skope->show();
 	skope->raise();
 
@@ -140,7 +141,6 @@ void NifSkope::initActions()
 	aHierarchy = ui->aHierarchy;
 	aCondition = ui->aCondition;
 	aRCondition = ui->aRCondition;
-	aSelectFont = ui->aSelectFont;
 
 	// Build all actions list
 	allActions = QSet<QAction *>::fromList( 
@@ -185,8 +185,6 @@ void NifSkope::initActions()
 	connect( ui->aOpen, &QAction::triggered, this, &NifSkope::openDlg );
 	connect( ui->aSave, &QAction::triggered, this, &NifSkope::save );  
 	connect( ui->aSaveAs, &QAction::triggered, this, &NifSkope::saveAsDlg );
-
-	ui->aReload->setDisabled(true);
 
 	// TODO: Assure Actions and Scene state are synced
 	// Set Data for Actions to pass onto Scene when clicking
@@ -418,9 +416,6 @@ void NifSkope::initDockWidgets()
 
 void NifSkope::initMenu()
 {
-	// Disable without NIF loaded
-	ui->mRender->setEnabled( false );
-
 	// Populate Toolbars menu with all enabled toolbars
 	for ( QObject * o : children() ) {
 		QToolBar * tb = qobject_cast<QToolBar *>(o);
@@ -430,8 +425,8 @@ void NifSkope::initMenu()
 		}
 	}
 
-	// Insert SpellBook class before Help
-	ui->menubar->insertMenu( ui->menubar->actions().at( 3 ), book.get() );
+	// Insert SpellBook class before Options
+	mSpells = ui->menubar->insertMenu( ui->menubar->actions().at( 3 ), book.get() );
 
 	// Insert Import/Export menus
 	mExport = ui->menuExport;
@@ -659,8 +654,6 @@ void NifSkope::initToolBars()
 
 void NifSkope::initConnections()
 {
-	connect( nif, &NifModel::beginUpdateHeader, this, &NifSkope::enableUi );
-
 	connect( this, &NifSkope::beginLoading, this, &NifSkope::onLoadBegin );
 	connect( this, &NifSkope::beginSave, this, &NifSkope::onSaveBegin );
 
@@ -774,16 +767,17 @@ void NifSkope::openDlg()
 
 void NifSkope::onLoadBegin()
 {
+	if ( isNifLoaded ) {
+		isNifLoaded = false;
+		updateUiWidgets();
+	}
+
 	// Disconnect the models from the views
 	swapModels();
 
 	ogl->setUpdatesEnabled( false );
 	ogl->setEnabled( false );
 	setEnabled( false );
-	ui->tAnim->setEnabled( false );
-
-	ui->tLOD->setEnabled( false );
-	ui->tLOD->setVisible( false );
 
 	progress->setVisible( true );
 	progress->reset();
@@ -792,28 +786,6 @@ void NifSkope::onLoadBegin()
 void NifSkope::onLoadComplete( bool success, QString & fname )
 {
 	QApplication::restoreOverrideCursor();
-
-	if ( nif && nif->getVersionNumber() >= 0x14050000 ) {
-		mExport->setDisabled( true );
-		mImport->setDisabled( true );
-	} else if ( nif ) {
-		mExport->setDisabled( false );
-		mImport->setDisabled( false );
-		
-		if ( nif->getBSVersion() >= 172 ) {
-			// Disable OBJ if/until it is supported for Starfield
-			mImport->actions().at(0)->setDisabled(true);
-			mImport->actions().at(1)->setDisabled(true);
-			mExport->actions().at(0)->setDisabled(true);
-		} else {
-			// Disable glTF if/until it is supported for pre-Starfield
-			//mImport->actions().at(2)->setDisabled(true);
-			mExport->actions().at(1)->setDisabled(true);
-		}
-		// Import OBJ as Collision disabled for non-Bethesda
-		if ( nif->getBSVersion() == 0 )
-			mImport->actions().at(1)->setDisabled(true);
-	}
 
 	// Reconnect the models to the views
 	swapModels();
@@ -825,24 +797,21 @@ void NifSkope::onLoadComplete( bool success, QString & fname )
 	ogl->setEnabled( true );
 	setEnabled( true ); // IMPORTANT!
 
-	ui->aSave->setDisabled(false);
-	ui->aSaveAs->setDisabled(false);
-	ui->aReload->setEnabled(success);
-
 	int timeout = 2500;
 	if ( success ) {
 		// Scroll panel back to top
 		tree->scrollTo( nif->index( 0, 0 ) );
 
-		select( nif->getHeaderIndex() );
+		auto headerIndex = nif->getHeaderIndex();
 
-		header->setRootIndex( nif->getHeaderIndex() );
+		select( headerIndex );
+
+		header->setRootIndex( headerIndex );
 		// Refresh the header rows
-		header->updateConditions( nif->getHeaderIndex().child( 0, 0 ), nif->getHeaderIndex().child( 20, 0 ) );
+		header->updateConditions( headerIndex.child( 0, 0 ), headerIndex.child( 20, 0 ) );
+		header->autoExpandBlock( headerIndex );
 
 		ogl->setOrientation( GLView::ViewFront );
-
-		enableUi();
 
 	} else {
 		// File failed to load
@@ -870,9 +839,12 @@ void NifSkope::onLoadComplete( bool success, QString & fname )
 	// Center the model on load
 	ogl->center();
 
+	isNifLoaded = success;
+	updateUiWidgets();
+
 	// Expand the top level of Block List tree
-	if ( success && gListMode->checkedAction() != aList )
-		ui->list->expandToDepth(0);
+	if ( success && !isInListMode() )
+		list->expandToDepth(0);
 
 	// Hide Progress Bar
 	QTimer::singleShot( timeout, progress, SLOT( hide() ) );
@@ -932,26 +904,6 @@ bool NifSkope::saveConfirm()
 	return true;
 }
 
-void NifSkope::enableUi()
-{
-	// Re-enable toolbars, actions, and menus
-	ui->aSaveMenu->setEnabled( true );
-	ui->aSave->setEnabled( true );
-	ui->aSaveAs->setEnabled( true );
-	ui->aReload->setEnabled( true );
-	ui->aHeader->setEnabled( true );
-
-	ui->mRender->setEnabled( true );
-	ui->tAnim->setEnabled( true );
-	animGroups->clear();
-
-
-	ui->tRender->setEnabled( true );
-
-	// We only need to enable the UI once, disconnect
-	disconnect( nif, &NifModel::beginUpdateHeader, this, &NifSkope::enableUi );
-}
-
 void NifSkope::saveUi() const
 {
 	QSettings settings;
@@ -963,7 +915,7 @@ void NifSkope::saveUi() const
 
 	settings.setValue( "File/Auto Sanitize", aSanitize->isChecked() );
 
-	settings.setValue( "List Mode"_uip, (gListMode->checkedAction() == aList ? "list" : "hierarchy") );
+	settings.setValue( "List Mode"_uip, (isInListMode() ? "list" : "hierarchy") );
 	settings.setValue( "Show Non-applicable Rows"_uip, aCondition->isChecked() );
 
 	settings.setValue( "List Header"_uip, list->header()->saveState() );
@@ -1038,6 +990,75 @@ void NifSkope::restoreUi()
 
 	// Modify UI settings that cannot be set in Designer
 	tabifyDockWidget( ui->InspectDock, ui->KfmDock );
+}
+
+static inline void trySetEnabledAction( QAction * a, bool bEnabled )
+{
+	if ( a )
+		a->setEnabled( bEnabled );
+}
+
+void NifSkope::updateUiWidgets()
+{
+	// Update menus
+	ui->aSaveMenu->setEnabled( isNifLoaded );
+	ui->aSave->setEnabled( isNifLoaded );
+	ui->aSaveAs->setEnabled( isNifLoaded );
+	ui->aReload->setEnabled( isNifLoaded && !getCurrentFile().isEmpty() );
+	ui->aHeader->setEnabled( isNifLoaded );
+
+	// Update Import/Export menus
+	if ( !isNifLoaded || !nif || nif->getVersionNumber() >= 0x14050000 ) {
+		mExport->setEnabled( false );
+		mImport->setEnabled( false );
+	} else {
+		mExport->setEnabled( true );
+		mImport->setEnabled( true );
+
+		bool bImportObj    = true;
+		bool bImportObjCol = true;
+		bool bImportGltf   = true;
+		bool bExportObj    = true;
+		bool bExportGltf   = true;
+
+		if ( nif->getBSVersion() >= 172 ) {
+			// Disable OBJ if/until it is supported for Starfield
+			bImportObj = false;
+			bImportObjCol = false;
+			bExportObj = false;
+		} else {
+			// Disable glTF if/until it is supported for pre-Starfield
+			bImportGltf = false;
+			bExportGltf = false;
+		}
+		// Import OBJ as Collision disabled for non-Bethesda
+		if ( nif->getBSVersion() == 0 )
+			bImportObjCol = false;
+
+		trySetEnabledAction( aImportObj,    bImportObj );
+		trySetEnabledAction( aImportObjCol, bImportObjCol );
+		trySetEnabledAction( aImportGltf,   bImportGltf );
+		trySetEnabledAction( aExportObj,    bExportObj );
+		trySetEnabledAction( aExportGltf,   bExportGltf );
+	}
+
+	ui->mRender->setEnabled( isNifLoaded );
+	ui->tRender->setEnabled( isNifLoaded );
+
+	mSpells->setEnabled( isNifLoaded );
+
+	ui->tAnim->setEnabled( isNifLoaded );
+	if ( !isNifLoaded )
+		animGroups->clear();
+
+	if ( !isNifLoaded ) {
+		ui->tLOD->setEnabled( false );
+		ui->tLOD->setVisible( false );
+	}
+
+	list->isFileLoaded = isNifLoaded;
+	tree->isFileLoaded = isNifLoaded;
+	header->isFileLoaded = isNifLoaded;
 }
 
 void NifSkope::setViewFont( const QFont & font )
@@ -1352,6 +1373,9 @@ bool NifSkope::eventFilter( QObject * o, QEvent * e )
 
 void NifSkope::contextMenu( const QPoint & pos )
 {
+	if ( !isNifLoaded )
+		return;
+
 	QModelIndex idx;
 	QPoint p = pos;
 

@@ -504,9 +504,9 @@ void NifSkope::select( const QModelIndex & index )
 void NifSkope::setListMode()
 {
 	QModelIndex idx = list->currentIndex();
-	QAction * a = gListMode->checkedAction();
+	bool bListMode = isInListMode();
 
-	if ( !a || a == aList ) {
+	if ( bListMode ) {
 		if ( list->model() != nif ) {
 			// switch to list view
 			QHeaderView * head = list->header();
@@ -547,6 +547,9 @@ void NifSkope::setListMode()
 			head->resizeSection( 1, s1 );
 		}
 	}
+
+	ui->bExpandAllList->setHidden( bListMode );
+	ui->bCollapseAllList->setHidden( bListMode );
 }
 
 // 'Recent Files' Helpers
@@ -1271,4 +1274,9 @@ void NifSkope::migrateSettings() const
 		settings.setValue( "Qt Version", curQtVer );
 	}
 #endif
+}
+
+bool NifSkope::isInListMode() const
+{
+	return gListMode->checkedAction() == aList;
 }

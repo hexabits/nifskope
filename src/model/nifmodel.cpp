@@ -369,50 +369,7 @@ void NifModel::clear()
 	folder = QString();
 	bsVersion = 0;
 	root->killChildren();
-
-	NifData headerData = NifData( "NiHeader", "Header" );
-	NifData footerData = NifData( "NiFooter", "Footer" );
-	headerData.setIsCompound( true );
-	headerData.setIsConditionless( true );
-	footerData.setIsCompound( true );
-	footerData.setIsConditionless( true );
-
-	insertType( root, headerData );
-	insertType( root, footerData );
-	version = version2number( cfg.startupVersion );
-
-	if ( !supportedVersions.isEmpty() && !isVersionSupported( version ) ) {
-		Message::warning( nullptr, tr( "Unsupported 'Startup Version' %1 specified, reverting to 20.0.0.5" ).arg( cfg.startupVersion ) );
-		version = 0x14000005;
-	}
 	endResetModel();
-
-	NifItem * header = getHeaderItem();
-
-	auto headerVer = getItem( header, "Version" );
-	if ( headerVer )
-		headerVer->setFileVersionValue( version );
-
-	QString header_string( ( version <= 0x0A000100 ) ? "NetImmerse File Format, Version " : "Gamebryo File Format, Version " );
-	header_string += version2string( version );
-	set<QString>( header, "Header String", header_string );
-
-	set<int>( getItem( header, "User Version", false ), cfg.userVersion );
-	set<int>( getItem( header, "BS Header\\BS Version", false ), cfg.userVersion2 );
-	invalidateItemConditions( header );
-
-	//set<int>( header, "Unknown Int 3", 11 );
-
-	if ( version < 0x0303000D ) {
-		QVector<QString> copyright( 3 );
-		copyright[0] = "Numerical Design Limited, Chapel Hill, NC 27514";
-		copyright[1] = "Copyright (c) 1996-2000";
-		copyright[2] = "All Rights Reserved";
-
-		setArray<QString>( header, "Copyright", copyright );
-	}
-
-	cacheBSVersion( header );
 
 	lockUpdates = false;
 	needUpdates = utNone;
@@ -458,8 +415,6 @@ const NifItem * NifModel::getHeaderItem() const
 
 void NifModel::updateHeader()
 {
-	emit beginUpdateHeader();
-
 	if ( lockUpdates ) {
 		needUpdates = UpdateType( needUpdates | utHeader );
 		return;
@@ -1795,6 +1750,19 @@ bool NifModel::load( QIODevice & device )
 
 	if ( state != Loading )
 		setState( Loading );
+
+	// Create header and footer.
+	if ( root->childCount() == 0 ) {
+		NifData headerData = NifData( "NiHeader", "Header" );
+		NifData footerData = NifData( "NiFooter", "Footer" );
+		headerData.setIsCompound( true );
+		headerData.setIsConditionless( true );
+		footerData.setIsCompound( true );
+		footerData.setIsConditionless( true );
+
+		insertType( root, headerData );
+		insertType( root, footerData );
+	}
 
 	// read header
 	NifItem * header = getHeaderItem();

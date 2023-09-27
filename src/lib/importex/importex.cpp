@@ -52,19 +52,18 @@ void exportGltf(const NifModel* nif, const Scene* scene, const QModelIndex& inde
 
 void NifSkope::fillImportExportMenus()
 {
-	mExport->addAction( tr( "Export .OBJ" ) );
-	mExport->addAction(tr("Export .gltf"));
+	aExportObj = mExport->addAction( tr( "Export .OBJ" ) );
+	aExportGltf = mExport->addAction(tr("Export .gltf"));
 	//mExport->addAction( tr( "Export .DAE" ) );
 	//mImport->addAction( tr( "Import .3DS" ) );
-	mImport->addAction( tr( "Import .OBJ" ) );
-	mImport->addAction( tr( "Import .OBJ as Collision" ) );
-	//mImport->addAction(tr("Import .gltf"));
+	aImportObj = mImport->addAction( tr( "Import .OBJ" ) );
+	aImportObjCol = mImport->addAction( tr( "Import .OBJ as Collision" ) );
+	//aImportGltf = mImport->addAction(tr("Import .gltf"));
 }
 
 void NifSkope::sltImportExport( QAction * a )
 {
 	QModelIndex index;
-
 
 	//Get the currently selected NiBlock index in the list or tree view
 	if ( dList->isVisible() ) {
@@ -81,37 +80,14 @@ void NifSkope::sltImportExport( QAction * a )
 		}
 	}
 
-	if ( !nif || nif->getVersionNumber() >= 0x14050000 ) {
-		mExport->setDisabled( true );
-		mImport->setDisabled( true );
-		return;
-	}
-
-	mImport->setDisabled( false );
-	mExport->setDisabled( false );
-
-	if ( nif->getBSVersion() >= 172 ) {
-		// Disable OBJ if/until it is supported for Starfield
-		mImport->actions().at(0)->setDisabled(true);
-		mImport->actions().at(1)->setDisabled(true);
-		mExport->actions().at(0)->setDisabled(true);
-	} else {
-		// Disable glTF if/until it is supported for pre-Starfield
-		//mImport->actions().at(2)->setDisabled(true);
-		mExport->actions().at(1)->setDisabled(true);
-	}
-	// Import OBJ as Collision disabled for non-Bethesda
-	if ( nif->getBSVersion() == 0 )
-		mImport->actions().at(1)->setDisabled( true );
-
-	if ( a->text() == tr( "Export .OBJ" ) )
+	if ( a == aExportObj )
 		exportObj( nif, index );
-	else if ( a->text() == tr( "Import .OBJ" ) )
-		importObj( nif, index );
-	else if ( a->text() == tr( "Import .OBJ as Collision" ) )
-		importObj( nif, index, true );
-	else if ( a->text() == tr("Export .gltf") )
+	else if ( a == aExportGltf )
 		exportGltf(nif, ogl->scene, index);
+	else if ( a == aImportObj )
+		importObj( nif, index );
+	else if ( a == aImportObjCol )
+		importObj( nif, index, true );
 	//else if ( a->text() == tr( "Import .3DS" ) )
 	//	import3ds( nif, index );
 	//else if ( a->text() == tr( "Export .DAE" ) )

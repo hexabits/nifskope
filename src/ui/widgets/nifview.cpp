@@ -33,7 +33,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "nifview.h"
 
 #include "spellbook.h"
-#include "model/basemodel.h"
+#include "model/nifmodel.h"
 #include "model/nifproxymodel.h"
 #include "model/undocommands.h"
 
@@ -60,15 +60,16 @@ NifTreeView::~NifTreeView()
 
 void NifTreeView::setModel( QAbstractItemModel * model )
 {
-	if ( nif )
-		disconnect( nif, &BaseModel::dataChanged, this, &NifTreeView::updateConditions );
+	if ( baseModel )
+		disconnect( baseModel, &BaseModel::dataChanged, this, &NifTreeView::updateConditions );
 
-	nif = qobject_cast<BaseModel *>( model );
+	baseModel = qobject_cast<BaseModel *>( model );
+	nifModel = qobject_cast<NifModel *>( model );
 
 	QTreeView::setModel( model );
 
-	if ( nif )
-		connect( nif, &BaseModel::dataChanged, this, &NifTreeView::updateConditions );
+	if ( baseModel )
+		connect( baseModel, &BaseModel::dataChanged, this, &NifTreeView::updateConditions );
 }
 
 void NifTreeView::setRootIndex( const QModelIndex & index )
@@ -93,8 +94,8 @@ void NifTreeView::setRowHiding( bool show )
 
 	doRowHiding = !show;
 
-	if ( nif )
-		connect( nif, &BaseModel::dataChanged, this, &NifTreeView::updateConditions );
+	if ( baseModel )
+		connect( baseModel, &BaseModel::dataChanged, this, &NifTreeView::updateConditions );
 
 	// refresh
 	updateConditionRecurse( rootIndex() );
@@ -110,12 +111,20 @@ bool NifTreeView::isRowHidden( int r, const QModelIndex & index ) const
 
 bool NifTreeView::isRowHidden( const NifItem * rowItem ) const
 {
-	if ( rowItem && nif ) {
-		if ( doRowHiding || rowItem->hasTypeCondition() ) {
-			if ( !nif->evalCondition( rowItem ) )
+	if ( baseModel ) {
+		if ( !rowItem )
+			return true;
+
+		// Do full condition check if any of the below is true:
+		// - "Show Non-applicable Row" option is off;
+		// - the NifItem's condition only checks the type of the block it belongs to (basically it's a check of file version);
+		// - the NifItem belongs to the header of NifModel (it's not different from a file version check too).
+		// Otherwise do only file version check.
+		if ( doRowHiding || rowItem->hasTypeCondition() || ( nifModel && rowItem->isDescendantOf(nifModel->getHeaderItem()) ) ) {
+			if ( !baseModel->evalCondition( rowItem ) )
 				return true;
 		} else {
-			if ( !nif->evalVersion( rowItem ) )
+			if ( !baseModel->evalVersion( rowItem ) )
 				return true;
 		}
 	}
@@ -170,7 +179,7 @@ void NifTreeView::pasteTo( const QModelIndex iDest, const NifValue & srcValue )
 	if ( iDest.column() != NifModel::ValueCol )
 		return;
 
-	NifItem * item = nif->getItem( iDest );
+	NifItem * item = baseModel->getItem( iDest );
 	if ( !item || item->valueType() != srcValue.type() )
 		return;
 
@@ -178,13 +187,13 @@ void NifTreeView::pasteTo( const QModelIndex iDest, const NifValue & srcValue )
 
 	switch ( item->valueType() ) {
 	case NifValue::tByte:
-		item->set<quint8>( srcValue.get<quint8>( nif, nullptr ) );
+		item->set<quint8>( srcValue.get<quint8>( baseModel, nullptr ) );
 		break;
 	case NifValue::tWord:
 	case NifValue::tShort:
 	case NifValue::tFlags:
 	case NifValue::tBlockTypeIndex:
-		item->set<quint16>( srcValue.get<quint16>( nif, nullptr ) );
+		item->set<quint16>( srcValue.get<quint16>( baseModel, nullptr ) );
 		break;
 	case NifValue::tStringOffset:
 	case NifValue::tInt:
@@ -193,41 +202,41 @@ void NifTreeView::pasteTo( const QModelIndex iDest, const NifValue & srcValue )
 	case NifValue::tStringIndex:
 	case NifValue::tUpLink:
 	case NifValue::tLink:
-		item->set<quint32>( srcValue.get<quint32>( nif, nullptr ) );
+		item->set<quint32>( srcValue.get<quint32>( baseModel, nullptr ) );
 		break;
 	case NifValue::tVector2:
 	case NifValue::tHalfVector2:
-		item->set<Vector2>( srcValue.get<Vector2>( nif, nullptr ) );
+		item->set<Vector2>( srcValue.get<Vector2>( baseModel, nullptr ) );
 		break;
 	case NifValue::tVector3:
 	case NifValue::tByteVector3:
 	case NifValue::tHalfVector3:
-		item->set<Vector3>( srcValue.get<Vector3>( nif, nullptr ) );
+		item->set<Vector3>( srcValue.get<Vector3>( baseModel, nullptr ) );
 		break;
 	case NifValue::tVector4:
-		item->set<Vector4>( srcValue.get<Vector4>( nif, nullptr ) );
+		item->set<Vector4>( srcValue.get<Vector4>( baseModel, nullptr ) );
 		break;
 	case NifValue::tFloat:
 	case NifValue::tHfloat:
 	case NifValue::tNormbyte:
-		item->set<float>( srcValue.get<float>( nif, nullptr ) );
+		item->set<float>( srcValue.get<float>( baseModel, nullptr ) );
 		break;
 	case NifValue::tColor3:
-		item->set<Color3>( srcValue.get<Color3>( nif, nullptr ) );
+		item->set<Color3>( srcValue.get<Color3>( baseModel, nullptr ) );
 		break;
 	case NifValue::tColor4:
 	case NifValue::tByteColor4:
-		item->set<Color4>( srcValue.get<Color4>( nif, nullptr ) );
+		item->set<Color4>( srcValue.get<Color4>( baseModel, nullptr ) );
 		break;
 	case NifValue::tQuat:
 	case NifValue::tQuatXYZW:
-		item->set<Quat>( srcValue.get<Quat>( nif, nullptr ) );
+		item->set<Quat>( srcValue.get<Quat>( baseModel, nullptr ) );
 		break;
 	case NifValue::tMatrix:
-		item->set<Matrix>( srcValue.get<Matrix>( nif, nullptr ) );
+		item->set<Matrix>( srcValue.get<Matrix>( baseModel, nullptr ) );
 		break;
 	case NifValue::tMatrix4:
-		item->set<Matrix4>( srcValue.get<Matrix4>( nif, nullptr ) );
+		item->set<Matrix4>( srcValue.get<Matrix4>( baseModel, nullptr ) );
 		break;
 	case NifValue::tString:
 	case NifValue::tSizedString:
@@ -236,16 +245,15 @@ void NifTreeView::pasteTo( const QModelIndex iDest, const NifValue & srcValue )
 	case NifValue::tHeaderString:
 	case NifValue::tLineString:
 	case NifValue::tChar8String:
-		item->set<QString>( srcValue.get<QString>( nif, nullptr ) );
+		item->set<QString>( srcValue.get<QString>( baseModel, nullptr ) );
 		break;
 	default:
 		// Return and do not push to Undo Stack
 		return;
 	}
 
-	auto n = static_cast<NifModel*>(nif);
-	if ( n )
-		n->undoStack->push( new ChangeValueCommand( iDest, item->value(), srcValue, valueType, n ) );
+	if ( nifModel )
+		nifModel->undoStack->push( new ChangeValueCommand( iDest, item->value(), srcValue, valueType, nifModel ) );
 }
 
 void NifTreeView::paste()
@@ -264,20 +272,20 @@ void NifTreeView::pasteArray()
 	Q_ASSERT( values.size() == 1 );
 
 	auto root = values.at( 0 );
-	auto cnt = nif->rowCount( root );
+	auto cnt = baseModel->rowCount( root );
 
 	ChangeValueCommand::createTransaction();
-	nif->setState( BaseModel::Processing );
+	baseModel->setState( BaseModel::Processing );
 	for ( int i = 0; i < cnt && i < valueClipboard->getValues().size(); i++ ) {
 		auto iDest = root.child( i, NifModel::ValueCol );
 		auto srcValue = valueClipboard->getValues().at( iDest.row() );
 
 		pasteTo( iDest, srcValue );
 	}
-	nif->restoreState();
+	baseModel->restoreState();
 
 	if ( cnt > 0 )
-		emit nif->dataChanged( root.child( 0, NifModel::ValueCol ), root.child( cnt - 1, NifModel::ValueCol ) );
+		emit baseModel->dataChanged( root.child( 0, NifModel::ValueCol ), root.child( cnt - 1, NifModel::ValueCol ) );
 }
 
 void NifTreeView::drawBranches( QPainter * painter, const QRect & rect, const QModelIndex & index ) const
@@ -288,7 +296,7 @@ void NifTreeView::drawBranches( QPainter * painter, const QRect & rect, const QM
 
 void NifTreeView::updateConditions( const QModelIndex & topLeft, const QModelIndex & bottomRight )
 {
-	if ( nif->getState() != BaseModel::Default )
+	if ( baseModel->getState() != BaseModel::Default )
 		return;
 
 	Q_UNUSED( bottomRight );
@@ -298,7 +306,7 @@ void NifTreeView::updateConditions( const QModelIndex & topLeft, const QModelInd
 
 void NifTreeView::updateConditionRecurse( const QModelIndex & index )
 {
-	if ( nif->getState() != BaseModel::Default )
+	if ( baseModel->getState() != BaseModel::Default )
 		return;
 
 	NifItem * item = static_cast<NifItem *>(index.internalPointer());
@@ -337,11 +345,10 @@ QModelIndexList NifTreeView::valueIndexList( const QModelIndexList & rows ) cons
 
 void NifTreeView::keyPressEvent( QKeyEvent * e )
 {
-	NifModel * nif = nullptr;
-	NifProxyModel * proxy = nullptr;
+	if ( !isFileLoaded )
+		return;
 
-	nif = static_cast<NifModel *>(model());
-	if ( model()->inherits( "NifModel" ) && nif ) {
+	if ( nifModel ) {
 		// Determine if a block or branch has been copied
 		bool hasBlockCopied = false;
 		if ( e->matches( QKeySequence::Copy ) || e->matches( QKeySequence::Paste ) ) {
@@ -363,7 +370,7 @@ void NifTreeView::keyPressEvent( QKeyEvent * e )
 
 		auto firstRow = selectedRows.at( 0 );
 		auto firstValue = valueColumns.at( 0 );
-		auto firstRowType = nif->getValue( firstRow ).type();
+		auto firstRowType = nifModel->getValue( firstRow ).type();
 
 		if ( e->matches( QKeySequence::Copy ) ) {
 			copy();
@@ -374,14 +381,14 @@ void NifTreeView::keyPressEvent( QKeyEvent * e )
 					&& (valueClipboard->getValue().isValid() || valueClipboard->getValues().size() > 0)
 					&& !hasBlockCopied ) {
 			// Do row paste if there is no block/branch copied and the NifValue is valid
-			if ( valueColumns.size() == 1 && nif->rowCount( firstRow ) > 0 ) {
+			if ( valueColumns.size() == 1 && nifModel->rowCount( firstRow ) > 0 ) {
 				pasteArray();
 			} else if ( valueClipboard->getValue().isValid() ) {
 				paste();
 			}
 			return;
 		} else if ( valueColumns.size() == 1
-					&& firstRow.parent().isValid() && nif->isArray( firstRow.parent() )
+					&& firstRow.parent().isValid() && nifModel->isArray( firstRow.parent() )
 					&& (firstRowType == NifValue::tUpLink || firstRowType == NifValue::tLink) ) {
 			// Link Array Sorting
 			auto parent = firstRow.parent();
@@ -392,7 +399,7 @@ void NifTreeView::keyPressEvent( QKeyEvent * e )
 				MOVE_DOWN = 1
 			} moveDir = MOVE_NONE;
 
-			if ( e->key() == Qt::Key_Down && e->modifiers() == Qt::CTRL && row < nif->rowCount( parent ) - 1 )
+			if ( e->key() == Qt::Key_Down && e->modifiers() == Qt::CTRL && row < nifModel->rowCount( parent ) - 1 )
 				moveDir = MOVE_DOWN;
 			else if ( e->key() == Qt::Key_Up && e->modifiers() == Qt::CTRL && row > 0 )
 				moveDir = MOVE_UP;
@@ -401,17 +408,17 @@ void NifTreeView::keyPressEvent( QKeyEvent * e )
 				// Swap the rows
 				row = row + moveDir;
 				QModelIndex newValue = firstRow.sibling( row, NifModel::ValueCol );
-				QVariant v = nif->data( firstValue, Qt::EditRole );
-				nif->setData( firstValue, nif->data( newValue, Qt::EditRole ) );
-				nif->setData( newValue, v );
+				QVariant v = nifModel->data( firstValue, Qt::EditRole );
+				nifModel->setData( firstValue, nifModel->data( newValue, Qt::EditRole ) );
+				nifModel->setData( newValue, v );
 
 				// Change the selected row
 				selectionModel()->select( parent.child( row, 0 ), QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows );
 
 				// Add row swap to undo
 				ChangeValueCommand::createTransaction();
-				nif->undoStack->push( new ChangeValueCommand( firstValue, nif->getValue( newValue ), nif->getValue( firstValue ), "Link", nif ) );
-				nif->undoStack->push( new ChangeValueCommand( newValue, nif->getValue( firstValue ), nif->getValue( newValue ), "Link", nif ) );
+				nifModel->undoStack->push( new ChangeValueCommand( firstValue, nifModel->getValue( newValue ), nifModel->getValue( firstValue ), "Link", nifModel ) );
+				nifModel->undoStack->push( new ChangeValueCommand( newValue, nifModel->getValue( firstValue ), nifModel->getValue( newValue ), "Link", nifModel ) );
 			}
 		}
 	}
@@ -425,8 +432,10 @@ void NifTreeView::keyPressEvent( QKeyEvent * e )
 		// TODO: Value clipboard does not get cleared when using the context menu. 
 		valueClipboard->clear();
 
-		if ( model()->inherits( "NifModel" ) ) {
-			nif = static_cast<NifModel *>( model() );
+		NifModel * nif = nullptr;
+		NifProxyModel * proxy = nullptr;
+		if ( nifModel ) {
+			nif = nifModel;
 			oldidx = currentIndex();
 		} else if ( model()->inherits( "NifProxyModel" ) ) {
 			proxy = static_cast<NifProxyModel *>( model() );
@@ -505,7 +514,7 @@ void NifTreeView::currentChanged( const QModelIndex & current, const QModelIndex
 {
 	QTreeView::currentChanged( current, last );
 
-	if ( nif )
+	if ( baseModel )
 		updateConditionRecurse( current );
 
 	autoExpanded = false;
@@ -517,45 +526,53 @@ void NifTreeView::currentChanged( const QModelIndex & current, const QModelIndex
 
 void NifTreeView::autoExpandBlock( const QModelIndex & blockIndex )
 {
-	auto mdl = qobject_cast<const NifModel *>( nif );
-	if ( !mdl )
+	if ( !nifModel )
 		return;
 
-	auto block = mdl->getItem( blockIndex, false );
-	if ( !mdl->isNiBlock(block) )
+	auto field = nifModel->field(blockIndex, false);
+	if ( !field.isTop() )
 		return;
 
-	if ( mdl->inherits(block->name(), "NiTransformInterpolator") || mdl->inherits(block->name(), "NiBSplineTransformInterpolator") ) {
-		// Auto-Expand NiQuatTransform
-		autoExpandItem( mdl->getItem(block, "Transform") );
-	} else if ( mdl->inherits(block->name(), "NiNode") ) {
-		// Auto-Expand Children array
-		autoExpandItem( mdl->getItem(block, "Children") );
-	} else if ( mdl->inherits(block->name(), "NiSkinPartition") || mdl->inherits(block->name(), "BSDismemberSkinInstance") ) {
-		// Auto-Expand skin partitions array
-		autoExpandItem( mdl->getItem(block, "Partitions") );
-	} else {
-		// Auto-Expand final arrays/compounds
-		for( int i = block->childCount() - 1; i >= 0; i-- ) {
-			auto c = block->child(i);
-			if ( c && !isRowHidden(c) ) {
-				autoExpandItem( c );
-				break;
-			}
+	if ( field.isHeader() ) {
+		// Auto-Expand BS Header
+		autoExpandItem( field >> "BS Header" );
+		return;
+
+	} else if ( field.isBlock() ) {
+		if ( field.inherits("NiTransformInterpolator", "NiBSplineTransformInterpolator") ) {
+			// Auto-Expand NiQuatTransform
+			autoExpandItem( field >> "Transform" );
+			return;
+		}
+		if ( field.inherits("NiNode") ) {
+			// Auto-Expand Children array
+			autoExpandItem( field >> "Children" );
+			return;		
+		} 
+		if ( field.inherits("NiSkinPartition", "BSDismemberSkinInstance") ) {
+			// Auto-Expand skin partitions array
+			autoExpandItem( field >> "Partitions" );
+			return;
+		}
+	}
+
+	// Auto-Expand final arrays/compounds
+	for( int i = field.fieldCount() - 1; i >= 0; i-- ) {
+		auto f = field >> i;
+		if ( f && !isRowHidden(f.item()) ) {
+			autoExpandItem( f );
+			break;
 		}
 	}
 }
 
-void NifTreeView::autoExpandItem( const NifItem * item )
+void NifTreeView::autoExpandItem( NifFieldConst field )
 {
-	if ( !item )
-		return;
-
-	auto nChildren = item->childCount();
+	auto nChildren = field.fieldCount();
 	if ( nChildren > 0 && nChildren < 100 ) {
 		autoExpanded = true;
 		blockMouseSelection = true;
-		expand( nif->itemToIndex(item) );
+		expand( field.toIndex() );
 	}
 }
 

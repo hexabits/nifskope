@@ -171,8 +171,6 @@ public slots:
 	void openArchiveFile( const QModelIndex & );
 	void openArchiveFileString( BSA *, const QString & );
 
-	void enableUi();
-
 	void updateSettings();
 
 	//! Select a NIF index
@@ -245,12 +243,8 @@ protected slots:
 	//! Override the view font
 	void overrideViewFont();
 
-	/*! Sets Import/Export menus
-	 *
-	 * @see importex/importex.cpp
-	 */
-	void fillImportExportMenus();
 	//! Perform Import or Export
+	// @see importex/importex.cpp
 	void sltImportExport( QAction * action );
 
 	//! Open a URL using the system handler
@@ -292,6 +286,14 @@ private:
 	void updateRecentArchiveActions();
 	void updateRecentArchiveFileActions();
 
+	/*! Sets Import/Export menus
+	*
+	* @see importex/importex.cpp
+	*/
+	void fillImportExportMenus();
+
+	void updateUiWidgets();
+
 	//! Disconnect and reconnect the models to the views
 	void swapModels();
 
@@ -312,16 +314,19 @@ private:
 	//! Migrate settings from older versions of NifSkope.
 	void migrateSettings() const;
 
+	//! Checks if Block List is shown as a list, not tree.
+	bool isInListMode() const;
+
 	//! All QActions in the UI
 	QSet<QAction *> allActions;
 
 	nstheme::WindowTheme theme = nstheme::ThemeDark;
 	nstheme::ToolbarSize toolbarSize = nstheme::ToolbarLarge;
 
+	bool isNifLoaded = false;
+
 	QString currentFile;
 	BSA * currentArchive = nullptr;
-
-	QByteArray filehash;
 
 	//! Stores the NIF file in memory.
 	NifModel * nif;
@@ -369,7 +374,6 @@ private:
 	QAction * animGroupsAction;
 
 	bool selecting = false;
-	bool initialShowEvent = true;
 	
 	QProgressBar * progress = nullptr;
 
@@ -380,8 +384,6 @@ private:
 	QDockWidget * dRefr;
 	QDockWidget * dInsp;
 	QDockWidget * dBrowser;
-
-	QToolBar * tool;
 
 	QAction * aSanitize;
 
@@ -398,10 +400,16 @@ private:
 	QAction * aCondition;
 	QAction * aRCondition;
 
-	QAction * aSelectFont;
-
 	QMenu * mExport;
+	QAction * aExportObj = nullptr;
+	QAction * aExportGltf = nullptr;
+
 	QMenu * mImport;
+	QAction * aImportObj = nullptr;
+	QAction * aImportObjCol = nullptr;
+	QAction * aImportGltf = nullptr;
+
+	QAction * mSpells = nullptr;
 
 	QAction * aRecentFilesSeparator;
 

@@ -691,7 +691,6 @@ public slots:
 signals:
 	void linksChanged();
 	void lodSliderChanged( bool ) const;
-	void beginUpdateHeader();
 
 protected:
 	// BaseModel
