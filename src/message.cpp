@@ -5,6 +5,7 @@
 #include <QMap>
 #include <QCloseEvent>
 #include <QScreen>
+#include <QTimer>
 
 
 Q_LOGGING_CATEGORY( ns, "nifskope" )
@@ -141,20 +142,61 @@ class DetailsMessageBox : public QMessageBox
 {
 public:
 	explicit DetailsMessageBox( QWidget * parent, const QString & txt )
-		: QMessageBox( parent ), m_key( txt ) { }
+		: QMessageBox( parent ), msgKey( txt )
+	{
+		detailFlushTimer = new QTimer( this );
+		detailFlushTimer->setSingleShot( true );
+		detailFlushTimer->setInterval( 20 );
+		connect( detailFlushTimer, &QTimer::timeout, this, &DetailsMessageBox::flushDetailBuffer );
+	}
 
 	~DetailsMessageBox();
 
-	const QString & key() const { return m_key; }
+	const QString & key() const { return msgKey; }
 
-	int detailsCount() const { return m_nDetails; }
-	void updateDetailsCount() { m_nDetails++; }
+	void setFirstDetail( const QString & detailText )
+	{
+		if ( !detailText.isEmpty() ) {
+			detailBuffer = detailText + "\n";
+			setDetailedText( detailBuffer );
+		} else {
+			// detailText is empty, set the detailed text to a dummy, just for the sake of setting up "Show/Hide Details".
+			setDetailedText( " \n" ); 
+			detailBuffer.clear(); // Just in case...
+		}
+	
+		// Auto-show detailed text on first show.
+		// https://stackoverflow.com/questions/36083551/qmessagebox-show-details
+		for ( auto btn : buttons() ) {
+			if ( buttonRole( btn ) == QMessageBox::ActionRole ) {
+				btn->click(); // "Click" it to expand the detailed text
+				break;
+			}
+		}
+	}
+
+	void appendDetail( const QString & detailText )
+	{
+		if ( detailText.isEmpty() )
+			return;
+
+		detailBuffer.append( detailText + "\n" );
+		if ( !detailFlushTimer->isActive() )
+			detailFlushTimer->start();
+	}
+
+protected slots:
+	void flushDetailBuffer()
+	{
+		setDetailedText( detailBuffer );
+	}
 
 protected:
 	void closeEvent( QCloseEvent * event ) override;
 
-	QString m_key;
-	int m_nDetails = 0;
+	QString msgKey;
+	QString detailBuffer;
+	QTimer * detailFlushTimer;
 };
 
 static QVector<DetailsMessageBox *> messageBoxes;
@@ -179,18 +221,7 @@ void Message::append( QWidget * parent, const QString & str, const QString & err
 	}
 
 	if ( msgBox ) {
-		// Limit the number of detail lines to MAX_DETAILS_COUNTER
-		// because when errors are spammed at hundreds or thousands in a row, this makes NifSkope unresponsive.
-		const int MAX_DETAILS_COUNTER = 50;
-
-		if ( !err.isEmpty() && msgBox->detailsCount() <= MAX_DETAILS_COUNTER ) {
-			// Append strings to existing message box's Detailed Text
-			// Show box if it has been closed before
-			msgBox->show();
-			QString newLine = ( msgBox->detailsCount() < MAX_DETAILS_COUNTER ) ? (err + "\n") : QString("...\n");
-			msgBox->setDetailedText( msgBox->detailedText().append( newLine ) );
-			msgBox->updateDetailsCount();
-		}
+		msgBox->appendDetail( err );
 
 	} else {
 		// Create new message box
@@ -214,28 +245,15 @@ void Message::append( QWidget * parent, const QString & str, const QString & err
 		msgBox->setText( str );
 		msgBox->setIcon( icon );
 
-		connect( msgBox, &QMessageBox::buttonClicked, [msgBox]( QAbstractButton * button ) { 
-			Q_UNUSED( button );
+		connect( msgBox, &QMessageBox::buttonClicked, [msgBox]( [[maybe_unused]] QAbstractButton * button ) { 
 			unregisterMessageBox( msgBox );
 			} );
 
 		msgBox->show();
 
-		// setDetailedText(...) has to be after show(),
+		// setDetailedText() in setFirstDetail() has to be called after show(),
 		// otherwise a "QWindowsWindow::setGeometry: Unable to set geometry ..." warning from Qt appears in Debug build.
-		if ( !err.isEmpty() ) {
-			msgBox->setDetailedText( err + "\n" );
-			msgBox->updateDetailsCount();
-
-			// Auto-show detailed text on first show.
-			// https://stackoverflow.com/questions/36083551/qmessagebox-show-details
-			for ( auto btn : msgBox->buttons() ) {
-				if ( msgBox->buttonRole( btn ) == QMessageBox::ActionRole ) {
-					btn->click(); // "Click" it to expand the detailed text
-					break;
-				}
-			}
-		}
+		msgBox->setFirstDetail( err );
 
 		msgBox->activateWindow();
 	}
