@@ -315,6 +315,9 @@ public:
 
 	// Evaluating NifItem condition and model version
 public:
+	//! Checks if version is within since-until range. 0 for since or until means unlimited.
+	static bool checkVersion( quint32 version, quint32 since, quint32 until = 0 );
+
 	//! Evaluate NifItem model version.
 	bool evalVersion( const NifItem * item ) const;
 protected:
@@ -662,6 +665,10 @@ inline bool BaseModel::isArray( const QModelIndex & index ) const
 	return isArray( getItem( index ) );
 }
 
+inline bool BaseModel::checkVersion( quint32 version, quint32 since, quint32 until )
+{
+	return (( since == 0 || since <= version ) && ( until == 0 || version <= until ));
+}
 
 // Item getters
 

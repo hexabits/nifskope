@@ -82,6 +82,7 @@ class QStringList;
 class QTimer;
 class QTreeView;
 class QUdpSocket;
+class Scene;
 
 namespace nstheme
 {
@@ -90,8 +91,22 @@ namespace nstheme
 	enum ToolbarSize { ToolbarSmall, ToolbarLarge };
 }
 
-
 //! @file nifskope.h NifSkope, IPCsocket
+
+using NifImportFuncPtr = std::function< void( NifModel *, const QModelIndex & ) >;
+using NifExportFuncPtr = std::function< void( const NifModel *, const Scene *, const QModelIndex & ) >;
+
+struct NifImportExportOption
+{
+	QAction * importAction = nullptr;
+	QAction * exportAction = nullptr;
+	NifImportFuncPtr importFn = nullptr;
+	NifExportFuncPtr exportFn = nullptr;
+	quint32 minBSVersion = 0;
+	quint32 maxBSVersion = 0;
+
+	bool checkVersion( const NifModel * nif ) const;
+};
 
 /*! The main application class for NifSkope.
  *
@@ -291,6 +306,7 @@ private:
 	* @see importex/importex.cpp
 	*/
 	void fillImportExportMenus();
+	void addImportExportOption( const QString & shortName, NifImportFuncPtr importFn, NifExportFuncPtr exportFn, quint32 minBSVersion = 0, quint32 maxBSVersion = 0 );
 
 	void updateUiWidgets();
 
@@ -401,13 +417,8 @@ private:
 	QAction * aRCondition;
 
 	QMenu * mExport;
-	QAction * aExportObj = nullptr;
-	QAction * aExportGltf = nullptr;
-
 	QMenu * mImport;
-	QAction * aImportObj = nullptr;
-	QAction * aImportObjCol = nullptr;
-	QAction * aImportGltf = nullptr;
+	QVector<NifImportExportOption> importExportOptions;
 
 	QAction * mSpells = nullptr;
 

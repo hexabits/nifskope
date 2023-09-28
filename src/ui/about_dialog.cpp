@@ -1,7 +1,7 @@
 #include "about_dialog.h"
 
 AboutDialog::AboutDialog( QWidget * parent )
-	: QDialog( parent )
+	: QDialog( parent, Qt::Tool )
 {
 	ui.setupUi( this );
 

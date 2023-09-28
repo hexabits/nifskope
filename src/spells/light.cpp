@@ -99,6 +99,7 @@ public:
 		le->add( new NifFloatEdit( nif, nif->getIndex( iLight, "Exponent" ), 0, 128 ) );
 		le->popLayout();
 		le->show();
+		le->activateWindow();
 
 		return index;
 	}

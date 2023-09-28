@@ -50,19 +50,56 @@ void import3ds( NifModel * nif, const QModelIndex & index );
 
 void exportGltf(const NifModel* nif, const Scene* scene, const QModelIndex& index);
 
+void localImportObj( NifModel * nif, const QModelIndex & index )
+{
+	importObj( nif, index, false );
+}
+void localImportObjAsCollision( NifModel * nif, const QModelIndex & index )
+{
+	importObj( nif, index, true );
+}
+void localExportObj( const NifModel * nif, [[maybe_unused]] const Scene * scene, const QModelIndex & index )
+{
+	exportObj( nif, index );
+}
+
+bool NifImportExportOption::checkVersion( const NifModel * nif ) const
+{
+	return BaseModel::checkVersion( nif->getBSVersion(), minBSVersion, maxBSVersion );
+}
+
+void NifSkope::addImportExportOption( const QString & shortName, NifImportFuncPtr importFn, NifExportFuncPtr exportFn, quint32 minBSVersion, quint32 maxBSVersion )
+{
+	NifImportExportOption opt;
+	opt.minBSVersion = minBSVersion;
+	opt.maxBSVersion = maxBSVersion;
+
+	if ( importFn ) {
+		opt.importFn = importFn;
+		opt.importAction = mImport->addAction( QString("Import ") + shortName );
+	}
+	if ( exportFn ) {
+		opt.exportFn = exportFn;
+		opt.exportAction = mExport->addAction( QString("Export ") + shortName );
+	}
+
+	importExportOptions << opt;
+}
+
 void NifSkope::fillImportExportMenus()
 {
-	aExportObj = mExport->addAction( tr( "Export .OBJ" ) );
-	aExportGltf = mExport->addAction(tr("Export .gltf"));
+	addImportExportOption( ".OBJ", localImportObj, localExportObj, 0, 172 - 1 );
+	addImportExportOption( ".OBJ as Collision", localImportObjAsCollision, nullptr, 1, 172 - 1 );
+	addImportExportOption( ".gltf", nullptr, exportGltf, 172 );
 	//mExport->addAction( tr( "Export .DAE" ) );
 	//mImport->addAction( tr( "Import .3DS" ) );
-	aImportObj = mImport->addAction( tr( "Import .OBJ" ) );
-	aImportObjCol = mImport->addAction( tr( "Import .OBJ as Collision" ) );
-	//aImportGltf = mImport->addAction(tr("Import .gltf"));
 }
 
 void NifSkope::sltImportExport( QAction * a )
 {
+	if ( !a ) // Just in case
+		return;
+
 	QModelIndex index;
 
 	//Get the currently selected NiBlock index in the list or tree view
@@ -80,16 +117,14 @@ void NifSkope::sltImportExport( QAction * a )
 		}
 	}
 
-	if ( a == aExportObj )
-		exportObj( nif, index );
-	else if ( a == aExportGltf )
-		exportGltf(nif, ogl->scene, index);
-	else if ( a == aImportObj )
-		importObj( nif, index );
-	else if ( a == aImportObjCol )
-		importObj( nif, index, true );
-	//else if ( a->text() == tr( "Import .3DS" ) )
-	//	import3ds( nif, index );
-	//else if ( a->text() == tr( "Export .DAE" ) )
-	//	exportCol( nif, currentFile );
+	for ( const auto & opt : importExportOptions ) {
+		if ( a == opt.importAction ) {
+			opt.importFn( nif, index );
+			break;
+		}
+		if ( a == opt.exportAction ) {
+			opt.exportFn( nif, ogl->scene, index );
+			break;
+		}
+	}
 }

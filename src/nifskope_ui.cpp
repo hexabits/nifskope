@@ -296,6 +296,7 @@ void NifSkope::initActions()
 	connect( ui->aAboutNifSkope, &QAction::triggered, []() {
 		auto aboutDialog = new AboutDialog();
 		aboutDialog->show();
+		aboutDialog->activateWindow();
 	} );
 	connect( ui->aAboutQt, &QAction::triggered, qApp, &QApplication::aboutQt );
 
@@ -406,6 +407,8 @@ void NifSkope::initDockWidgets()
 	ui->tView->addAction(dInsp->toggleViewAction());
 	ui->tView->addAction(dKfm->toggleViewAction());
 	ui->tView->addAction(dRefr->toggleViewAction());
+
+	ui->mHelp->insertAction( ui->mHelp->actions().at(0), dRefr->toggleViewAction());
 
 	// Set Inspect widget
 	dInsp->setWidget( inspect );
@@ -528,7 +531,6 @@ void NifSkope::initMenu()
 void NifSkope::initToolBars()
 {
 	// Disable without NIF loaded
-	ui->tRender->setEnabled( false );
 	ui->tRender->setContextMenuPolicy( Qt::ActionsContextMenu );
 
 	// Status Bar
@@ -778,6 +780,8 @@ void NifSkope::onLoadBegin()
 	ogl->setUpdatesEnabled( false );
 	ogl->setEnabled( false );
 	setEnabled( false );
+	ui->mRender->setEnabled( false );
+	ui->tRender->setEnabled( false );
 
 	progress->setVisible( true );
 	progress->reset();
@@ -796,6 +800,8 @@ void NifSkope::onLoadComplete( bool success, QString & fname )
 	ogl->setUpdatesEnabled( true );
 	ogl->setEnabled( true );
 	setEnabled( true ); // IMPORTANT!
+	ui->mRender->setEnabled( true );
+	ui->tRender->setEnabled( true );
 
 	int timeout = 2500;
 	if ( success ) {
@@ -1015,35 +1021,13 @@ void NifSkope::updateUiWidgets()
 		mExport->setEnabled( true );
 		mImport->setEnabled( true );
 
-		bool bImportObj    = true;
-		bool bImportObjCol = true;
-		bool bImportGltf   = true;
-		bool bExportObj    = true;
-		bool bExportGltf   = true;
-
-		if ( nif->getBSVersion() >= 172 ) {
-			// Disable OBJ if/until it is supported for Starfield
-			bImportObj = false;
-			bImportObjCol = false;
-			bExportObj = false;
-		} else {
-			// Disable glTF if/until it is supported for pre-Starfield
-			bImportGltf = false;
-			bExportGltf = false;
+		for ( const auto & opt : importExportOptions ) {
+			if ( opt.importAction )
+				opt.importAction->setEnabled( opt.checkVersion( nif ) );
+			if ( opt.exportAction)
+				opt.exportAction->setEnabled( opt.checkVersion( nif ) );
 		}
-		// Import OBJ as Collision disabled for non-Bethesda
-		if ( nif->getBSVersion() == 0 )
-			bImportObjCol = false;
-
-		trySetEnabledAction( aImportObj,    bImportObj );
-		trySetEnabledAction( aImportObjCol, bImportObjCol );
-		trySetEnabledAction( aImportGltf,   bImportGltf );
-		trySetEnabledAction( aExportObj,    bExportObj );
-		trySetEnabledAction( aExportGltf,   bExportGltf );
 	}
-
-	ui->mRender->setEnabled( isNifLoaded );
-	ui->tRender->setEnabled( isNifLoaded );
 
 	mSpells->setEnabled( isNifLoaded );
 

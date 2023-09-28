@@ -1902,7 +1902,7 @@ inline bool NifModel::isLink( const QModelIndex & index ) const
 
 inline bool NifModel::checkVersion( quint32 since, quint32 until ) const
 {
-	return (( since == 0 || since <= version ) && ( until == 0 || version <= until ));
+	return BaseModel::checkVersion( version, since, until );
 }
 
 constexpr inline int NifModel::firstBlockRow() const

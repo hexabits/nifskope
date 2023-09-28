@@ -130,6 +130,7 @@ public:
 		me->add( new NifFloatSlider( nif, nif->getIndex( iMaterial, "Glossiness" ), 0.0, 100.0 ) );
 		me->setWindowModality( Qt::ApplicationModal );
 		me->show();
+		me->activateWindow();
 
 		return index;
 	}

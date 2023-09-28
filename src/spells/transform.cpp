@@ -381,6 +381,7 @@ public:
 		}
 
 		edit->show();
+		edit->activateWindow();
 		return index;
 	}
 };
