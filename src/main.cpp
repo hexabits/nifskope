@@ -51,6 +51,11 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 QCoreApplication * createApplication( int &argc, char *argv[] )
 {
 	QApplication::setAttribute(Qt::AA_UseDesktopOpenGL);
+	// Qt::AA_EnableHighDpiScaling code below was added for the UI to scale according to the Windows settings (primarily needed for high DPI displays).
+	// There are some indications that the code is not needed in Qt 6, so this whole subject might be revisited after migrating to Qt 6.
+	#if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
+		QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
+	#endif
 	// Iterate over args
 	for ( int i = 1; i < argc; ++i ) {
 		// -no-gui: start as core app without all the GUI overhead

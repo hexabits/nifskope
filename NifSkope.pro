@@ -514,9 +514,12 @@ win32:contains(QT_ARCH, i386) {
 		README.md \
 		README_GLTF.md
 
+	CONFIGS += \
+		build/qt.conf
+
 	copyDirs( $$SHADERS, shaders )
 	#copyDirs( $$LANG, lang )
-	copyFiles( $$XML $$QSS )
+	copyFiles( $$XML $$QSS $$CONFIGS )
 
 	# Copy Readmes and rename to TXT
 	copyFiles( $$READMES,,,, md:txt )
