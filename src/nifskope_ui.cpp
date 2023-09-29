@@ -408,7 +408,7 @@ void NifSkope::initDockWidgets()
 	ui->tView->addAction(dKfm->toggleViewAction());
 	ui->tView->addAction(dRefr->toggleViewAction());
 
-	ui->mHelp->insertAction( ui->mHelp->actions().at(0), dRefr->toggleViewAction());
+	ui->mHelp->insertAction( ui->mHelp->actions().at(0), dRefr->toggleViewAction() );
 
 	// Set Inspect widget
 	dInsp->setWidget( inspect );
@@ -530,7 +530,7 @@ void NifSkope::initMenu()
 
 void NifSkope::initToolBars()
 {
-	// Disable without NIF loaded
+	// Add right click menu to tRender toolbar that duplicates all of the toolbar buttons.
 	ui->tRender->setContextMenuPolicy( Qt::ActionsContextMenu );
 
 	// Status Bar
@@ -998,12 +998,6 @@ void NifSkope::restoreUi()
 	tabifyDockWidget( ui->InspectDock, ui->KfmDock );
 }
 
-static inline void trySetEnabledAction( QAction * a, bool bEnabled )
-{
-	if ( a )
-		a->setEnabled( bEnabled );
-}
-
 void NifSkope::updateUiWidgets()
 {
 	// Update menus
@@ -1024,7 +1018,7 @@ void NifSkope::updateUiWidgets()
 		for ( const auto & opt : importExportOptions ) {
 			if ( opt.importAction )
 				opt.importAction->setEnabled( opt.checkVersion( nif ) );
-			if ( opt.exportAction)
+			if ( opt.exportAction )
 				opt.exportAction->setEnabled( opt.checkVersion( nif ) );
 		}
 	}
