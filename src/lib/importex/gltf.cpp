@@ -6,6 +6,7 @@
 #include "gl/BSMesh.h"
 #include "io/MeshFile.h"
 #include "model/nifmodel.h"
+#include "message.h"
 
 #define TINYGLTF_IMPLEMENTATION
 #define STB_IMAGE_IMPLEMENTATION
@@ -28,16 +29,14 @@ struct GltfStore
 	// BSGeometry may have 1-4 associated gltfNodeID to deal with LOD0-LOD3
 	// NiNode will only have 1 gltfNodeID
 	QMap<int, QVector<int>> nodes;
-	// gltfJointID to gltfNodeID
-	QMap<int, int> bones;
-	// Bone names to gltfNodeID
-	QMap<QString, int> boneNames;
 	// gltfSkinID to BSMesh
 	QMap<int, BSMesh*> skins;
 	// Material Paths
 	QStringList materials;
 
 	QStringList errors;
+
+	bool flatSkeleton = false;
 };
 
 
@@ -67,7 +66,10 @@ void exportCreateInverseBoneMatrices(tinygltf::Model& model, QByteArray& bin, co
 bool exportCreateNodes(const NifModel* nif, const Scene* scene, tinygltf::Model& model, QByteArray& bin, GltfStore& gltf)
 {
 	int gltfNodeID = 0;
-	int gltfSkinID = 0;
+	int gltfSkinID = -1;
+
+	// NODES
+
 	auto& nodes = scene->nodes.list();
 	for ( const auto node : nodes ) {
 		if ( !node )
@@ -101,9 +103,11 @@ bool exportCreateNodes(const NifModel* nif, const Scene* scene, tinygltf::Model&
 					gltfNode.name += ":LOD" + std::to_string(j);
 					// Skins
 					if ( mesh->skinID > -1 && mesh->weightsUNORM.size() > 0 ) {
+						if ( !gltf.skins.values().contains(mesh) ) {
+							gltfSkinID++;
+						}
 						gltfNode.skin = gltfSkinID;
 						gltf.skins[gltfSkinID] = mesh;
-						gltfSkinID++;
 					}
 				}
 
@@ -121,6 +125,8 @@ bool exportCreateNodes(const NifModel* nif, const Scene* scene, tinygltf::Model&
 				gltfNode.scale = { trans.scale, trans.scale, trans.scale };
 
 				std::map<std::string, tinygltf::Value> extras;
+				extras["ID"] = tinygltf::Value(nodeId);
+				extras["Parent ID"] = tinygltf::Value((node->parentNode()) ? node->parentNode()->id() : -1);
 				auto links = nif->getChildLinks(nif->getBlockNumber(node->index()));
 				for ( const auto link : links ) {
 					auto idx = nif->getBlockIndex(link);
@@ -174,65 +180,104 @@ bool exportCreateNodes(const NifModel* nif, const Scene* scene, tinygltf::Model&
 		}
 	}
 	if ( hasSkeleton ) {
-		for ( const auto& skin : gltf.skins ) {
-			auto gltfSkin = tinygltf::Skin();
-			model.skins.push_back(gltfSkin);
-		}
+		for ( const auto mesh : gltf.skins ) {
+			if ( mesh && mesh->boneNames.size() > 0 ) {
+				for ( const auto& name : mesh->boneNames ) {
+					auto it = std::find_if(model.nodes.begin(), model.nodes.end(), [&](const tinygltf::Node& n) {
+						return n.name == name.toStdString();
+					});
 
-		for ( const auto shape : scene->shapes ) {
-			if ( !shape )
-				continue;
-
-			auto nodeId = shape->id();
-			auto iBlock = nif->getBlockIndex(nodeId);
-			if ( nif->blockInherits(iBlock, "BSGeometry") ) {
-				auto mesh = static_cast<BSMesh*>(shape);
-				if ( mesh && mesh->boneNames.size() > 0 ) {
-					// Map Bones
-					int nameIndex = 0;
-					for ( const auto& name : mesh->boneNames ) {
-						auto it = std::find_if(model.nodes.begin(), model.nodes.end(), [&](const tinygltf::Node& n) {
-							return n.name == name.toStdString();
-						});
-
-						int gltfNodeID = (it != model.nodes.end()) ? it - model.nodes.begin() : -1;
-						if ( gltfNodeID > -1 ) {
-							gltf.bones[nameIndex] = gltfNodeID;
-							gltf.boneNames[name] = gltfNodeID;
-						}
-
-						nameIndex++;
+					int gltfNodeID = (it != model.nodes.end()) ? it - model.nodes.begin() : -1;
+					if ( gltfNodeID == -1 ) {
+						gltf.flatSkeleton = true;
 					}
 				}
 			}
 		}
+	}
 
+	if ( !hasSkeleton )
+		return true;
+
+	for ( const auto skin : gltf.skins ) {
+		auto gltfSkin = tinygltf::Skin();
+		model.skins.push_back(gltfSkin);
+	}
+
+	if ( gltf.flatSkeleton ) {
+		gltf.errors << tr("WARNING: Missing bones detected, exporting as a flat skeleton.");
+
+		int skinID = 0;
+		for ( const auto mesh : gltf.skins ) {
+			if ( mesh && mesh->boneNames.size() > 0 ) {
+				auto gltfNode = tinygltf::Node();
+				gltfNode.name = mesh->getName().toStdString();
+				model.nodes.push_back(gltfNode);
+				int skeletonRoot = gltfNodeID++;
+				model.skins[skinID].skeleton = skeletonRoot;
+				model.skins[skinID].name = gltfNode.name + "_Armature";
+				model.nodes[0].children.push_back(skeletonRoot);
+
+				for ( int i = 0; i < mesh->boneNames.size(); i++ ) {
+					auto& name = mesh->boneNames.at(i);
+					auto trans = mesh->boneTransforms.at(i).toMatrix4().inverted();
+					
+					auto gltfNode = tinygltf::Node();
+					gltfNode.name = name.toStdString();
+					Vector3 translation;
+					Matrix rotation;
+					Vector3 scale;
+					trans.decompose(translation, rotation, scale);
+
+					auto quat = rotation.toQuat();
+					gltfNode.translation = { translation[0], translation[1], translation[2] };
+					gltfNode.rotation = { quat[1], quat[2], quat[3], quat[0] };
+					gltfNode.scale = { scale[0], scale[1], scale[2] };
+
+					std::map<std::string, tinygltf::Value> extras;
+					extras["Flat"] = tinygltf::Value(true);
+					gltfNode.extras = tinygltf::Value(extras);
+
+					model.skins[skinID].joints.push_back(gltfNodeID);
+					model.nodes[skeletonRoot].children.push_back(gltfNodeID);
+					model.nodes.push_back(gltfNode);
+					gltfNodeID++;
+				}
+
+				exportCreateInverseBoneMatrices(model, bin, mesh, skinID, gltf);
+			}
+
+			skinID++;
+		}
+	} else {
 		// Find COM or COM_Twin first if available
 		auto it = std::find_if(model.nodes.begin(), model.nodes.end(), [&](const tinygltf::Node& n) {
 			return n.name == "COM_Twin" || n.name == "COM";
 		});
 
 		int skeletonRoot = (it != model.nodes.end()) ? it - model.nodes.begin() : -1;
-		if ( skeletonRoot > -1 ) {
-			for ( const auto& node : model.nodes ) {
-				auto id = node.skin;
-				if ( id > -1 ) {
-					auto mesh = gltf.skins.value(id, nullptr);
-					if ( mesh ) {
-						model.skins[id].skeleton = skeletonRoot;
-						for ( const auto& boneName : mesh->boneNames ) {
-							auto gltfJointID = gltf.boneNames.value(boneName, -1);
-							if ( gltfJointID )
-								model.skins[id].joints.push_back(gltfJointID);
-						}
-
-						exportCreateInverseBoneMatrices(model, bin, mesh, id, gltf);
+		int skinID = 0;
+		for ( const auto mesh : gltf.skins ) {
+			if ( mesh && mesh->boneNames.size() > 0 ) {
+				// TODO: 0 should come from BSSkin::Instance Skeleton Root, mapped to gltfNodeID
+				// However, non-zero Skeleton Root never happens, at least in Starfield
+				model.skins[skinID].skeleton = (skeletonRoot == -1) ? 0 : skeletonRoot;
+				for ( const auto& name : mesh->boneNames ) {
+					auto it = std::find_if(model.nodes.begin(), model.nodes.end(), [&](const tinygltf::Node& n) {
+						return n.name == name.toStdString();
+					});
+		
+					int gltfNodeID = (it != model.nodes.end()) ? it - model.nodes.begin() : -1;
+					if ( gltfNodeID > -1 ) {
+						model.skins[skinID].joints.push_back(gltfNodeID);
+					} else {
+						gltf.errors << tr("ERROR: Missing Skeleton Node: %1").arg(name);
 					}
 				}
+
+				exportCreateInverseBoneMatrices(model, bin, mesh, skinID, gltf);
 			}
-		} else {
-			gltf.errors << "Skeletal mesh requires COM or COM_Twin for export. You may copy/paste the COM NiNode branch of the mesh's skeleton.nif before export.";
-			return false;
+			skinID++;
 		}
 	}
 
@@ -352,31 +397,37 @@ void exportCreatePrimitive(tinygltf::Model& model, QByteArray& bin, std::shared_
 		}
 	} else if ( attr == "WEIGHTS_0" ) {
 		for ( const auto& v : mesh->weights ) {
-			bin.append(reinterpret_cast<const char*>(&v.weightsUNORM[0].weight), sizeof(v.weightsUNORM[0].weight));
-			bin.append(reinterpret_cast<const char*>(&v.weightsUNORM[1].weight), sizeof(v.weightsUNORM[1].weight));
-			bin.append(reinterpret_cast<const char*>(&v.weightsUNORM[2].weight), sizeof(v.weightsUNORM[2].weight));
-			bin.append(reinterpret_cast<const char*>(&v.weightsUNORM[3].weight), sizeof(v.weightsUNORM[3].weight));
+			for ( int i = 0; i < 4; i++ ) {
+				auto weight = v.weightsUNORM[i].weight;
+				// Fix Bethesda's non-zero weights
+				if ( weight != 0.0 && weight < 0.0001 && v.weightsUNORM[i].bone == 0 ) {
+					weight = 0.0;
+				}
+				bin.append(reinterpret_cast<const char*>(&weight), sizeof(weight));
+			}
 		}
 	} else if ( attr == "WEIGHTS_1" ) {
 		for ( const auto& v : mesh->weights ) {
-			bin.append(reinterpret_cast<const char*>(&v.weightsUNORM[4].weight), sizeof(v.weightsUNORM[4].weight));
-			bin.append(reinterpret_cast<const char*>(&v.weightsUNORM[5].weight), sizeof(v.weightsUNORM[5].weight));
-			bin.append(reinterpret_cast<const char*>(&v.weightsUNORM[6].weight), sizeof(v.weightsUNORM[6].weight));
-			bin.append(reinterpret_cast<const char*>(&v.weightsUNORM[7].weight), sizeof(v.weightsUNORM[7].weight));
+			for ( int i = 4; i < 8; i++ ) {
+				auto weight = v.weightsUNORM[i].weight;
+				// Fix Bethesda's non-zero weights
+				if ( weight != 0.0 && weight < 0.0001 && v.weightsUNORM[i].bone == 0 ) {
+					weight = 0.0;
+				}
+				bin.append(reinterpret_cast<const char*>(&weight), sizeof(weight));
+			}
 		}
 	} else if ( attr == "JOINTS_0" ) {
 		for ( const auto& v : mesh->weights ) {
-			bin.append(reinterpret_cast<const char*>(&v.weightsUNORM[0].bone), sizeof(v.weightsUNORM[0].bone));
-			bin.append(reinterpret_cast<const char*>(&v.weightsUNORM[1].bone), sizeof(v.weightsUNORM[1].bone));
-			bin.append(reinterpret_cast<const char*>(&v.weightsUNORM[2].bone), sizeof(v.weightsUNORM[2].bone));
-			bin.append(reinterpret_cast<const char*>(&v.weightsUNORM[3].bone), sizeof(v.weightsUNORM[3].bone));
+			for ( int i = 0; i < 4; i++ ) {
+				bin.append(reinterpret_cast<const char*>(&v.weightsUNORM[i].bone), sizeof(v.weightsUNORM[i].bone));
+			}
 		}
 	} else if ( attr == "JOINTS_1" ) {
 		for ( const auto& v : mesh->weights ) {
-			bin.append(reinterpret_cast<const char*>(&v.weightsUNORM[4].bone), sizeof(v.weightsUNORM[4].bone));
-			bin.append(reinterpret_cast<const char*>(&v.weightsUNORM[5].bone), sizeof(v.weightsUNORM[5].bone));
-			bin.append(reinterpret_cast<const char*>(&v.weightsUNORM[6].bone), sizeof(v.weightsUNORM[6].bone));
-			bin.append(reinterpret_cast<const char*>(&v.weightsUNORM[7].bone), sizeof(v.weightsUNORM[7].bone));
+			for ( int i = 4; i < 8; i++ ) {
+				bin.append(reinterpret_cast<const char*>(&v.weightsUNORM[i].bone), sizeof(v.weightsUNORM[i].bone));
+			}
 		}
 	}
 
@@ -415,12 +466,10 @@ bool exportCreatePrimitives(tinygltf::Model& model, QByteArray& bin, const BSMes
 	}
 
 	if ( mesh->weights.size() > 0 && mesh->weightsPerVertex > 0 ) {
-		Q_ASSERT(gltf.bones.size() > 0);
 		exportCreatePrimitive(model, bin, mesh, prim, "JOINTS_0", mesh->weights.size(), TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT, TINYGLTF_TYPE_VEC4, attributeIndex, gltf);
 	}
 
 	if ( mesh->weights.size() > 0 && mesh->weightsPerVertex > 4 ) {
-		Q_ASSERT(gltf.bones.size() > 0);
 		exportCreatePrimitive(model, bin, mesh, prim, "JOINTS_1", mesh->weights.size(), TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT, TINYGLTF_TYPE_VEC4, attributeIndex, gltf);
 	}
 
@@ -495,7 +544,7 @@ bool exportCreateMeshes(const NifModel* nif, const Scene* scene, tinygltf::Model
 							skeletalLodIndex++;
 						}
 					} else {
-						gltf.errors << QString("%1 creation failed").arg(QString::fromStdString(gltfMesh.name));
+						gltf.errors << QString("ERROR: %1 creation failed").arg(QString::fromStdString(gltfMesh.name));
 						return false;
 					}
 				}
@@ -517,7 +566,7 @@ void exportGltf(const NifModel* nif, const Scene* scene, const QModelIndex& inde
 
 	tinygltf::TinyGLTF writer;
 	tinygltf::Model model;
-	model.asset.generator = "NifSkope glTF 2.0 Exporter v1.0";
+	model.asset.generator = "NifSkope glTF 2.0 Exporter v1.1";
 
 	GltfStore gltf;
 	QByteArray buffer;
@@ -545,7 +594,11 @@ void exportGltf(const NifModel* nif, const Scene* scene, const QModelIndex& inde
 		writer.WriteGltfSceneToFile(&model, filename.toStdString(), false, false, false, false);
 	}
 
-	for ( const auto& msg : gltf.errors ) {
-		qCCritical(nsIo) << msg;
+	if ( gltf.errors.size() == 1 ) {
+		Message::warning(nullptr, gltf.errors[0]);
+	} else if ( gltf.errors.size() > 1 ) {
+		for ( const auto& msg : gltf.errors ) {
+			Message::append("Warnings/Errors occurred during glTF Export", msg);
+		}
 	}
 }

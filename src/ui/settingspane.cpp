@@ -839,19 +839,7 @@ void SettingsResources::on_btnArchiveAdd_clicked()
 		"Archive (*.bsa *.ba2)"
 	);
 
-	QStringList filtered;
-	
-	filtered += GameManager::filter_archives( files, "materials" );
-	filtered += GameManager::filter_archives( files, "textures" );
-	filtered += GameManager::filter_archives( files, "geometries" );
-	filtered.removeDuplicates();
-
-	for ( int i = 0; i < filtered.count(); i++ ) {
-		archives->insertRow( i );
-		archives->setData( archives->index( i, 0 ), filtered.at( i ) );
-	}
-
-	ui->archivesList->setCurrentIndex( archives->index( 0, 0 ) );
+	setArchives(files);
 	modifyPane();
 }
 
@@ -875,33 +863,36 @@ void SettingsResources::on_btnArchiveUp_clicked()
 
 void SettingsResources::on_btnArchiveAutoDetect_clicked()
 {
-	QStringList archives_list = archives->stringList();
-	QStringList data_archives = GameManager::find_archives(currentArchiveItem());
-
-	QStringList new_archives;
-	for ( const auto& a : GameManager::filter_archives(data_archives, "materials") ) {
-		if ( archives_list.contains(a, Qt::CaseInsensitive) )
-			continue;
-		archives_list << a;
-	}
-
-	for ( const auto& a : GameManager::filter_archives(data_archives, "textures") ) {
-		if ( archives_list.contains(a, Qt::CaseInsensitive) )
-			continue;
-		archives_list << a;
-	}
-
-	for ( const auto& a : GameManager::filter_archives(data_archives, "geometries") ) {
-		if ( archives_list.contains(a, Qt::CaseInsensitive) )
-			continue;
-		archives_list << a;
-	}
-
-	archives_list.removeDuplicates();
-	
-	archives->setStringList(archives_list);
-	
-	ui->archivesList->setCurrentIndex(archives->index(0, 0));
-
+	setArchives(GameManager::find_archives(currentArchiveItem()));
 	modifyPane();
+}
+
+void SettingsResources::setArchives( const QStringList& archiveList )
+{
+	QMessageBox msg(QMessageBox::Information, tr("Adding Archives"), tr("Please wait while archives are added."), QMessageBox::NoButton, this);
+	msg.setStandardButtons(QMessageBox::NoButton); // Actually hides "OK" button
+	msg.show();
+	qApp->processEvents(); // Sometimes msg text will not show without this
+	const auto& filtered = applicableArchives(archiveList);
+	archives->setStringList(archives->stringList() << filtered);
+	ui->archivesList->setCurrentIndex(archives->index(0, 0));
+	msg.close();
+	if ( filtered.size() < archiveList.size() ) {
+		QMessageBox::information(this, tr("Archives Added"), tr("Some archives were skipped because they were already added or NifSkope does not utilize them."));
+	}
+}
+
+QStringList SettingsResources::applicableArchives( const QStringList& archiveList )
+{
+	QStringList applicable;
+	for ( const auto& f : applicableFolders ) {
+		for ( const auto& a : GameManager::filter_archives(archiveList, f) ) {
+			if ( archives->stringList().contains(a, Qt::CaseInsensitive) )
+				continue;
+			applicable << a;
+		}
+	}
+	applicable.removeDuplicates();
+
+	return applicable;
 }

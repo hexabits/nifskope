@@ -32,6 +32,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "message.h"
 #include "gl/gltex.h"
+#include "gl/glscene.h"
 #include "model/nifmodel.h"
 #include "spells/tangentspace.h"
 
@@ -373,7 +374,7 @@ static void writeParent( const NifModel * nif, const QModelIndex & iNode, QTextS
 	}
 }
 
-void exportObj( const NifModel * nif, const QModelIndex & index )
+void exportObj( const NifModel * nif, const Scene* scene, const QModelIndex & index )
 {
 	//objCulling = Options::get()->exportCullEnabled();
 	//objCullRegExp = Options::get()->cullExpression();
@@ -562,7 +563,7 @@ static void addLink( NifModel * nif, const QModelIndex & iBlock, const QString &
 	nif->setLink( iArray.child( numIndices, 0 ), link );
 }
 
-void importObj( NifModel * nif, const QModelIndex & index, bool collision )
+void importObjMain( NifModel * nif, const QModelIndex & index, bool collision )
 {
 	//--Determine how the file will import, and be sure the user wants to continue--//
 
@@ -1134,3 +1135,12 @@ void importObj( NifModel * nif, const QModelIndex & index, bool collision )
 	nif->reset();
 }
 
+void importObj( NifModel* nif, const QModelIndex& index )
+{
+	importObjMain(nif, index, false);
+}
+
+void importObjAsCollision( NifModel* nif, const QModelIndex& index )
+{
+	importObjMain(nif, index, true);
+}

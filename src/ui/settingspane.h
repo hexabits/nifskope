@@ -116,6 +116,8 @@ public slots:
 	void onBrowseClicked();
 
 private:
+	void setArchives( const QStringList& archiveList );
+	QStringList applicableArchives( const QStringList& archiveList );
 	std::unique_ptr<Ui::SettingsResources> ui;
 
 	QString currentFolderItem();
@@ -123,6 +125,8 @@ private:
 
 	QStringListModel * folders;
 	QStringListModel * archives;
+
+	QStringList applicableFolders{ "materials", "textures", "geometries" };
 };
 
 

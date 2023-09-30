@@ -665,7 +665,7 @@ bool Renderer::setupProgram( Program * prog, Shape * mesh, const PropertyList & 
 			forced = white;
 
 		QString alt = white;
-		if ( scene->hasOption(Scene::DoErrorColor) )
+		if ( scene->hasOption(Scene::DoErrorColor) && nifVersion < 172 ) // TODO: Hide error color until CDB reading
 			alt = magenta;
 
 		bool result = prog->uniSampler( bsprop, SAMP_BASE, 0, texunit, alt, clamp, forced );

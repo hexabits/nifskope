@@ -1,4 +1,4 @@
-# NifSkope glTF 2.0 Exporter v1.0
+# NifSkope glTF 2.0 Exporter v1.1
 
 # glTF Import
 
@@ -11,31 +11,27 @@ glTF export is currently supported on static and skinned Starfield meshes.
 To view and export Starfield meshes, you must first:
 
 1. Enable and add the path to your Starfield installation in Settings > Resources.
-2. Add the archives or extracted folders containing `geometries` to Archives or Paths in Settings > Resources, under Starfield.
-
-Skinned meshes currently require a small amount of setup before export. For the Blender glTF importer they require certain import options.
+2. Add the Meshes archives or extracted folders containing `geometries` to Archives or Paths in Settings > Resources, under Starfield.
 
 ## Skinned meshes
 
 ### Pre-Export
 
-If the mesh does not have a skeleton with a `COM` or `COM_Twin` NiNode in its NIF, you need to:
+If you do not desire the full posable skeleton, you may skip these steps.
+
+If you do not paste in the COM skeleton, a flat skeleton will be reconstructed for you.
+**Please note:** You will receive a warning after export that the skeleton has been reconstructed for you. This is fine. 
+
+If you desire the full posable skeleton, and the mesh does not have a skeleton with a `COM` or `COM_Twin` NiNode in its NIF:
 
 1. Open the skeleton.nif for that skinned mesh (e.g. `meshes\actors\human\characterassets\skeleton.nif`)
 2. Copy (Ctrl-C) the `COM` NiNode in skeleton.nif
 3. Paste (Ctrl-V) the entire `COM` branch onto the mesh NIF's root NiNode (0)
 4. Export to glTF
 
-In Starfield, this needs to be done for meshes skinned on the human skeleton.
-This does not need to be done for most creatures, as they come with a `COM_Twin` node.
-
-**Note:** This step will be more automated in the future.
-
 ### Pre-Blender Import
 
-In the Blender glTF import window:
-
-1. Ensure "Guess Original Bind Pose" is **unchecked**.
+As of Exporter v1.1 you should **no longer need to uncheck "Guess Original Bind Pose"**. 
 
 ## Blender scripts
 

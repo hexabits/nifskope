@@ -320,6 +320,14 @@ void BSMesh::updateData(const NifModel* nif)
 			iSkinData = nif->getBlockIndex(nif->getLink(nif->getIndex(idx, "Data")));
 			skinID = nif->getBlockNumber(iSkin);
 
+			auto iBones = nif->getLinkArray(iSkin, "Bones");
+			for ( const auto b : iBones ) {
+				if ( b == -1 )
+					continue;
+				auto iBone = nif->getBlockIndex(b);
+				boneNames.append(nif->resolveString(iBone, "Name"));
+			}
+
 			auto numBones = nif->get<int>(iSkinData, "Num Bones");
 			boneTransforms.resize(numBones);
 			auto iBoneList = nif->getIndex(iSkinData, "Bone List");

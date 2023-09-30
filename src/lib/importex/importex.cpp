@@ -42,89 +42,86 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <QMenu>
 #include <QModelIndex>
 
+#include <string>
+#include <functional>
 
-void exportObj( const NifModel * nif, const QModelIndex & index );
-void exportCol( const NifModel * nif, QFileInfo );
-void importObj( NifModel * nif, const QModelIndex & index, bool collision = false );
+
+void exportObj( const NifModel * nif, const Scene* scene, const QModelIndex & index );
+void exportCol( const NifModel * nif, const Scene* scene, QFileInfo );
+void importObjMain( NifModel * nif, const QModelIndex & index, bool collision = false );
+void importObj( NifModel* nif, const QModelIndex& index );
+void importObjAsCollision( NifModel * nif, const QModelIndex & index );
 void import3ds( NifModel * nif, const QModelIndex & index );
 
 void exportGltf(const NifModel* nif, const Scene* scene, const QModelIndex& index);
 
-void localImportObj( NifModel * nif, const QModelIndex & index )
-{
-	importObj( nif, index, false );
-}
-void localImportObjAsCollision( NifModel * nif, const QModelIndex & index )
-{
-	importObj( nif, index, true );
-}
-void localExportObj( const NifModel * nif, [[maybe_unused]] const Scene * scene, const QModelIndex & index )
-{
-	exportObj( nif, index );
-}
 
-bool NifImportExportOption::checkVersion( const NifModel * nif ) const
+struct ImportExportOption
 {
-	return BaseModel::checkVersion( nif->getBSVersion(), minBSVersion, maxBSVersion );
-}
+	std::string name;
+	std::function<void(NifModel*, const QModelIndex&)> importFn;
+	std::function<void(const NifModel*, const Scene*, const QModelIndex&)> exportFn;
+	quint32 minBSVersion = 0;
+	quint32 maxBSVersion = 0;
+	quint32 minVersion = 0;
+	quint32 maxVersion = 0x14050000 - 1; // < 0x14050000 (20.5)
+};
 
-void NifSkope::addImportExportOption( const QString & shortName, NifImportFuncPtr importFn, NifExportFuncPtr exportFn, quint32 minBSVersion, quint32 maxBSVersion )
-{
-	NifImportExportOption opt;
-	opt.minBSVersion = minBSVersion;
-	opt.maxBSVersion = maxBSVersion;
 
-	if ( importFn ) {
-		opt.importFn = importFn;
-		opt.importAction = mImport->addAction( QString("Import ") + shortName );
-	}
-	if ( exportFn ) {
-		opt.exportFn = exportFn;
-		opt.exportAction = mExport->addAction( QString("Export ") + shortName );
-	}
+const QVector<ImportExportOption> impexOptions{
+	ImportExportOption{ ".OBJ", importObj, exportObj, 0, 172 - 1 },
+	ImportExportOption{ ".OBJ as Collision", importObjAsCollision, nullptr, 1, 172 - 1 },
+	ImportExportOption{ ".glTF", nullptr, exportGltf, 172 },
+};
 
-	importExportOptions << opt;
-}
 
 void NifSkope::fillImportExportMenus()
 {
-	addImportExportOption( ".OBJ", localImportObj, localExportObj, 0, 172 - 1 );
-	addImportExportOption( ".OBJ as Collision", localImportObjAsCollision, nullptr, 1, 172 - 1 );
-	addImportExportOption( ".gltf", nullptr, exportGltf, 172 );
-	//mExport->addAction( tr( "Export .DAE" ) );
-	//mImport->addAction( tr( "Import .3DS" ) );
+	int impexIndex = 0;
+	for ( const auto& option : impexOptions ) {
+		if ( option.exportFn ) {
+			auto a = mExport->addAction(tr("Export %1").arg(option.name.c_str()));
+			a->setData(impexIndex);
+		}
+		if ( option.importFn ) {
+			auto a = mImport->addAction(tr("Import %1").arg(option.name.c_str()));
+			a->setData(impexIndex);
+		}
+		impexIndex++;
+	}
 }
 
-void NifSkope::sltImportExport( QAction * a )
+void NifSkope::updateImportExportMenu(const QMenu * menu)
 {
-	if ( !a ) // Just in case
-		return;
-
-	QModelIndex index;
-
-	//Get the currently selected NiBlock index in the list or tree view
-	if ( dList->isVisible() ) {
-		if ( list->model() == proxy ) {
-			index = proxy->mapTo( list->currentIndex() );
-		} else if ( list->model() == nif ) {
-			index = list->currentIndex();
-		}
-	} else if ( dTree->isVisible() ) {
-		if ( tree->model() == proxy ) {
-			index = proxy->mapTo( tree->currentIndex() );
-		} else if ( tree->model() == nif ) {
-			index = tree->currentIndex();
+	for ( const auto a : menu->actions() ) {
+		a->setEnabled(false);
+		auto impex = impexOptions.value(a->data().toInt(), {});
+		if ( impex.importFn || impex.exportFn ) {
+			if ( BaseModel::checkVersion(nif->getVersionNumber(), impex.minVersion, impex.maxVersion)
+				&& BaseModel::checkVersion(nif->getBSVersion(), impex.minBSVersion, impex.maxBSVersion) )
+			{
+				a->setEnabled(true);
+			}
 		}
 	}
+}
 
-	for ( const auto & opt : importExportOptions ) {
-		if ( a == opt.importAction ) {
-			opt.importFn( nif, index );
-			break;
-		}
-		if ( a == opt.exportAction ) {
-			opt.exportFn( nif, ogl->scene, index );
-			break;
-		}
+void NifSkope::sltImport( QAction* a )
+{
+	// Do not require index.isValid(), let fn deal with it
+	QModelIndex index = currentNifIndex();
+	auto impex = impexOptions.value(a->data().toInt(), {});
+	if ( impex.importFn ) { 
+		impex.importFn(nif, index);
+	}
+}
+
+void NifSkope::sltExport( QAction* a )
+{
+	// Do not require index.isValid(), let fn deal with it
+	QModelIndex index = currentNifIndex();
+	auto impex = impexOptions.value(a->data().toInt(), {});
+	if ( impex.exportFn ) {
+		impex.exportFn(nif, ogl->scene, index);
 	}
 }

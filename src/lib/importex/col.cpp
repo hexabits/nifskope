@@ -32,6 +32,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "message.h"
 #include "gl/gltex.h"
+#include "gl/glscene.h"
 #include "model/nifmodel.h"
 
 #include "lib/nvtristripwrapper.h"
@@ -960,7 +961,7 @@ void attachNiNode ( const NifModel * nif, QDomElement parentNode, int idx )
 	}
 }
 
-void exportCol( const NifModel * nif, QFileInfo fileInfo )
+void exportCol( const NifModel * nif, const Scene* scene, QFileInfo fileInfo )
 {
 	//culling = Options::get()->exportCullEnabled();
 	//cullRegExp = Options::get()->cullExpression();
@@ -1038,11 +1039,11 @@ void exportCol( const NifModel * nif, QFileInfo fileInfo )
 			attachNiNode( nif, lv, idx );
 	}
 
-	QDomElement scene = doc.createElement( "scene" );
-	root.appendChild( scene );
+	QDomElement sceneElem = doc.createElement( "scene" );
+	root.appendChild(sceneElem);
 	QDomElement ivl = doc.createElement( "instance_visual_scene" );
 	ivl.setAttribute( "url", "#NifRootScene" );
-	scene.appendChild( ivl );
+	sceneElem.appendChild( ivl );
 	fobj.write( doc.toString().toLatin1() );
 	settings.setValue( "Path", QString( "%1/" ).arg( QFileInfo( fobj.fileName() ).path() ) );
 	QTextStream sobj( &fobj ); // let's save xml

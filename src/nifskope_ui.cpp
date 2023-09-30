@@ -436,8 +436,8 @@ void NifSkope::initMenu()
 	mImport = ui->menuImport;
 
 	fillImportExportMenus();
-	connect( mExport, &QMenu::triggered, this, &NifSkope::sltImportExport );
-	connect( mImport, &QMenu::triggered, this, &NifSkope::sltImportExport );
+	connect( mExport, &QMenu::triggered, this, &NifSkope::sltExport );
+	connect( mImport, &QMenu::triggered, this, &NifSkope::sltImport );
 
 	// BSA Recent Files
 	mRecentArchiveFiles = new QMenu( this );
@@ -1007,20 +1007,11 @@ void NifSkope::updateUiWidgets()
 	ui->aReload->setEnabled( isNifLoaded && !getCurrentFile().isEmpty() );
 	ui->aHeader->setEnabled( isNifLoaded );
 
-	// Update Import/Export menus
-	if ( !isNifLoaded || !nif || nif->getVersionNumber() >= 0x14050000 ) {
-		mExport->setEnabled( false );
-		mImport->setEnabled( false );
-	} else {
-		mExport->setEnabled( true );
-		mImport->setEnabled( true );
-
-		for ( const auto & opt : importExportOptions ) {
-			if ( opt.importAction )
-				opt.importAction->setEnabled( opt.checkVersion( nif ) );
-			if ( opt.exportAction )
-				opt.exportAction->setEnabled( opt.checkVersion( nif ) );
-		}
+	mExport->setEnabled( isNifLoaded );
+	mImport->setEnabled( isNifLoaded );
+	if ( isNifLoaded ) {
+		updateImportExportMenu(mExport);
+		updateImportExportMenu(mImport);
 	}
 
 	mSpells->setEnabled( isNifLoaded );

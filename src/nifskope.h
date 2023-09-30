@@ -82,7 +82,6 @@ class QStringList;
 class QTimer;
 class QTreeView;
 class QUdpSocket;
-class Scene;
 
 namespace nstheme
 {
@@ -91,22 +90,8 @@ namespace nstheme
 	enum ToolbarSize { ToolbarSmall, ToolbarLarge };
 }
 
+
 //! @file nifskope.h NifSkope, IPCsocket
-
-using NifImportFuncPtr = std::function< void( NifModel *, const QModelIndex & ) >;
-using NifExportFuncPtr = std::function< void( const NifModel *, const Scene *, const QModelIndex & ) >;
-
-struct NifImportExportOption
-{
-	QAction * importAction = nullptr;
-	QAction * exportAction = nullptr;
-	NifImportFuncPtr importFn = nullptr;
-	NifExportFuncPtr exportFn = nullptr;
-	quint32 minBSVersion = 0;
-	quint32 maxBSVersion = 0;
-
-	bool checkVersion( const NifModel * nif ) const;
-};
 
 /*! The main application class for NifSkope.
  *
@@ -259,8 +244,8 @@ protected slots:
 	void overrideViewFont();
 
 	//! Perform Import or Export
-	// @see importex/importex.cpp
-	void sltImportExport( QAction * action );
+	void sltImport( QAction* action );
+	void sltExport( QAction* action );
 
 	//! Open a URL using the system handler
 	void openURL();
@@ -302,12 +287,14 @@ private:
 	void updateRecentArchiveFileActions();
 
 	/*! Sets Import/Export menus
-	*
-	* @see importex/importex.cpp
-	*/
+	 *
+	 * @see importex/importex.cpp
+	 */
 	void fillImportExportMenus();
-	void addImportExportOption( const QString & shortName, NifImportFuncPtr importFn, NifExportFuncPtr exportFn, quint32 minBSVersion = 0, quint32 maxBSVersion = 0 );
-
+	void updateImportExportMenu(const QMenu* menu);
+	//! Currently selected NiBlock index in the list or tree view
+	QModelIndex currentNifIndex() const;
+	
 	void updateUiWidgets();
 
 	//! Disconnect and reconnect the models to the views
@@ -418,7 +405,6 @@ private:
 
 	QMenu * mExport;
 	QMenu * mImport;
-	QVector<NifImportExportOption> importExportOptions;
 
 	QAction * mSpells = nullptr;
 

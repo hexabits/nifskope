@@ -726,6 +726,25 @@ void NifSkope::updateRecentArchiveFileActions()
 	mRecentArchiveFiles->setEnabled( numRecentFiles > 0 );
 }
 
+QModelIndex NifSkope::currentNifIndex() const
+{
+	QModelIndex index;
+	if ( dList->isVisible() ) {
+		if ( list->model() == proxy ) {
+			index = proxy->mapTo(list->currentIndex());
+		} else if ( list->model() == nif ) {
+			index = list->currentIndex();
+		}
+	} else if ( dTree->isVisible() ) {
+		if ( tree->model() == proxy ) {
+			index = proxy->mapTo(tree->currentIndex());
+		} else if ( tree->model() == nif ) {
+			index = tree->currentIndex();
+		}
+	}
+	return index;
+}
+
 QByteArray fileChecksum( const QString &fileName, QCryptographicHash::Algorithm hashAlgorithm )
 {
 	QFile f( fileName );
