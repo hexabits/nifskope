@@ -212,7 +212,8 @@ HEADERS += \
 	lib/json.hpp \
 	lib/stb_image.h \
 	lib/stb_image_write.h \
-	lib/tiny_gltf.h
+	lib/tiny_gltf.h \
+	lib/Miniball.hpp
 
 SOURCES += \
 	src/data/nifitem.cpp \

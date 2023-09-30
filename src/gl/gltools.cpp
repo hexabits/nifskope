@@ -33,6 +33,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gltools.h"
 
 #include "model/nifmodel.h"
+#include "lib/Miniball.hpp"
 
 #include <QMap>
 #include <QStack>
@@ -181,20 +182,24 @@ BoundSphere::BoundSphere( const QVector<Vector3> & verts )
 		center = Vector3();
 		radius = -1;
 	} else {
-		center = Vector3();
-		for ( const Vector3& v : verts ) {
-			center += v;
-		}
-		center /= verts.count();
+		// Convert QVector<Vector3> to a QVector of pointers to Vector3 data.
+		QVector<const float *> vptrs;
+		vptrs.reserve( verts.count() );
+		for ( const auto & v : verts )
+			vptrs << v.data();
 
-		radius = 0;
-		for ( const Vector3& v : verts ) {
-			float d = ( center - v ).squaredLength();
+		// Create an instance of Miniball.
+		typedef const float * const * PointIterator;
+		typedef const float * CoordIterator;
+		Miniball::Miniball< Miniball::CoordAccessor<PointIterator, CoordIterator> >
+			mb(3, vptrs.begin(), vptrs.end());
 
-			if ( d > radius )
-				radius = d;
-		}
-		radius = sqrt( radius );
+		const float * pCenter = mb.center();
+		center[0] = pCenter[0];
+		center[1] = pCenter[1];
+		center[2] = pCenter[2];
+
+		radius = sqrt(mb.squared_radius());
 	}
 }
 
