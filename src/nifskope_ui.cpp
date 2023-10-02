@@ -121,11 +121,18 @@ NifSkope * NifSkope::createWindow( const QString & fname )
 {
 	NifSkope * skope = new NifSkope;
 	skope->setAttribute( Qt::WA_DeleteOnClose );
+
+	// Prevent the main window from opening in the minimized state.
+	// This is a fix for this scenario:
+	// If you minimize a NifSkope window and then double click on a .nif file in Windows Explorer or any other file manager,
+	// the file is opened in a new window that is also minimized and requires an additional click to bring it to the front.
+	skope->setWindowState( skope->windowState() & ~Qt::WindowMinimized );
+
 	skope->loadTheme();
 	skope->updateUiWidgets();
 	skope->show();
-	skope->raise();
 	skope->restoreUi();
+	skope->raise();
 
 	if ( !fname.isEmpty() ) {
 		skope->loadFile( fname );
@@ -910,11 +917,13 @@ bool NifSkope::saveConfirm()
 	return true;
 }
 
+const int WINDOW_STATE_VER = 0x073;
+
 void NifSkope::saveUi() const
 {
 	QSettings settings;
 	// TODO: saveState takes a version number which can be incremented between releases if necessary
-	settings.setValue( "Window State"_uip, saveState( 0x073 ) );
+	settings.setValue( "Window State"_uip, saveState( WINDOW_STATE_VER ) );
 	settings.setValue( "Window Geometry"_uip, saveGeometry() );
 
 	settings.setValue( "Theme", theme );
@@ -953,7 +962,7 @@ void NifSkope::restoreUi()
 	if ( isMaximized() )
 		QApplication::processEvents();
 
-	restoreState( settings.value( "Window State"_uip ).toByteArray(), 0x073 );
+	restoreState( settings.value( "Window State"_uip ).toByteArray(), WINDOW_STATE_VER );
 
 	aSanitize->setChecked( settings.value( "File/Auto Sanitize", true ).toBool() );
 
