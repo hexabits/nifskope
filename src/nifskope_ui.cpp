@@ -121,11 +121,11 @@ NifSkope * NifSkope::createWindow( const QString & fname )
 {
 	NifSkope * skope = new NifSkope;
 	skope->setAttribute( Qt::WA_DeleteOnClose );
-	skope->restoreUi();
 	skope->loadTheme();
 	skope->updateUiWidgets();
 	skope->show();
 	skope->raise();
+	skope->restoreUi();
 
 	if ( !fname.isEmpty() ) {
 		skope->loadFile( fname );
@@ -941,6 +941,18 @@ void NifSkope::restoreUi()
 {
 	QSettings settings;
 	restoreGeometry( settings.value( "Window Geometry"_uip ).toByteArray() );
+
+	// Here goes a workaround for this Qt 5 bug:
+	// The positions/sizes of docked widgets of a main window are not restored properly if they were saved while the window was maximized in the previous session.
+	// Workaround: if the window is supposed to be maximized, let all the events caused by restoreGeometry to be proccessed before calling restoreState.
+	// References:
+	//     https://bugreports.qt.io/browse/QTBUG-46620
+	//     https://bugreports.qt.io/browse/QTBUG-16252
+	//     https://stackoverflow.com/questions/44005852/qdockwidgetrestoregeometry-not-working-correctly-when-qmainwindow-is-maximized 
+	// QTBUG-46620 above labeled with "Fix Version/s: 6.3.0 Alpha", so this hack could be not needed after migrating to Qt 6.
+	if ( isMaximized() )
+		QApplication::processEvents();
+
 	restoreState( settings.value( "Window State"_uip ).toByteArray(), 0x073 );
 
 	aSanitize->setChecked( settings.value( "File/Auto Sanitize", true ).toBool() );
