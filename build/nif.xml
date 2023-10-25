@@ -8580,6 +8580,10 @@
         <field name="Translations" type="BoneTranslation" length="Num Translations" />
     </niobject>
 
+    <niobject name="BSFaceGenNiNode" inherit="NiNode" module="BSMain" versions="#STF#">
+        <field name="Unknown Ushort 1" type="ushort" />
+    </niobject>
+
     <niobject name="CsNiNode" inherit="NiNode" />
 
     <!-- QQSpeed -->
