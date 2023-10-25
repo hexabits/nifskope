@@ -345,9 +345,6 @@ QModelIndexList NifTreeView::valueIndexList( const QModelIndexList & rows ) cons
 
 void NifTreeView::keyPressEvent( QKeyEvent * e )
 {
-	if ( !isFileLoaded )
-		return;
-
 	if ( nifModel ) {
 		// Determine if a block or branch has been copied
 		bool hasBlockCopied = false;

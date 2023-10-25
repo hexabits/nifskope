@@ -1049,9 +1049,6 @@ background: qradialgradient(spread:pad, cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0
    </property>
   </action>
   <action name="aHeader">
-   <property name="enabled">
-    <bool>false</bool>
-   </property>
    <property name="text">
     <string>Header</string>
    </property>

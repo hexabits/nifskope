@@ -215,6 +215,7 @@ NifSkope::NifSkope()
 	header->header()->moveSection( 1, 2 );
 	header->header()->resizeSection( NifModel::NameCol, 135 );
 	header->header()->resizeSection( NifModel::ValueCol, 250 );
+	resetHeaderSelection();
 
 	// KFM
 	kfmtree = ui->kfmtree;
@@ -254,6 +255,7 @@ NifSkope::NifSkope()
 	ogl->setObjectName( "OGL1" );
 	ogl->setNif( nif );
 	ogl->installEventFilter( this );
+	ogl->setOrientation( GLView::ViewFront );
 
 	// Create InspectView
 	/* ********************** */
@@ -341,23 +343,6 @@ void NifSkope::exitRequested()
 NifSkope::~NifSkope()
 {
 	delete ui;
-}
-
-void NifSkope::swapModels()
-{
-	// Swap out the models with empty versions while loading the file
-	// This is so that the views do not update while loading the file
-	if ( tree->model() == nif ) {
-		list->setModel( proxyEmpty );
-		tree->setModel( nifEmpty );
-		header->setModel( nifEmpty );
-		kfmtree->setModel( kfmEmpty );
-	} else {
-		list->setModel( proxy );
-		tree->setModel( nif );
-		header->setModel( nif );
-		kfmtree->setModel( kfm );
-	}
 }
 
 void NifSkope::updateSettings()
@@ -503,11 +488,12 @@ void NifSkope::select( const QModelIndex & index )
 
 void NifSkope::setListMode()
 {
-	QModelIndex idx = list->currentIndex();
 	bool bListMode = isInListMode();
 
 	if ( bListMode ) {
 		if ( list->model() != nif ) {
+			QModelIndex iOldSelection = list->currentIndex();
+
 			// switch to list view
 			QHeaderView * head = list->header();
 			int s0 = head->sectionSize( head->logicalIndex( 0 ) );
@@ -515,22 +501,16 @@ void NifSkope::setListMode()
 			list->setModel( nif );
 			list->setItemsExpandable( false );
 			list->setRootIsDecorated( false );
-			list->setCurrentIndex( proxy->mapTo( idx ) );
-			list->setColumnHidden( NifModel::NameCol, false );
-			list->setColumnHidden( NifModel::TypeCol, true );
-			list->setColumnHidden( NifModel::ValueCol, false );
-			list->setColumnHidden( NifModel::ArgCol, true );
-			list->setColumnHidden( NifModel::Arr1Col, true );
-			list->setColumnHidden( NifModel::Arr2Col, true );
-			list->setColumnHidden( NifModel::CondCol, true );
-			list->setColumnHidden( NifModel::Ver1Col, true );
-			list->setColumnHidden( NifModel::Ver2Col, true );
-			list->setColumnHidden( NifModel::VerCondCol, true );
+			list->setCurrentIndex( proxy->mapTo( iOldSelection ) );
+			for ( int c = 0; c < NifModel::NumColumns; c++ )
+				list->setColumnHidden( c, c != NifModel::NameCol && c != NifModel::ValueCol );
 			head->resizeSection( 0, s0 );
 			head->resizeSection( 1, s1 );
 		}
 	} else {
 		if ( list->model() != proxy ) {
+			QModelIndex iOldSelection = list->currentIndex();
+
 			// switch to hierarchy view
 			QHeaderView * head = list->header();
 			int s0 = head->sectionSize( head->logicalIndex( 0 ) );
@@ -538,7 +518,7 @@ void NifSkope::setListMode()
 			list->setModel( proxy );
 			list->setItemsExpandable( true );
 			list->setRootIsDecorated( true );
-			QModelIndex pidx = proxy->mapFrom( idx, QModelIndex() );
+			QModelIndex pidx = proxy->mapFrom( iOldSelection, QModelIndex() );
 			list->setCurrentIndex( pidx );
 			// proxy model has only two columns (see columnCount in nifproxymodel.h)
 			list->setColumnHidden( 0, false );
@@ -550,6 +530,12 @@ void NifSkope::setListMode()
 
 	ui->bExpandAllList->setHidden( bListMode );
 	ui->bCollapseAllList->setHidden( bListMode );
+
+	select( nif->getHeaderIndex() );
+
+	// Expand the top level of Block List tree
+	if ( !bListMode )
+		list->expandToDepth(0);
 }
 
 // 'Recent Files' Helpers
@@ -609,7 +595,7 @@ void NifSkope::updateAllRecentFileActions()
 	}
 }
 
-QString NifSkope::getCurrentFile() const
+const QString & NifSkope::getCurrentFile() const
 {
 	return currentFile;
 }
@@ -1298,4 +1284,11 @@ void NifSkope::migrateSettings() const
 bool NifSkope::isInListMode() const
 {
 	return gListMode->checkedAction() == aList;
+}
+
+void NifSkope::forceQuickResize()
+{
+	if ( isResizing && resizeTimer->isActive() ) {
+		resizeTimer->start( 10 );
+	}
 }

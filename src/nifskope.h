@@ -118,7 +118,7 @@ public:
 	void restoreUi();
 
 	//! Returns path of currently open file
-	QString getCurrentFile() const;
+	const QString & getCurrentFile() const;
 
 	/*! Create and initialize a new NifSkope application window.
 	 *
@@ -295,10 +295,9 @@ private:
 	//! Currently selected NiBlock index in the list or tree view
 	QModelIndex currentNifIndex() const;
 	
-	void updateUiWidgets();
-
-	//! Disconnect and reconnect the models to the views
-	void swapModels();
+	void updateFileMenus();
+	
+	void resetHeaderSelection();
 
 	QMenu * lightingWidget();
 	QWidget * filePathWidget( QWidget * );
@@ -307,8 +306,6 @@ private:
 
 	//! Load the theme
 	void loadTheme();
-	//! Sync the theme actions in the UI
-	void setThemeActions();
 	//! Set the toolbar size
 	void setToolbarSize();
 	//! Set the theme
@@ -320,13 +317,10 @@ private:
 	//! Checks if Block List is shown as a list, not tree.
 	bool isInListMode() const;
 
-	//! All QActions in the UI
-	QSet<QAction *> allActions;
+	void forceQuickResize();
 
 	nstheme::WindowTheme theme = nstheme::ThemeDark;
 	nstheme::ToolbarSize toolbarSize = nstheme::ToolbarLarge;
-
-	bool isNifLoaded = false;
 
 	QString currentFile;
 	BSA * currentArchive = nullptr;

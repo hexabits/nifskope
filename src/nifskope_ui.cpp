@@ -129,7 +129,7 @@ NifSkope * NifSkope::createWindow( const QString & fname )
 	skope->setWindowState( skope->windowState() & ~Qt::WindowMinimized );
 
 	skope->loadTheme();
-	skope->updateUiWidgets();
+	skope->updateFileMenus();
 	skope->show();
 	skope->restoreUi();
 	skope->raise();
@@ -137,6 +137,8 @@ NifSkope * NifSkope::createWindow( const QString & fname )
 	if ( !fname.isEmpty() ) {
 		skope->loadFile( fname );
 	}
+
+	skope->forceQuickResize();
 
 	return skope;
 }
@@ -149,25 +151,15 @@ void NifSkope::initActions()
 	aCondition = ui->aCondition;
 	aRCondition = ui->aRCondition;
 
-	// Build all actions list
-	allActions = QSet<QAction *>::fromList( 
-		ui->tFile->actions() 
-		<< ui->mRender->actions()
-		<< ui->tRender->actions()
-		<< ui->tAnim->actions()
-	);
-
 	// Undo/Redo
 	undoAction = nif->undoStack->createUndoAction( this, tr( "&Undo" ) );
 	undoAction->setShortcut( QKeySequence::Undo );
 	undoAction->setObjectName( "aUndo" );
 	undoAction->setIcon( QIcon( ":btn/undo" ) );
-	allActions << undoAction;
 	redoAction = nif->undoStack->createRedoAction( this, tr( "&Redo" ) );
 	redoAction->setShortcut( QKeySequence::Redo );
 	redoAction->setObjectName( "aRedo" );
 	redoAction->setIcon( QIcon( ":btn/redo" ) );
-	allActions << redoAction;
 
 	// TODO: Back/Forward button in Block List
 	//idxForwardAction = indexStack->createRedoAction( this );
@@ -631,6 +623,7 @@ void NifSkope::initToolBars()
 	} );
 
 	connect ( ogl->scene, &Scene::disableSave, [this]() {
+		ui->aSaveMenu->setDisabled(true);
 		ui->aSave->setDisabled(true);
 		ui->aSaveAs->setDisabled(true);
 		ui->aReload->setDisabled(true);
@@ -776,19 +769,22 @@ void NifSkope::openDlg()
 
 void NifSkope::onLoadBegin()
 {
-	if ( isNifLoaded ) {
-		isNifLoaded = false;
-		updateUiWidgets();
-	}
-
-	// Disconnect the models from the views
-	swapModels();
+	// Swap out the models with empty versions while loading the file.
+	// This is so that the views do not update.
+	if ( isInListMode() )
+		list->setModel( proxyEmpty );
+	else
+		list->setModel( nifEmpty );
+	tree->setModel( nifEmpty );
+	header->setModel( nifEmpty );
+	kfmtree->setModel( kfmEmpty );
 
 	ogl->setUpdatesEnabled( false );
 	ogl->setEnabled( false );
 	setEnabled( false );
-	ui->mRender->setEnabled( false );
-	ui->tRender->setEnabled( false );
+	animGroups->clear();
+	ui->tLOD->setEnabled( false );
+	ui->tLOD->setVisible( false );
 
 	progress->setVisible( true );
 	progress->reset();
@@ -798,35 +794,13 @@ void NifSkope::onLoadComplete( bool success, QString & fname )
 {
 	QApplication::restoreOverrideCursor();
 
-	// Reconnect the models to the views
-	swapModels();
-	// Set List vs Tree
-	setListMode();
-
 	// Re-enable window
 	ogl->setUpdatesEnabled( true );
 	ogl->setEnabled( true );
 	setEnabled( true ); // IMPORTANT!
-	ui->mRender->setEnabled( true );
-	ui->tRender->setEnabled( true );
 
 	int timeout = 2500;
-	if ( success ) {
-		// Scroll panel back to top
-		tree->scrollTo( nif->index( 0, 0 ) );
-
-		auto headerIndex = nif->getHeaderIndex();
-
-		select( headerIndex );
-
-		header->setRootIndex( headerIndex );
-		// Refresh the header rows
-		header->updateConditions( headerIndex.child( 0, 0 ), headerIndex.child( 20, 0 ) );
-		header->autoExpandBlock( headerIndex );
-
-		ogl->setOrientation( GLView::ViewFront );
-
-	} else {
+	if ( !success ) {
 		// File failed to load
 		Message::append( this, NifModel::tr( readFail ), 
 						 NifModel::tr( readFailFinal ).arg( fname ), QMessageBox::Critical );
@@ -844,6 +818,20 @@ void NifSkope::onLoadComplete( bool success, QString & fname )
 		progress->reset();
 	}
 
+	updateFileMenus();
+
+	// Reconnect the models to the views
+	tree->setModel( nif );
+	setListMode();
+	header->setModel( nif );
+	resetHeaderSelection();
+	kfmtree->setModel( kfm );
+
+	// Scroll panel back to top
+	tree->scrollTo( nif->index( 0, 0 ) );
+
+	ogl->setOrientation( GLView::ViewFront );
+
 	// Mark window as unmodified
 	setWindowModified( false );
 	nif->undoStack->clear();
@@ -851,13 +839,6 @@ void NifSkope::onLoadComplete( bool success, QString & fname )
 
 	// Center the model on load
 	ogl->center();
-
-	isNifLoaded = success;
-	updateUiWidgets();
-
-	// Expand the top level of Block List tree
-	if ( success && !isInListMode() )
-		list->expandToDepth(0);
 
 	// Hide Progress Bar
 	QTimer::singleShot( timeout, progress, SLOT( hide() ) );
@@ -893,6 +874,8 @@ void NifSkope::onSaveComplete( bool success, QString & fname )
 		nif->undoStack->setClean();
 		setWindowModified( false );
 	}
+
+	updateFileMenus();
 }
 
 bool NifSkope::saveConfirm()
@@ -980,6 +963,7 @@ void NifSkope::restoreUi()
 	header->header()->restoreState( settings.value( "Header Header"_uip ).toByteArray() );
 	kfmtree->header()->restoreState( settings.value( "Kfmtree Header"_uip ).toByteArray() );
 
+	// Hide advanced metadata loaded from nif.xml as it's not useful or necessary for editing
 	auto hideSections = []( NifTreeView * tree, bool hidden ) {
 		tree->header()->setSectionHidden( NifModel::ArgCol, hidden );
 		tree->header()->setSectionHidden( NifModel::Arr1Col, hidden );
@@ -990,15 +974,9 @@ void NifSkope::restoreUi()
 		tree->header()->setSectionHidden( NifModel::VerCondCol, hidden );
 	};
 
-	// Hide advanced metadata loaded from nif.xml as it's not useful or necessary for editing
-	if ( settings.value( "Settings/Nif/Hide metadata columns", true ).toBool() ) {
-		hideSections( tree, true );
-		hideSections( header, true );
-	} else {
-		// Unhide here, or header()->restoreState() will keep them perpetually hidden
-		hideSections( tree, false );
-		hideSections( header, false );
-	}
+	bool bHideMetadatColumns =  settings.value( "Settings/Nif/Hide metadata columns", true ).toBool();
+	hideSections( tree, bHideMetadatColumns );
+	hideSections( header, bHideMetadatColumns );
 
 	ui->aAnimate->setChecked( settings.value( "GLView/Enable Animations", true ).toBool() );
 	//ui->aAnimPlay->setChecked( settings.value( "GLView/Play Animation", true ).toBool() );
@@ -1019,36 +997,23 @@ void NifSkope::restoreUi()
 	tabifyDockWidget( ui->InspectDock, ui->KfmDock );
 }
 
-void NifSkope::updateUiWidgets()
+void NifSkope::updateFileMenus()
 {
-	// Update menus
-	ui->aSaveMenu->setEnabled( isNifLoaded );
-	ui->aSave->setEnabled( isNifLoaded );
-	ui->aSaveAs->setEnabled( isNifLoaded );
-	ui->aReload->setEnabled( isNifLoaded && !getCurrentFile().isEmpty() );
-	ui->aHeader->setEnabled( isNifLoaded );
+	ui->aSaveMenu->setEnabled( true );
+	ui->aSave->setEnabled( true );
+	ui->aSaveAs->setEnabled( true );
+	ui->aReload->setEnabled( !getCurrentFile().isEmpty() );
 
-	mExport->setEnabled( isNifLoaded );
-	mImport->setEnabled( isNifLoaded );
-	if ( isNifLoaded ) {
-		updateImportExportMenu(mExport);
-		updateImportExportMenu(mImport);
-	}
+	updateImportExportMenu(mExport);
+	updateImportExportMenu(mImport);
+}
 
-	mSpells->setEnabled( isNifLoaded );
-
-	ui->tAnim->setEnabled( isNifLoaded );
-	if ( !isNifLoaded )
-		animGroups->clear();
-
-	if ( !isNifLoaded ) {
-		ui->tLOD->setEnabled( false );
-		ui->tLOD->setVisible( false );
-	}
-
-	list->isFileLoaded = isNifLoaded;
-	tree->isFileLoaded = isNifLoaded;
-	header->isFileLoaded = isNifLoaded;
+void NifSkope::resetHeaderSelection()
+{
+	auto headerIndex = nif->getHeaderIndex();
+	header->setRootIndex( headerIndex );
+	header->updateConditions( headerIndex.child( 0, 0 ), headerIndex.child( 20, 0 ) );
+	header->autoExpandBlock( headerIndex );
 }
 
 void NifSkope::setViewFont( const QFont & font )
@@ -1083,7 +1048,6 @@ void NifSkope::loadTheme()
 
 	toolbarSize = ToolbarSize( settings.value( "Settings/Theme/Large Icons", ToolbarLarge ).toBool() );
 
-	//setThemeActions();
 	setToolbarSize();
 
 	switch ( theme )
@@ -1191,22 +1155,6 @@ void NifSkope::loadTheme()
 
 	qApp->setPalette( pal );
 	qApp->setStyleSheet( styleData );
-}
-
-void NifSkope::setThemeActions()
-{
-	// Map of QAction object names to QRC alias
-	QMap<QString, QString> names = {
-		//{"aTextures", "textures"}
-	};
-
-	QString themeString = (theme == ThemeDark) ? "dark" : "light";
-	for ( auto a : allActions ) {
-		auto obj = a->objectName();
-		if ( names.contains( obj ) ) {
-			a->setIcon( QIcon( QString(":btn/%1/%2").arg(themeString).arg(names[obj]) ) );
-		}
-	}
 }
 
 void NifSkope::setToolbarSize()
@@ -1363,9 +1311,6 @@ bool NifSkope::eventFilter( QObject * o, QEvent * e )
 
 void NifSkope::contextMenu( const QPoint & pos )
 {
-	if ( !isNifLoaded )
-		return;
-
 	QModelIndex idx;
 	QPoint p = pos;
 

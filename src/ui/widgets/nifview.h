@@ -114,7 +114,6 @@ protected:
 public:
 	// Do "smart auto-expand" of items when the view changes NiBlock.
 	bool doAutoExpanding = false;
-	bool isFileLoaded = false;
 protected:
 	// Block mouseRelease and mouseMove events processing. Is reset on mousePress event.
 	// This is a workaround for the following "feature" of QTreeView in Qt 5:
