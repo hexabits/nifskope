@@ -1008,8 +1008,8 @@ gli::texture load_if_valid( const char * data, unsigned int size )
 
 	dx DX;
 
-	format Format( static_cast<format>(FORMAT_INVALID) );
-	if ( (Header.Format.flags & (dx::DDPF_RGB | dx::DDPF_ALPHAPIXELS | dx::DDPF_ALPHA | dx::DDPF_YUV | dx::DDPF_LUMINANCE)) && Format == static_cast<format>(gli::FORMAT_INVALID) && Header.Format.bpp != 0 ) {
+	format Format( static_cast<format>(FORMAT_UNDEFINED) );
+	if ( (Header.Format.flags & (dx::DDPF_RGB | dx::DDPF_ALPHAPIXELS | dx::DDPF_ALPHA | dx::DDPF_YUV | dx::DDPF_LUMINANCE)) && Format == static_cast<format>(gli::FORMAT_UNDEFINED) && Header.Format.bpp != 0 ) {
 		switch ( Header.Format.bpp ) {
 		default:
 			break;
@@ -1080,13 +1080,13 @@ gli::texture load_if_valid( const char * data, unsigned int size )
 				break;
 			}
 		}
-	} else if ( (Header.Format.flags & dx::DDPF_FOURCC) && (Header.Format.fourCC != dx::D3DFMT_DX10) && (Header.Format.fourCC != dx::D3DFMT_GLI1) && (Format == static_cast<format>(gli::FORMAT_INVALID)) ) {
+	} else if ( (Header.Format.flags & dx::DDPF_FOURCC) && (Header.Format.fourCC != dx::D3DFMT_DX10) && (Header.Format.fourCC != dx::D3DFMT_GLI1) && (Format == static_cast<format>(gli::FORMAT_UNDEFINED)) ) {
 		dx::d3dfmt const FourCC = remap_four_cc( Header.Format.fourCC );
 		Format = DX.find( FourCC );
 	} else if ( Header.Format.fourCC == dx::D3DFMT_DX10 || Header.Format.fourCC == dx::D3DFMT_GLI1 )
 		Format = DX.find( Header.Format.fourCC, Header10.Format );
 
-	if ( Format == static_cast<format>(FORMAT_INVALID) )
+	if ( Format == static_cast<format>(FORMAT_UNDEFINED) )
 		return texture();
 
 	size_t const MipMapCount = (Header.Flags & DDSD_MIPMAPCOUNT) ? Header.MipMapLevels : 1;
