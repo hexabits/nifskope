@@ -55,6 +55,7 @@ QCoreApplication * createApplication( int &argc, char *argv[] )
 	// There are some indications that the code is not needed in Qt 6, so this whole subject might be revisited after migrating to Qt 6.
 	#if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
 		QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
+		QGuiApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
 	#endif
 	// Iterate over args
 	for ( int i = 1; i < argc; ++i ) {
