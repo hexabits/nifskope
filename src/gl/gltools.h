@@ -275,4 +275,8 @@ void renderText( const Vector3 & c, const QString & str );
 #define ID2COLORKEY( id ) (id + 1)
 #define COLORKEY2ID( id ) (id - 1)
 
+//! Returns the real size of a QWidget (what's called the client rectangle in Windows) in pixels.
+// This is a workaround for QWidget::size(), QWidget::width(), etc. returning real pixels divided by the system UI scale, with all the rounding errors accompanying that.
+QSize getWidgetRealSize( QWidget * widget );
+
 #endif

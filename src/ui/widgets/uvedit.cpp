@@ -481,7 +481,8 @@ void UVWidget::setupViewport( int width, int height )
 	glMatrixMode( GL_PROJECTION );
 	glLoadIdentity();
 
-	glViewport( 0, 0, width, height );
+	auto vportSize = getWidgetRealSize( this );
+	glViewport( 0, 0, vportSize.width(), vportSize.height() );
 
 	glOrtho( glViewRect[0], glViewRect[1], glViewRect[2], glViewRect[3], -10.0, +10.0 );
 }

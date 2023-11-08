@@ -38,6 +38,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <QMap>
 #include <QStack>
 #include <QVector>
+#include <QWindow>
 
 #include <stack>
 #include <map>
@@ -1121,5 +1122,26 @@ void renderText( double x, double y, double z, const QString & str )
 	QByteArray cstr( str.toLatin1() );
 	glCallLists( cstr.size(), GL_UNSIGNED_BYTE, cstr.constData() );
 	glPopAttrib();
+}
+
+QSize getWidgetRealSize( QWidget * widget )
+{
+	auto w = widget->window();
+	if ( w ) {
+#ifdef Q_OS_WIN32
+		RECT wrect;
+		if ( GetClientRect( (HWND) w->winId(), &wrect ) )
+			return QSize( wrect.right, wrect.bottom );
+#endif
+
+		auto whandle = w->windowHandle();
+		if ( whandle ) {
+			double scaleFactor = whandle->devicePixelRatio();
+			if ( scaleFactor != 1.0 && scaleFactor > 0.0 )
+				return QSize( qRound( widget->width() * scaleFactor ), qRound( widget->height() * scaleFactor ) );
+		}
+	}
+
+	return widget->size();
 }
 
