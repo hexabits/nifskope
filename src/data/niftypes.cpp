@@ -39,6 +39,24 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 //! @file niftypes.cpp Type functions
 
+float normDegf( float deg )
+{
+	while ( deg < 0.0f )
+		deg += 360.0f;
+	while ( deg >= 360.0f )
+		deg -= 360.0f;
+	return deg;
+}
+
+double normDegd( double deg )
+{
+	while ( deg < 0.0 )
+		deg += 360.0;
+	while ( deg >= 360.0 )
+		deg -= 360.0;
+	return deg;
+}
+
 const float Quat::identity[4] = {
 	1.0, 0.0, 0.0, 0.0
 };

@@ -430,6 +430,10 @@ private:
 	QStandardItemModel * emptyModel;
 
 	QMenu * mRecentArchiveFiles;
+
+	QActionGroup * viewActions = nullptr;
+protected slots:
+	void updateCurrentViewAction();
 };
 
 

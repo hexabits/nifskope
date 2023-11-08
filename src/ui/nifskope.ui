@@ -1081,9 +1081,6 @@ background: qradialgradient(spread:pad, cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0
    <property name="checkable">
     <bool>true</bool>
    </property>
-   <property name="checked">
-    <bool>true</bool>
-   </property>
    <property name="icon">
     <iconset resource="../../res/nifskope.qrc">
      <normaloff>:/btn/cubeFront16</normaloff>:/btn/cubeFront16</iconset>
@@ -1135,10 +1132,10 @@ background: qradialgradient(spread:pad, cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0
     <string>Load View</string>
    </property>
    <property name="toolTip">
-    <string>Load View</string>
+    <string>Load Saved View</string>
    </property>
    <property name="statusTip">
-    <string>Load View</string>
+    <string>Load Saved View</string>
    </property>
    <property name="shortcut">
     <string>F8</string>
@@ -1643,10 +1640,10 @@ background: qradialgradient(spread:pad, cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0
      <normaloff>:/btn/bulb</normaloff>:/btn/bulb</iconset>
    </property>
    <property name="text">
-    <string/>
+    <string>Lighting Options</string>
    </property>
    <property name="toolTip">
-    <string/>
+    <string>Lighting Options</string>
    </property>
    <property name="statusTip">
     <string>Lighting Options</string>

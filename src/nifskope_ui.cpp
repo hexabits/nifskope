@@ -350,14 +350,7 @@ void NifSkope::initActions()
 	connect( ogl, &GLView::clicked, this, &NifSkope::select );
 	connect( ogl, &GLView::sceneTimeChanged, inspect, &InspectView::updateTime );
 	connect( ogl, &GLView::paintUpdate, inspect, &InspectView::refresh );
-	connect( ogl, &GLView::viewpointChanged, [this]() {
-		ui->aViewTop->setChecked( false );
-		ui->aViewFront->setChecked( false );
-		ui->aViewLeft->setChecked( false );
-		ui->aViewUser->setChecked( false );
-
-		ogl->setOrientation( GLView::ViewDefault, false );
-	} );
+	connect( ogl, &GLView::viewModeChanged, this, &NifSkope::updateCurrentViewAction );
 
 	connect( graphicsView, &GLGraphicsView::customContextMenuRequested, this, &NifSkope::contextMenu );
 
@@ -542,13 +535,15 @@ void NifSkope::initToolBars()
 
 	// Render
 
-	QActionGroup * grpView = new QActionGroup( this );
-	grpView->addAction( ui->aViewTop );
-	grpView->addAction( ui->aViewFront );
-	grpView->addAction( ui->aViewLeft );
-	grpView->addAction( ui->aViewWalk );
-	grpView->setExclusive( true );
+	viewActions = new QActionGroup( this );
+	viewActions->addAction( ui->aViewTop );
+	viewActions->addAction( ui->aViewFront );
+	viewActions->addAction( ui->aViewLeft );
+	viewActions->addAction( ui->aViewWalk );
+	viewActions->addAction( ui->aViewUser );
+	viewActions->setExclusive( true );
 
+	updateCurrentViewAction();
 
 	// Animate
 	connect( ui->aAnimate, &QAction::toggled, ui->tAnim, &QToolBar::setVisible );
@@ -769,6 +764,10 @@ void NifSkope::openDlg()
 
 void NifSkope::onLoadBegin()
 {
+	setEnabled( false );
+	ogl->setUpdatesEnabled( false );
+	ogl->setEnabled( false );
+
 	// Swap out the models with empty versions while loading the file.
 	// This is so that the views do not update.
 	if ( isInListMode() )
@@ -779,9 +778,6 @@ void NifSkope::onLoadBegin()
 	header->setModel( nifEmpty );
 	kfmtree->setModel( kfmEmpty );
 
-	ogl->setUpdatesEnabled( false );
-	ogl->setEnabled( false );
-	setEnabled( false );
 	animGroups->clear();
 	ui->tLOD->setEnabled( false );
 	ui->tLOD->setVisible( false );
@@ -793,11 +789,6 @@ void NifSkope::onLoadBegin()
 void NifSkope::onLoadComplete( bool success, QString & fname )
 {
 	QApplication::restoreOverrideCursor();
-
-	// Re-enable window
-	ogl->setUpdatesEnabled( true );
-	ogl->setEnabled( true );
-	setEnabled( true ); // IMPORTANT!
 
 	int timeout = 2500;
 	if ( !success ) {
@@ -827,18 +818,18 @@ void NifSkope::onLoadComplete( bool success, QString & fname )
 	resetHeaderSelection();
 	kfmtree->setModel( kfm );
 
-	// Scroll panel back to top
-	tree->scrollTo( nif->index( 0, 0 ) );
-
-	ogl->setOrientation( GLView::ViewFront );
+	ogl->setViewMode( GLView::ViewFront );
+	ogl->center(); // Force (re)center the view on the model because ogl->setViewMode not always does this.
 
 	// Mark window as unmodified
 	setWindowModified( false );
 	nif->undoStack->clear();
 	indexStack->clear();
 
-	// Center the model on load
-	ogl->center();
+	// Re-enable window
+	ogl->setUpdatesEnabled( true );
+	ogl->setEnabled( true );
+	setEnabled( true ); // IMPORTANT!
 
 	// Hide Progress Bar
 	QTimer::singleShot( timeout, progress, SLOT( hide() ) );
@@ -1012,7 +1003,8 @@ void NifSkope::resetHeaderSelection()
 {
 	auto headerIndex = nif->getHeaderIndex();
 	header->setRootIndex( headerIndex );
-	header->updateConditions( headerIndex.child( 0, 0 ), headerIndex.child( 20, 0 ) );
+	int iLastChild = std::max( nif->rowCount( headerIndex ) - 1, 0 );
+	header->updateConditions( headerIndex.child( 0, 0 ), headerIndex.child( iLastChild, 0 ) );
 	header->autoExpandBlock( headerIndex );
 }
 
@@ -1401,31 +1393,26 @@ void NifSkope::on_aHeader_triggered()
 	select( nif->getHeaderIndex() );
 }
 
-
-void NifSkope::on_tRender_actionTriggered( QAction * action )
+void NifSkope::on_tRender_actionTriggered( [[maybe_unused]] QAction * action )
 {
-	Q_UNUSED( action );
 }
 
 void NifSkope::on_aViewTop_triggered( bool checked )
 {
-	if ( checked ) {
-		ogl->setOrientation( GLView::ViewTop );
-	}
+	if ( checked )
+		ogl->setViewMode( GLView::ViewTop );
 }
 
 void NifSkope::on_aViewFront_triggered( bool checked )
 {
-	if ( checked ) {
-		ogl->setOrientation( GLView::ViewFront );
-	}
+	if ( checked )
+		ogl->setViewMode( GLView::ViewFront );
 }
 
 void NifSkope::on_aViewLeft_triggered( bool checked )
 {
-	if ( checked ) {
-		ogl->setOrientation( GLView::ViewLeft );
-	}
+	if ( checked )
+		ogl->setViewMode( GLView::ViewLeft );
 }
 
 void NifSkope::on_aViewCenter_triggered()
@@ -1433,10 +1420,9 @@ void NifSkope::on_aViewCenter_triggered()
 	ogl->center();
 }
 
-void NifSkope::on_aViewFlip_triggered( bool checked )
+void NifSkope::on_aViewFlip_triggered( [[maybe_unused]] bool checked )
 {
-	Q_UNUSED( checked );
-	ogl->flipOrientation();
+	ogl->flipView();
 }
 
 void NifSkope::on_aViewPerspective_toggled( bool checked )
@@ -1446,26 +1432,19 @@ void NifSkope::on_aViewPerspective_toggled( bool checked )
 
 void NifSkope::on_aViewWalk_triggered( bool checked )
 {
-	if ( checked ) {
-		ogl->setOrientation( GLView::ViewWalk );
-	}
+	if ( checked )
+		ogl->setViewMode( GLView::ViewWalk );
 }
 
-
-void NifSkope::on_aViewUserSave_triggered( bool checked )
+void NifSkope::on_aViewUserSave_triggered( [[maybe_unused]] bool checked )
 { 
-	Q_UNUSED( checked );
 	ogl->saveUserView();
-	ui->aViewUser->setChecked( true );
 }
-
 
 void NifSkope::on_aViewUser_toggled( bool checked )
 {
-	if ( checked ) {
-		ogl->setOrientation( GLView::ViewUser, false );
-		ogl->loadUserView();
-	}
+	if ( checked )
+		ogl->setViewMode( GLView::ViewUser );
 }
 
 void NifSkope::on_aSettings_triggered()
@@ -1480,4 +1459,35 @@ void NifSkope::on_mTheme_triggered( QAction * action )
 	auto newTheme = WindowTheme( action->data().toInt() );
 
 	setTheme( newTheme );
+}
+
+void NifSkope::updateCurrentViewAction()
+{
+	QAction * pSelectedView = nullptr;
+
+	switch( ogl->view ) {
+	case GLView::ViewFront:
+		pSelectedView = ui->aViewFront;
+		break;
+	case GLView::ViewLeft:
+		pSelectedView = ui->aViewLeft;
+		break;
+	case GLView::ViewTop:
+		pSelectedView = ui->aViewTop;
+		break;
+	case GLView::ViewWalk:
+		pSelectedView = ui->aViewWalk;
+		break;
+	case GLView::ViewUser:
+		pSelectedView = ui->aViewUser;
+		break;
+	}
+
+	if ( pSelectedView ) {
+		pSelectedView->setChecked( true );
+	} else if ( viewActions ) {
+		pSelectedView = viewActions->checkedAction();
+		if ( pSelectedView )
+			pSelectedView->setChecked( false );
+	}
 }

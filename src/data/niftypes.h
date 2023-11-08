@@ -71,6 +71,15 @@ constexpr inline float deg2rad( float deg ) { return deg2radf( deg ); }
 //! Convert degrees to radians (double).
 constexpr inline double deg2rad( double deg ) { return deg2radd( deg ); }
 
+//! Normalize angle value in degrees to 0 (inclusive)..360 (exclusive) range.
+float normDegf( float deg );
+//! Normalize angle value in degrees to 0 (inclusive)..360 (exclusive) range.
+double normDegd( double deg );
+//! Normalize angle value in degrees to 0 (inclusive)..360 (exclusive) range.
+inline float normDeg( float deg ) { return normDegf( deg ); }
+//! Normalize angle value in degrees to 0 (inclusive)..360 (exclusive) range.
+inline double normDeg( double deg ) { return normDegd( deg ); }
+
 
 class NifItem;
 class NifModel;

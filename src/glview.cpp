@@ -927,18 +927,17 @@ void GLView::center()
 	update();
 }
 
-void GLView::move( float x, float y, float z )
+void GLView::moveBy( float x, float y, float z )
 {
 	Pos += Matrix::euler( deg2rad(Rot[0]), deg2rad(Rot[1]), deg2rad(Rot[2]) ).inverted() * Vector3( x, y, z );
-	updateViewpoint();
 	update();
+	resetViewMode();
 }
 
-void GLView::rotate( float x, float y, float z )
+void GLView::rotateBy( float x, float y, float z )
 {
-	Rot += Vector3( x, y, z );
-	updateViewpoint();
-	update();
+	setRotation( Rot[0] + x, Rot[1] + y, Rot[2] + z );
+	resetViewMode();
 }
 
 void GLView::setCenter()
@@ -949,7 +948,7 @@ void GLView::setCenter()
 		// Center on selected node
 		BoundSphere bs = node->bounds();
 
-		this->setPosition( -bs.center );
+		setPosition( -bs.center );
 
 		if ( bs.radius > 0 ) {
 			setDistance( bs.radius * 1.2 );
@@ -965,8 +964,6 @@ void GLView::setCenter()
 		setZoom( 1.0 );
 
 		setPosition( -bs.center );
-
-		setOrientation( view );
 	}
 }
 
@@ -996,7 +993,9 @@ void GLView::setProjection( bool isPersp )
 
 void GLView::setRotation( float x, float y, float z )
 {
-	Rot = { x, y, z };
+	Rot[0] = normDeg( x );
+	Rot[1] = normDeg( y );
+	Rot[2] = normDeg( z );
 	update();
 }
 
@@ -1014,90 +1013,82 @@ void GLView::setZoom( float z )
 }
 
 
-void GLView::flipOrientation()
+void GLView::flipView()
 {
-	ViewState tmp = ViewDefault;
-
 	switch ( view ) {
 	case ViewTop:
-		tmp = ViewBottom;
+		setViewMode( ViewBottom );
 		break;
 	case ViewBottom:
-		tmp = ViewTop;
+		setViewMode( ViewTop );
 		break;
 	case ViewLeft:
-		tmp = ViewRight;
+		setViewMode( ViewRight );
 		break;
 	case ViewRight:
-		tmp = ViewLeft;
+		setViewMode( ViewLeft );
 		break;
 	case ViewFront:
-		tmp = ViewBack;
+		setViewMode( ViewBack );
 		break;
 	case ViewBack:
-		tmp = ViewFront;
+		setViewMode( ViewFront );
 		break;
-	case ViewUser:
 	default:
-	{
-		// TODO: Flip any other view also?
-	}
+		setRotation( 180.0f - Rot[0], Rot[1], Rot[2] + 180.0f );
+		resetViewMode();
 		break;
 	}
-
-	setOrientation( tmp, false );
 }
 
-void GLView::setOrientation( GLView::ViewState state, bool recenter )
+void GLView::setViewMode( GLView::ViewState newView )
 {
-	if ( state == view )
+	if ( view == newView )
 		return;
 
-	switch ( state ) {
+	auto oldView = view;
+	view = newView;
+
+	auto onDirViewModeChange = [this, oldView]( float rotX, float rotY, float rotZ ) {
+		setRotation( rotX, rotY, rotZ );
+		if ( oldView != ViewBottom && oldView != ViewTop && oldView != ViewBack && oldView != ViewFront && oldView != ViewRight && oldView != ViewLeft )
+			center();
+	};
+
+	switch ( view ) {
 	case ViewBottom:
-		setRotation( 180, 0, 0 ); // Bottom
+		onDirViewModeChange( 180, 0, 0 ); // Bottom
 		break;
 	case ViewTop:
-		setRotation( 0, 0, 0 ); // Top
+		onDirViewModeChange( 0, 0, 0 ); // Top
 		break;
 	case ViewBack:
-		setRotation( -90, 0, 0 ); // Back
+		onDirViewModeChange( -90, 0, 0 ); // Back
 		break;
 	case ViewFront:
-		setRotation( -90, 0, 180 ); // Front
+		onDirViewModeChange( -90, 0, 180 ); // Front
 		break;
 	case ViewRight:
-		setRotation( -90, 0, 90 ); // Right
+		onDirViewModeChange( -90, 0, 90 ); // Right
 		break;
 	case ViewLeft:
-		setRotation( -90, 0, -90 ); // Left
+		onDirViewModeChange( -90, 0, -90 ); // Left
 		break;
-	default:
+	case ViewWalk:
+		center();
+		break;
+	case ViewUser:
+		loadUserView();
 		break;
 	}
 
-	view = state;
-
-	// Recenter
-	if ( recenter )
-		center();
+	emit viewModeChanged();
 }
 
-void GLView::updateViewpoint()
+void GLView::resetViewMode()
 {
-	switch ( view ) {
-	case ViewTop:
-	case ViewBottom:
-	case ViewLeft:
-	case ViewRight:
-	case ViewFront:
-	case ViewBack:
-	case ViewUser:
-		emit viewpointChanged();
-		break;
-	default:
-		break;
-	}
+	if ( view != ViewDefault && view != ViewWalk )
+		setViewMode( ViewDefault );
 }
 
 void GLView::flush()
@@ -1312,20 +1303,20 @@ void GLView::advanceGears()
 	// keys based on user preferences of what app they would like to
 	// emulate for the control scheme
 	// Rotation
-	if ( kbd[ Qt::Key_Up ] )    rotate( -cfg.rotSpd * dT, 0, 0 );
-	if ( kbd[ Qt::Key_Down ] )  rotate( +cfg.rotSpd * dT, 0, 0 );
-	if ( kbd[ Qt::Key_Left ] )  rotate( 0, 0, -cfg.rotSpd * dT );
-	if ( kbd[ Qt::Key_Right ] ) rotate( 0, 0, +cfg.rotSpd * dT );
+	if ( kbd[ Qt::Key_Up ] )    rotateBy( -cfg.rotSpd * dT, 0, 0 );
+	if ( kbd[ Qt::Key_Down ] )  rotateBy( +cfg.rotSpd * dT, 0, 0 );
+	if ( kbd[ Qt::Key_Left ] )  rotateBy( 0, 0, -cfg.rotSpd * dT );
+	if ( kbd[ Qt::Key_Right ] ) rotateBy( 0, 0, +cfg.rotSpd * dT );
 
 	// Fix movement speed for Starfield scale
 	dT *= scale();
 	// Movement
-	if ( kbd[ Qt::Key_A ] ) move( +cfg.moveSpd * dT, 0, 0 );
-	if ( kbd[ Qt::Key_D ] ) move( -cfg.moveSpd * dT, 0, 0 );
-	if ( kbd[ Qt::Key_W ] ) move( 0, 0, +cfg.moveSpd * dT );
-	if ( kbd[ Qt::Key_S ] ) move( 0, 0, -cfg.moveSpd * dT );
-	if ( kbd[ Qt::Key_Q ] ) move( 0, +cfg.moveSpd * dT, 0 );
-	if ( kbd[ Qt::Key_E ] ) move( 0, -cfg.moveSpd * dT, 0 );
+	if ( kbd[ Qt::Key_A ] ) moveBy( +cfg.moveSpd * dT, 0, 0 );
+	if ( kbd[ Qt::Key_D ] ) moveBy( -cfg.moveSpd * dT, 0, 0 );
+	if ( kbd[ Qt::Key_W ] ) moveBy( 0, 0, +cfg.moveSpd * dT );
+	if ( kbd[ Qt::Key_S ] ) moveBy( 0, 0, -cfg.moveSpd * dT );
+	if ( kbd[ Qt::Key_Q ] ) moveBy( 0, +cfg.moveSpd * dT, 0 );
+	if ( kbd[ Qt::Key_E ] ) moveBy( 0, -cfg.moveSpd * dT, 0 );
 
 	// Zoom
 	//if ( kbd[ Qt::Key_R ] ) setDistance( Dist / ZOOM_QE_KEY_MULT );
@@ -1336,12 +1327,12 @@ void GLView::advanceGears()
 	if ( kbd[ Qt::Key_PageDown ] ) setZoom( Zoom / ZOOM_PAGE_KEY_MULT );
 
 	if ( mouseMov[0] != 0 || mouseMov[1] != 0 || mouseMov[2] != 0 ) {
-		move( mouseMov[0], mouseMov[1], mouseMov[2] );
+		moveBy( mouseMov[0], mouseMov[1], mouseMov[2] );
 		mouseMov = Vector3();
 	}
 
 	if ( mouseRot[0] != 0 || mouseRot[1] != 0 || mouseRot[2] != 0 ) {
-		rotate( mouseRot[0], mouseRot[1], mouseRot[2] );
+		rotateBy( mouseRot[0], mouseRot[1], mouseRot[2] );
 		mouseRot = Vector3();
 	}
 }

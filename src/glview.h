@@ -123,13 +123,13 @@ public:
 
 	Scene * getScene();
 	void updateShaders();
-	void updateViewpoint();
+	void resetViewMode();
 
 	void flush();
 
 	void center();
-	void move( float, float, float );
-	void rotate( float, float, float );
+	void moveBy( float x, float y, float z );
+	void rotateBy( float x, float y, float z );
 
 	void setCenter();
 	void setDistance( float );
@@ -139,8 +139,8 @@ public:
 	void setRotation( float, float, float );
 	void setZoom( float );
 
-	void setOrientation( GLView::ViewState, bool recenter = true );
-	void flipOrientation();
+	void setViewMode( GLView::ViewState state );
+	void flipView();
 
 	void setDebugMode( DebugMode );
 
@@ -156,12 +156,13 @@ public:
 	QSize minimumSizeHint() const override final { return { 50, 50 }; }
 	QSize sizeHint() const override final { return { 400, 400 }; }
 
-public slots:
 	void setCurrentIndex( const QModelIndex & );
-	void setSceneTime( float );
-	void setSceneSequence( const QString & );
 	void saveUserView();
 	void loadUserView();
+
+public slots:
+	void setSceneTime( float );
+	void setSceneSequence( const QString & );
 	void setBrightness( int );
 	void setAmbient( int );
 	void setDeclination( int );
@@ -176,7 +177,7 @@ signals:
 	void clicked( const QModelIndex & );
 	void paintUpdate();
 	void sceneTimeChanged( float t, float mn, float mx );
-	void viewpointChanged();
+	void viewModeChanged();
 
 	void sequenceStopped();
 	void sequenceChanged( const QString & );
