@@ -1126,14 +1126,14 @@ void renderText( double x, double y, double z, const QString & str )
 
 QSize getWidgetRealSize( QWidget * widget )
 {
-	auto w = widget->window();
-	if ( w ) {
 #ifdef Q_OS_WIN32
-		RECT wrect;
-		if ( GetClientRect( (HWND) w->winId(), &wrect ) )
-			return QSize( wrect.right, wrect.bottom );
+	RECT wrect;
+	if ( GetClientRect( (HWND) widget->winId(), &wrect ) )
+		return QSize( wrect.right, wrect.bottom );
 #endif
 
+	auto w = widget->window();
+	if ( w ) {
 		auto whandle = w->windowHandle();
 		if ( whandle ) {
 			double scaleFactor = whandle->devicePixelRatio();
