@@ -109,21 +109,21 @@ public:
 	 * This function is used to resolve external resources.
 	 * @return The folder of the last file that was loaded with loadFromFile.
 	 */
-	QString getFolder() const { return folder; }
+	const QString & getFolder() const { return folder; }
 
 	/*! If the model was loaded from a file then getFilename returns the filename.
 	 *
 	 * This function is used to resolve external resources.
 	 * @return The filename (without extension) of the last file that was loaded with loadFromFile.
 	 */
-	QString getFilename() const { return filename; }
+	const QString & getFilename() const { return filename; }
 
 	/*! If the model was loaded from a file then getFileInfo returns a QFileInfo object.
 	 *
 	 * This function is used to resolve external resources.
 	 * @return The file info of the last file that was loaded with loadFromFile.
 	 */
-	QFileInfo getFileInfo() const { return fileinfo; }
+	const QFileInfo & getFileInfo() const { return fileinfo; }
 
 	//! Updates stored file and folder information
 	void refreshFileInfo( const QString & );
