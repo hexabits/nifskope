@@ -198,6 +198,7 @@ HEADERS += \
 	src/ui/checkablemessagebox.h \
 	src/ui/settingsdialog.h \
 	src/ui/settingspane.h \
+	src/ui/ToolDialog.h \
 	src/xml/nifexpr.h \
 	src/xml/xmlconfig.h \
 	src/gamemanager.h \
@@ -291,6 +292,7 @@ SOURCES += \
 	src/ui/checkablemessagebox.cpp \
 	src/ui/settingsdialog.cpp \
 	src/ui/settingspane.cpp \
+	src/ui/ToolDialog.cpp \
 	src/xml/kfmxml.cpp \
 	src/xml/nifexpr.cpp \
 	src/xml/nifxml.cpp \
