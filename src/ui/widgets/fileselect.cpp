@@ -56,7 +56,7 @@ CompletionAction::CompletionAction( QObject * parent ) : QAction( "Completion of
 {
 	QSettings cfg;
 	setCheckable( true );
-	setChecked( cfg.value( "completion of file names", false ).toBool() );
+	setChecked( cfg.value( "completion of file names", true ).toBool() );
 
 	connect( this, &CompletionAction::toggled, this, &CompletionAction::sltToggled );
 }
@@ -85,6 +85,7 @@ FileSelector::FileSelector( Modes mode, const QString & buttonText, QBoxLayout::
 
 	action = new QAction( this );
 	action->setText( buttonText );
+	action->setIconText( buttonText ); // To support browse buttons with names like "..."
 	connect( action, &QAction::triggered, this, &FileSelector::browse );
 
 	if ( !keySeq.isEmpty() ) {
@@ -95,10 +96,11 @@ FileSelector::FileSelector( Modes mode, const QString & buttonText, QBoxLayout::
 
 	QToolButton * button = new QToolButton( this );
 	button->setDefaultAction( action );
+	button->setFixedHeight( line->sizeHint().height() + 2 ); // Without the "+ 2" the actual height of the button is smaller than line->sizeHint().height()
 
 	lay->addWidget( line );
 	lay->addWidget( button );
-
+	
 	// setFocusProxy( line );
 
 	line->installEventFilter( this );
@@ -113,7 +115,6 @@ FileSelector::FileSelector( Modes mode, const QString & buttonText, QBoxLayout::
 	timer->setInterval( FEEDBACK_TIME );
 	connect( timer, &QTimer::timeout, this, &FileSelector::rstState );
 }
-
 
 void FileSelector::setCompletionEnabled( bool x )
 {
@@ -203,31 +204,69 @@ QStringList FileSelector::filter() const
 	return fltr;
 }
 
+QString getFilterFromFilePath( const QStringList & filters, const QString & path )
+{
+	QString defaultResult;
+
+	if ( filters.count() <= 1 ) // No choice anyway...
+		return defaultResult;
+
+	if ( path.isEmpty() )
+		return defaultResult;
+
+	QFileInfo finfo( path );
+	if ( finfo.isDir() )
+		return defaultResult;
+
+	QString fext = finfo.suffix();
+	if ( fext.isEmpty() )
+		return defaultResult;
+
+	// Look for a filter with "*.<fext>" in its last pair of () brackets
+	QString lookupExt = QStringLiteral("*.") + fext;
+	for ( const QString & filterEntry : filters ) {
+		int iExtStart = filterEntry.lastIndexOf( QStringLiteral("(") );
+		if ( iExtStart < 0 )
+			continue;
+		iExtStart++;
+
+		int iExtEnd = filterEntry.lastIndexOf( QStringLiteral(")") );
+		if ( iExtEnd <= iExtStart )
+			continue;
+
+		QStringList filterExtensions = filterEntry.mid( iExtStart, iExtEnd - iExtStart ).split( QStringLiteral(" ") );
+		for ( const auto & filterExt : filterExtensions ) {
+			if ( filterExt.compare( lookupExt, Qt::CaseInsensitive ) == 0 )
+				return filterEntry;
+		}
+	}
+
+	return defaultResult;
+}
+
 void FileSelector::browse()
 {
-	QString x;
+	QString newPath;
+	QString curPath = file();
+	QString startFilter;
 
 	switch ( Mode ) {
 	case Folder:
-		x = QFileDialog::getExistingDirectory( this, tr( "Choose a folder" ), file() );
+		newPath = QFileDialog::getExistingDirectory( this, tr( "Choose a folder" ), curPath );
 		break;
 	case LoadFile:
 		// Qt uses ;; as separator if multiple types are available
-		{
-			QStringList allfltr = fltr;
-			x = QFileDialog::getOpenFileName( this, tr( "Choose a file" ), file(), allfltr.join( ";;" ) );
-		}
+		startFilter = getFilterFromFilePath( fltr, curPath );
+		newPath = QFileDialog::getOpenFileName( this, tr( "Choose a file" ), curPath, fltr.join( ";;" ), startFilter.isEmpty() ? nullptr : &startFilter );
 		break;
 	case SaveFile:
-		{
-			QStringList saveFltr = fltr; saveFltr.removeAt( 0 );   // Remove "All Files"
-			x = QFileDialog::getSaveFileName( this, tr( "Choose a file" ), file(), saveFltr.join( ";;" ) );
-		}
+		startFilter = getFilterFromFilePath( fltr, curPath );
+		newPath = QFileDialog::getSaveFileName( this, tr( "Choose a file" ), curPath, fltr.join( ";;" ), startFilter.isEmpty() ? nullptr : &startFilter );
 		break;
 	}
 
-	if ( !x.isEmpty() ) {
-		line->setText( x );
+	if ( !newPath.isEmpty() ) {
+		line->setText( newPath );
 		activate();
 	}
 }

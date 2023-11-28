@@ -549,7 +549,7 @@ class spTextureTemplate final : public Spell
 		dlg.setLayout( lay );
 
 		FileSelector * file = new FileSelector( FileSelector::SaveFile, "File", QBoxLayout::RightToLeft );
-		file->setFilter( { "", "PNG (*.png)", "BMP (*.bmp)" } );
+		file->setFilter( { "PNG (*.png)", "BMP (*.bmp)" } );
 		lay->addWidget( file, 0, 0, 1, 2 );
 
 		lay->addWidget( new QLabel( "Size" ), 1, 0 );
