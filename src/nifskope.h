@@ -117,6 +117,8 @@ public:
 	//! Restore NifSkope UI settings.
 	void restoreUi();
 
+	void updateWindowTitle();
+
 	//! Returns path of currently open file
 	const QString & getCurrentFile() const;
 

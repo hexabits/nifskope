@@ -35,6 +35,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "data/nifvalue.h"
 #include "model/nifmodel.h"
 #include "model/kfmmodel.h"
+#include "ui/UiUtils.h"
 
 #include "gamemanager.h"
 
@@ -82,7 +83,7 @@ int main( int argc, char * argv[] )
 		a->setOrganizationDomain( "niftools.org" );
 		a->setApplicationName( "NifSkope " + NifSkopeVersion::rawToMajMin( NIFSKOPE_VERSION ) );
 		a->setApplicationVersion( NIFSKOPE_VERSION );
-		a->setApplicationDisplayName( "NifSkope " + NifSkopeVersion::rawToDisplay( NIFSKOPE_VERSION, true ) );
+		UIUtils::applicationDisplayName = "NifSkope " + NifSkopeVersion::rawToDisplay( NIFSKOPE_VERSION, true );
 
 		// Must set current directory or this causes issues with several features
 		QDir::setCurrent( qApp->applicationDirPath() );

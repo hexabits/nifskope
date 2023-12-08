@@ -34,11 +34,13 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define GLVIEW
 
 #include "gl/glscene.h"
+#include "ui/ToolDialog.h"
 
 #include <QGLWidget> // Inherited
 #include <QGraphicsView>
 #include <QDateTime>
 #include <QPersistentModelIndex>
+#include <QFileInfo>
 
 #include <math.h>
 
@@ -62,6 +64,7 @@ class GLView final : public QGLWidget
 
 	friend class NifSkope;
 	friend class GLGraphicsView;
+	friend class ScreenshotDialog;
 
 private:
 	GLView( const QGLFormat & format, QWidget * parent, const QGLWidget * shareWidget = 0 );
@@ -215,6 +218,8 @@ protected:
 
 protected slots:
 	void saveImage();
+protected:
+	QImage captureScreenshot( int imageScale );
 
 private:
 	NifModel * model;
@@ -238,8 +243,15 @@ private:
 	GLdouble grid;
 	Transform viewTrans;
 
-	GLdouble aspect;
-	
+	int viewportWidth = -1;
+	int viewportHeight = 1;
+	int globalScale = 1;
+	double uiScale = 1.0;
+	GLdouble aspectWidth = 0;
+	GLdouble aspectHeight = 1;
+	int axesSize = 0;
+	void cacheViewportSize();
+
 	QHash<int, bool> kbd;
 	QPoint lastPos;
 	QPoint pressPos;
@@ -312,6 +324,37 @@ private:
 
 	QStringList draggedNifs;
 
+};
+
+class ScreenshotDialog final : public ToolDialog
+{
+	Q_OBJECT
+
+public:
+	ScreenshotDialog( GLView * parent );
+
+protected slots:
+	void onPathEdit();
+	void onAppDirClicked();
+	void onNifDirClicked();
+	void onSaveClicked();
+
+private:
+	GLView * view;
+	QString appScreenshotsPath;
+
+	class FileSelector * pathWidget = nullptr;
+	QLabel * qualityLabel = nullptr;
+	QSpinBox * qualityBox = nullptr;
+	QButtonGroup * imageScaleGroup = nullptr;
+
+	QFileInfo imagePathInfo() const;
+
+	const QString & modelFolder() const;
+
+	void updateQualityUI( const QString & extension );
+
+	void switchToDirectory( const QString & dirPath );
 };
 
 #endif

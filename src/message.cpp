@@ -7,6 +7,8 @@
 #include <QScreen>
 #include <QTimer>
 
+#include "ui/UiUtils.h"
+
 
 Q_LOGGING_CATEGORY( ns, "nifskope" )
 Q_LOGGING_CATEGORY( nsGl, "nifskope.gl" )
@@ -32,6 +34,7 @@ QMessageBox* Message::message( QWidget * parent, const QString & str, QMessageBo
 	msgBox->setWindowFlags( msgBox->windowFlags() | Qt::Tool );
 	msgBox->setAttribute( Qt::WA_DeleteOnClose );
 	msgBox->setWindowModality( Qt::NonModal );
+	UIUtils::setWindowTitle( msgBox );
 
 	msgBox->setText( str );
 	msgBox->setIcon( icon );
@@ -53,6 +56,7 @@ QMessageBox* Message::message( QWidget * parent, const QString & str, const QStr
 	msgBox->setAttribute( Qt::WA_DeleteOnClose );
 	msgBox->setWindowModality( Qt::NonModal );
 	msgBox->setWindowFlags( msgBox->windowFlags() | Qt::Tool );
+	UIUtils::setWindowTitle( msgBox );
 
 	msgBox->setText( str );
 	msgBox->setIcon( icon );
@@ -144,6 +148,8 @@ public:
 	explicit DetailsMessageBox( QWidget * parent, const QString & txt )
 		: QMessageBox( parent ), msgKey( txt )
 	{
+		UIUtils::setWindowTitle( this );
+
 		detailFlushTimer = new QTimer( this );
 		detailFlushTimer->setSingleShot( true );
 		detailFlushTimer->setInterval( 20 );

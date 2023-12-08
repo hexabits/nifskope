@@ -47,6 +47,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ui/widgets/inspect.h"
 #include "ui/about_dialog.h"
 #include "ui/settingsdialog.h"
+#include "ui/UiUtils.h"
 
 #include <QAction>
 #include <QApplication>
@@ -172,7 +173,7 @@ NifSkope::NifSkope()
 	// Setup Window Modified on data change
 	connect( nif, &NifModel::dataChanged, [this]( const QModelIndex &, const QModelIndex & ) {
 		// Only if UI is enabled (prevents asterisk from flashing during save/load)
-		if ( !windowTitle().isEmpty() && isEnabled() )
+		if ( !currentFile.isEmpty() && isEnabled() )
 			setWindowModified( true );
 	} );
 
@@ -327,6 +328,8 @@ NifSkope::NifSkope()
 	connect( options, &SettingsDialog::localeChanged, this, &NifSkope::sltLocaleChanged );
 
 	connect( qApp, &QApplication::lastWindowClosed, this, &NifSkope::exitRequested );
+
+	updateWindowTitle();
 }
 
 void NifSkope::exitRequested()
@@ -344,6 +347,19 @@ void NifSkope::exitRequested()
 NifSkope::~NifSkope()
 {
 	delete ui;
+}
+
+void NifSkope::updateWindowTitle()
+{
+	if ( nif ) {
+		QString nifName = nif->getFileInfo().fileName();
+		if ( !nifName.isEmpty() ) {
+			UIUtils::setWindowTitle( this, nifName + QStringLiteral("[*]"), UIUtils::applicationDisplayName );
+			return;
+		}
+	}
+	
+	UIUtils::setWindowTitle( this, UIUtils::applicationDisplayName );
 }
 
 void NifSkope::updateSettings()
@@ -364,7 +380,6 @@ SettingsDialog * NifSkope::getOptions()
 }
 
 
-
 void NifSkope::closeEvent( QCloseEvent * e )
 {
 	saveUi();
@@ -374,7 +389,6 @@ void NifSkope::closeEvent( QCloseEvent * e )
 	else
 		e->ignore();
 }
-
 
 void NifSkope::select( const QModelIndex & index )
 {
@@ -607,7 +621,7 @@ void NifSkope::setCurrentFile( const QString & filename )
 
 	nif->refreshFileInfo( currentFile );
 
-	setWindowFilePath( currentFile );
+	updateWindowTitle();
 
 	// Avoid adding files opened from BSAs to Recent Files
 	QFileInfo file( currentFile );

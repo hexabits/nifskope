@@ -292,10 +292,9 @@ void NifSkope::initActions()
 	connect( aCondition, &QAction::toggled, tree, &NifTreeView::setRowHiding );
 	connect( aCondition, &QAction::toggled, kfmtree, &NifTreeView::setRowHiding );
 
-	connect( ui->aAboutNifSkope, &QAction::triggered, []() {
-		auto aboutDialog = new AboutDialog();
-		aboutDialog->show();
-		aboutDialog->activateWindow();
+	connect( ui->aAboutNifSkope, &QAction::triggered, [this]() {
+		auto aboutDialog = new AboutDialog( this );
+		aboutDialog->open( true );
 	} );
 	connect( ui->aAboutQt, &QAction::triggered, qApp, &QApplication::aboutQt );
 
@@ -805,7 +804,7 @@ void NifSkope::onLoadComplete( bool success, QString & fname )
 
 		// Reset
 		currentFile.clear();
-		setWindowFilePath( "" );
+		updateWindowTitle();
 		progress->reset();
 	}
 
@@ -859,8 +858,7 @@ void NifSkope::onSaveComplete( bool success, QString & fname )
 	setEnabled( true );
 
 	if ( success ) {
-		// Update if Save As results in filename change
-		setWindowFilePath( fname );
+		updateWindowTitle();
 		// Mark window as unmodified
 		nif->undoStack->setClean();
 		setWindowModified( false );
@@ -1209,8 +1207,9 @@ void NifSkope::resizeDone()
 	ogl->setUpdatesEnabled( true );
 	ogl->setDisabled( false );
 	ogl->getScene()->animate = true;
-	ogl->update();
-	ogl->resizeGL( centralWidget()->width(), centralWidget()->height() );
+	auto viewSize = graphicsView->size();
+	ogl->resize( viewSize.width(), viewSize.height() );
+	ogl->resizeGL( viewSize.width(), viewSize.height() );
 }
 
 

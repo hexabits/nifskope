@@ -199,6 +199,7 @@ HEADERS += \
 	src/ui/settingsdialog.h \
 	src/ui/settingspane.h \
 	src/ui/ToolDialog.h \
+	src/ui/UiUtils.h \
 	src/xml/nifexpr.h \
 	src/xml/xmlconfig.h \
 	src/gamemanager.h \
@@ -293,6 +294,7 @@ SOURCES += \
 	src/ui/settingsdialog.cpp \
 	src/ui/settingspane.cpp \
 	src/ui/ToolDialog.cpp \
+	src/ui/UiUtils.cpp \
 	src/xml/kfmxml.cpp \
 	src/xml/nifexpr.cpp \
 	src/xml/nifxml.cpp \
@@ -310,7 +312,6 @@ RESOURCES += \
 	res/nifskope.qrc
 
 FORMS += \
-	src/ui/about_dialog.ui \
 	src/ui/checkablemessagebox.ui \
 	src/ui/nifskope.ui \
 	src/ui/settingsdialog.ui \

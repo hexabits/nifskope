@@ -42,6 +42,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <math.h>
 
+#include "ui/ToolDialog.h"
 
 class NifModel;
 class TexCache;
@@ -107,6 +108,8 @@ protected:
 
 	void keyPressEvent( QKeyEvent * ) override final;
 	void keyReleaseEvent( QKeyEvent * ) override final;
+
+	void closeEvent( QCloseEvent * event ) override final;
 
 public slots:
 	//! Does the selection contain this vertex?
@@ -180,7 +183,7 @@ private:
 
 	void drawTexCoords();
 
-	void setupViewport( int width, int height );
+	void setupViewport();
 	void updateViewRect( int width, int height );
 	bool bindTexture( const QString & filename, const Game::GameMode game );
 	bool bindTexture( const QModelIndex & iSource, const Game::GameMode game );
@@ -234,6 +237,9 @@ private:
 
 	QUndoStack * undoStack;
 
+	friend class UVScaleMoveDialog;
+	friend class UVRotateDialog;
+
 	friend class UVWSelectCommand;
 	friend class UVWMoveCommand;
 	friend class UVWScaleCommand;
@@ -252,34 +258,41 @@ private:
 };
 
 //! Dialog for getting scaling factors
-class ScalingDialog final : public QDialog
+class UVScaleMoveDialog final : public ToolDialog
 {
 	Q_OBJECT
 
 public:
-	ScalingDialog( QWidget * parent = nullptr );
-
-protected:
-	/*
-	QVBoxLayout * vbox;
-	QHBoxLayout * hbox;
-	QHBoxLayout * btnbox;
-	*/
-	QGridLayout * grid;
-	QDoubleSpinBox * spinXScale;
-	QDoubleSpinBox * spinYScale;
-	QCheckBox * uniform;
-	QDoubleSpinBox * spinXMove;
-	QDoubleSpinBox * spinYMove;
-
-public slots:
-	float getXScale();
-	float getYScale();
-	float getXMove();
-	float getYMove();
+	UVScaleMoveDialog( UVWidget * parent );
 
 protected slots:
 	void setUniform( bool status );
+	void onOkClicked();
+
+private:
+	UVWidget * editor;
+
+	QDoubleSpinBox * boxScaleX = nullptr;
+	QDoubleSpinBox * boxScaleY = nullptr;
+	QDoubleSpinBox * boxMoveX = nullptr;
+	QDoubleSpinBox * boxMoveY = nullptr;
+};
+
+//! Dialog for rotation angle
+class UVRotateDialog final : public ToolDialog
+{
+	Q_OBJECT
+
+public:
+	UVRotateDialog( UVWidget * parent );
+
+protected slots:
+	void onOkClicked();
+
+private:
+	UVWidget * editor;
+
+	QDoubleSpinBox * boxAngle = nullptr;
 };
 
 #endif

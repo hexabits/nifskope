@@ -39,6 +39,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gl/gltools.h"
 #include "model/nifmodel.h"
 #include "ui/settingsdialog.h"
+#include "ui/UiUtils.h"
 
 #include "lib/nvtristripwrapper.h"
 
@@ -74,6 +75,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define MAXSCALE 10.0
 #define MAXTRANS 10.0
 
+const QString GEOMETRY_SETTING("UI/UV Editor Geometry");
 
 UVWidget * UVWidget::createEditor( NifModel * nif, const QModelIndex & idx )
 {
@@ -86,7 +88,11 @@ UVWidget * UVWidget::createEditor( NifModel * nif, const QModelIndex & idx )
 		return nullptr;
 	}
 
-	uvw->showMaximized();
+	QSettings settings;
+	if ( uvw->restoreGeometry( settings.value( GEOMETRY_SETTING ).toByteArray() ) )
+		uvw->show();
+	else
+		uvw->showMaximized();
 	return uvw;
 }
 
@@ -258,7 +264,7 @@ void UVWidget::paintGL()
 	glPushMatrix();
 	glLoadIdentity();
 
-	setupViewport( width(), height() );
+	setupViewport();
 
 	glMatrixMode( GL_MODELVIEW );
 	glPushMatrix();
@@ -476,12 +482,12 @@ void UVWidget::drawTexCoords()
 	glPopMatrix();
 }
 
-void UVWidget::setupViewport( int width, int height )
+void UVWidget::setupViewport()
 {
 	glMatrixMode( GL_PROJECTION );
 	glLoadIdentity();
 
-	auto vportSize = getWidgetRealSize( this );
+	auto vportSize = UIUtils::widgetRealSize( this );
 	glViewport( 0, 0, vportSize.width(), vportSize.height() );
 
 	glOrtho( glViewRect[0], glViewRect[1], glViewRect[2], glViewRect[3], -10.0, +10.0 );
@@ -788,6 +794,15 @@ void UVWidget::keyReleaseEvent( QKeyEvent * e )
 	}
 }
 
+void UVWidget::closeEvent( QCloseEvent * event )
+{
+	QGLWidget::closeEvent( event );
+	if ( event->isAccepted() ) {
+		QSettings settings;
+		settings.setValue( GEOMETRY_SETTING, saveGeometry() );
+	}
+}
+
 bool UVWidget::setNifData( NifModel * nifModel, const QModelIndex & nifIndex )
 {
 	if ( nif ) {
@@ -804,10 +819,7 @@ bool UVWidget::setNifData( NifModel * nifModel, const QModelIndex & nifIndex )
 	iShape = nifIndex;
 	isDataOnSkin = false;
 
-	auto newTitle = tr("UV Editor");
-	if (nif)
-		newTitle += tr(" - ") + nif->getFileInfo().fileName();
-	setWindowTitle(newTitle);
+	UIUtils::setWindowTitle( this, tr("UV Editor"), nif ? nif->getFileInfo().fileName() : QString(), UIUtils::applicationDisplayName );
 
 	game = Game::GameManager::get_game(nif->getVersionNumber(), nif->getUserVersion(), nif->getBSVersion());
 
@@ -1310,112 +1322,83 @@ protected:
 	float scaleX, scaleY;
 };
 
-void UVWidget::scaleSelection()
+UVScaleMoveDialog::UVScaleMoveDialog( UVWidget * parent )
+	: ToolDialog( parent, tr("Scale and Translate Selected"), 0 ),
+	editor( parent )
 {
-	ScalingDialog * scaleDialog = new ScalingDialog( this );
+	QGridLayout * mainLayout = addGridLayout( this );
 
-	if ( scaleDialog->exec() == QDialog::Accepted ) {
-		// order does not matter here, since we scale around the center
-		// don't perform identity transforms
-		if ( !( scaleDialog->getXScale() == 1.0 && scaleDialog->getYScale() == 1.0 ) ) {
-			undoStack->push( new UVWScaleCommand( this, scaleDialog->getXScale(), scaleDialog->getYScale() ) );
-		}
+	addLabel( mainLayout, 0, -1, tr("Scale:") );
 
-		if ( !( scaleDialog->getXMove() == 0.0 && scaleDialog->getYMove() == 0.0 ) ) {
-			undoStack->push( new UVWMoveCommand( this, scaleDialog->getXMove(), scaleDialog->getYMove() ) );
-		}
-	}
+	beginGridRow( mainLayout );
+	auto createScaleBox = [this, mainLayout]( const QString & labelText, int column ) {
+		addLabel( mainLayout, column, labelText, true );
+		return addDoubleSpinBox( mainLayout, column + 1, -MAXSCALE, MAXSCALE, 1.0, 6 );
+	};
+	boxScaleX = createScaleBox( "X: ", 0 );
+	boxScaleY = createScaleBox( "Y: ", 2 );
+
+	beginGridRow( mainLayout );
+	QCheckBox * uniformScaleBox = addCheckBox( mainLayout, 0, -1, tr("Uniform scaling") );
+	connect( uniformScaleBox, &QCheckBox::toggled, this, &UVScaleMoveDialog::setUniform );
+	uniformScaleBox->setChecked( true );
+
+	beginGridRow( mainLayout );
+	addLabel( mainLayout, 0, -1, tr("Translation:") );
+
+	beginGridRow( mainLayout );
+	auto createTranslationBox = [this, mainLayout]( const QString & labelText, int column ) {
+		addLabel( mainLayout, column, labelText, true );
+		return addDoubleSpinBox( mainLayout, column + 1, -MAXTRANS, MAXTRANS, 0.0, 6 );
+	};
+	boxMoveX = createTranslationBox( "X: ", 0 );
+	boxMoveY = createTranslationBox( "Y: ", 2 );
+
+	beginGridRow( mainLayout );
+	beginMainButtonLayout( mainLayout );
+	QPushButton * btnOK = addMainButton( tr("OK"), true );
+	connect( btnOK, &QPushButton::clicked, this, &UVScaleMoveDialog::onOkClicked );
+	addCloseButton( tr("Cancel") );
 }
 
-ScalingDialog::ScalingDialog( QWidget * parent ) : QDialog( parent )
-{
-	grid = new QGridLayout;
-	setLayout( grid );
-	int currentRow = 0;
-
-	grid->addWidget( new QLabel( tr( "Enter scaling factors" ) ), currentRow, 0, 1, -1 );
-	currentRow++;
-
-	grid->addWidget( new QLabel( "X: " ), currentRow, 0, 1, 1 );
-	spinXScale = new QDoubleSpinBox;
-	spinXScale->setValue( 1.0 );
-	spinXScale->setRange( -MAXSCALE, MAXSCALE );
-	grid->addWidget( spinXScale, currentRow, 1, 1, 1 );
-
-	grid->addWidget( new QLabel( "Y: " ), currentRow, 2, 1, 1 );
-	spinYScale = new QDoubleSpinBox;
-	spinYScale->setValue( 1.0 );
-	spinYScale->setRange( -MAXSCALE, MAXSCALE );
-	grid->addWidget( spinYScale, currentRow, 3, 1, 1 );
-	currentRow++;
-
-	uniform = new QCheckBox;
-	connect( uniform, &QCheckBox::toggled, this, &ScalingDialog::setUniform );
-	uniform->setChecked( true );
-	grid->addWidget( uniform, currentRow, 0, 1, 1 );
-	grid->addWidget( new QLabel( tr( "Uniform scaling" ) ), currentRow, 1, 1, -1 );
-	currentRow++;
-
-	grid->addWidget( new QLabel( tr( "Enter translation amounts" ) ), currentRow, 0, 1, -1 );
-	currentRow++;
-
-	grid->addWidget( new QLabel( "X: " ), currentRow, 0, 1, 1 );
-	spinXMove = new QDoubleSpinBox;
-	spinXMove->setValue( 0.0 );
-	spinXMove->setRange( -MAXTRANS, MAXTRANS );
-	grid->addWidget( spinXMove, currentRow, 1, 1, 1 );
-
-	grid->addWidget( new QLabel( "Y: " ), currentRow, 2, 1, 1 );
-	spinYMove = new QDoubleSpinBox;
-	spinYMove->setValue( 0.0 );
-	spinYMove->setRange( -MAXTRANS, MAXTRANS );
-	grid->addWidget( spinYMove, currentRow, 3, 1, 1 );
-	currentRow++;
-
-	QPushButton * ok = new QPushButton( tr( "OK" ) );
-	grid->addWidget( ok, currentRow, 0, 1, 2 );
-	connect( ok, &QPushButton::clicked, this, &ScalingDialog::accept );
-
-	QPushButton * cancel = new QPushButton( tr( "Cancel" ) );
-	grid->addWidget( cancel, currentRow, 2, 1, 2 );
-	connect( cancel, &QPushButton::clicked, this, &ScalingDialog::reject );
-}
-
-float ScalingDialog::getXScale()
-{
-	return spinXScale->value();
-}
-
-float ScalingDialog::getYScale()
-{
-	return spinYScale->value();
-}
-
-void ScalingDialog::setUniform( bool status )
+void UVScaleMoveDialog::setUniform( bool status )
 {
 	// Cast QDoubleSpinBox slot
 	auto dsbValueChanged = static_cast<void (QDoubleSpinBox::*)(double)>(&QDoubleSpinBox::valueChanged);
 
 	if ( status == true ) {
-		connect( spinXScale, dsbValueChanged, spinYScale, &QDoubleSpinBox::setValue );
-		spinYScale->setEnabled( false );
-		spinYScale->setValue( spinXScale->value() );
+		connect( boxScaleX, dsbValueChanged, boxScaleY, &QDoubleSpinBox::setValue );
+		boxScaleY->setEnabled( false );
+		boxScaleY->setValue( boxScaleX->value() );
 	} else {
-		disconnect( spinXScale, dsbValueChanged, spinYScale, &QDoubleSpinBox::setValue );
-		spinYScale->setEnabled( true );
+		disconnect( boxScaleX, dsbValueChanged, boxScaleY, &QDoubleSpinBox::setValue );
+		boxScaleY->setEnabled( true );
 	}
 }
 
-// 1 unit corresponds to 2 grid squares
-float ScalingDialog::getXMove()
+void UVScaleMoveDialog::onOkClicked()
 {
-	return spinXMove->value() / 2.0;
+	// order does not matter here, since we scale around the center
+	// don't perform identity transforms
+	double scaleX = boxScaleX->value();
+	double scaleY = boxScaleY->value();
+	if ( scaleX != 1.0 || scaleY != 1.0 )
+		editor->undoStack->push( new UVWScaleCommand( editor, scaleX, scaleY ) );
+
+	double moveX = boxMoveX->value();
+	double moveY = boxMoveY->value();
+	if ( moveX != 0.0 || moveY != 0.0 )
+		editor->undoStack->push( new UVWMoveCommand( editor, moveX, moveY ) );
+
+	close();
 }
 
-float ScalingDialog::getYMove()
+void UVWidget::scaleSelection()
 {
-	return spinYMove->value() / 2.0;
+	auto scaleDialog = new UVScaleMoveDialog( this );
+	scaleDialog->open( true );
 }
+
 
 //! A class to perform rotation of UV coordinates
 class UVWRotateCommand final : public QUndoCommand
@@ -1505,14 +1488,35 @@ protected:
 	float rotation;
 };
 
+UVRotateDialog::UVRotateDialog( UVWidget * parent )
+	: ToolDialog( parent, tr("Rotate Selected"), 0 ),
+	editor( parent )
+{
+	QVBoxLayout * mainLayout = addVBoxLayout( this );
+
+	QHBoxLayout * inputLayout = addHBoxLayout( mainLayout );
+	addLabel( inputLayout, tr("Rotation angle:"), true );
+	boxAngle = addDoubleSpinBox( inputLayout, -360.0, 360.0, 0.0, 2 );
+
+	beginMainButtonLayout( mainLayout );
+	QPushButton * btnOK = addMainButton( tr("OK"), true );
+	connect( btnOK, &QPushButton::clicked, this, &UVRotateDialog::onOkClicked );
+	addCloseButton( tr("Cancel") );
+}
+
+void UVRotateDialog::onOkClicked()
+{
+	double angle = boxAngle->value();
+	if ( angle != 0.0 )
+		editor->undoStack->push( new UVWRotateCommand( editor, angle ) );
+
+	close();
+}
+
 void UVWidget::rotateSelection()
 {
-	bool ok;
-	float rotateFactor = QInputDialog::getDouble( this, "NifSkope", tr( "Enter rotation angle" ), 0.0, -360.0, 360.0, 2, &ok );
-
-	if ( ok ) {
-		undoStack->push( new UVWRotateCommand( this, rotateFactor ) );
-	}
+	auto rotateDialog = new UVRotateDialog( this );
+	rotateDialog->open( true );
 }
 
 void UVWidget::getTexSlots()

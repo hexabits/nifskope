@@ -38,7 +38,6 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <QMap>
 #include <QStack>
 #include <QVector>
-#include <QWindow>
 
 #include <stack>
 #include <map>
@@ -414,7 +413,7 @@ QModelIndex bhkGetRBInfo( const NifModel * nif, const QModelIndex & index, const
 	return{ x, y, z };
 }
 
-void drawAxesOverlay( const Vector3 & c, float axis, QVector<int> axesOrder )
+void drawAxesOverlay( const Vector3 & c, float axis, const QVector<int> & axesOrder, double uiScale )
 {
 	glPushMatrix();
 	glTranslate( c );
@@ -422,7 +421,7 @@ void drawAxesOverlay( const Vector3 & c, float axis, QVector<int> axesOrder )
 
 	glDisable( GL_LIGHTING );
 	glDepthFunc( GL_ALWAYS );
-	glLineWidth( 2.0f );
+	glLineWidth( 2.0 * uiScale );
 	glBegin( GL_LINES );
 
 	// Render the X axis
@@ -1123,25 +1122,3 @@ void renderText( double x, double y, double z, const QString & str )
 	glCallLists( cstr.size(), GL_UNSIGNED_BYTE, cstr.constData() );
 	glPopAttrib();
 }
-
-QSize getWidgetRealSize( QWidget * widget )
-{
-#ifdef Q_OS_WIN32
-	RECT wrect;
-	if ( GetClientRect( (HWND) widget->winId(), &wrect ) )
-		return QSize( wrect.right, wrect.bottom );
-#endif
-
-	auto w = widget->window();
-	if ( w ) {
-		auto whandle = w->windowHandle();
-		if ( whandle ) {
-			double scaleFactor = whandle->devicePixelRatio();
-			if ( scaleFactor != 1.0 && scaleFactor > 0.0 )
-				return QSize( qRound( widget->width() * scaleFactor ), qRound( widget->height() * scaleFactor ) );
-		}
-	}
-
-	return widget->size();
-}
-

@@ -164,7 +164,7 @@ QModelIndex bhkGetRBInfo( const NifModel * nif, const QModelIndex & index, const
 QVector<int> sortAxes( QVector<float> axesDots );
 
 void drawAxes( const Vector3 & c, float axis, bool color = true );
-void drawAxesOverlay( const Vector3 & c, float axis, QVector<int> axesOrder = {2, 1, 0} );
+void drawAxesOverlay( const Vector3 & c, float axis, const QVector<int> & axesOrder, double uiScale );
 void drawGrid( int s, int line, int sub );
 void drawBox( const Vector3 & a, const Vector3 & b );
 void drawCircle( const Vector3 & c, const Vector3 & n, float r, int sd = 16 );
@@ -274,9 +274,5 @@ void renderText( const Vector3 & c, const QString & str );
 
 #define ID2COLORKEY( id ) (id + 1)
 #define COLORKEY2ID( id ) (id - 1)
-
-//! Returns the real size of a QWidget (what's called the client rectangle in Windows) in pixels.
-// This is a workaround for QWidget::size(), QWidget::width(), etc. returning real pixels divided by the system UI scale, with all the rounding errors accompanying that.
-QSize getWidgetRealSize( QWidget * widget );
 
 #endif

@@ -40,28 +40,15 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "model/nifmodel.h"
 #include "ui/settingsdialog.h"
 #include "ui/widgets/fileselect.h"
+#include "ui/UiUtils.h"
 
 #include <QApplication>
-#include <QActionGroup>
-#include <QButtonGroup>
-#include <QCheckBox>
-#include <QComboBox>
 #include <QDebug>
-#include <QDialog>
 #include <QDir>
-#include <QGroupBox>
 #include <QImageWriter>
-#include <QLabel>
-#include <QKeyEvent>
-#include <QMenu>
 #include <QMimeData>
 #include <QMouseEvent>
-#include <QPushButton>
-#include <QRadioButton>
-#include <QSettings>
-#include <QSpinBox>
 #include <QTimer>
-#include <QToolBar>
 
 #include <QOpenGLContext>
 #include <QOpenGLFunctions>
@@ -316,7 +303,8 @@ void GLView::initializeGL()
 	//	Made viewport and aspect member variables.
 	//	They were being updated every single frame instead of only when resizing.
 	//glGetIntegerv( GL_VIEWPORT, viewport );
-	aspect = (GLdouble)width() / (GLdouble)height();
+	if ( viewportWidth < 0 )
+		cacheViewportSize();
 
 	// Check for errors
 	while ( ( err = glGetError() ) != GL_NO_ERROR )
@@ -332,10 +320,8 @@ void GLView::updateShaders()
 	update();
 }
 
-void GLView::glProjection( int x, int y )
+void GLView::glProjection( [[maybe_unused]] int x, [[maybe_unused]] int y )
 {
-	Q_UNUSED( x ); Q_UNUSED( y );
-
 	glMatrixMode( GL_PROJECTION );
 	glLoadIdentity();
 
@@ -351,7 +337,7 @@ void GLView::glProjection( int x, int y )
 	GLdouble nr = fabs( bs.center[2] ) - bounds * 1.5;
 	GLdouble fr = fabs( bs.center[2] ) + bounds * 1.5;
 
-	if ( perspectiveMode || (view == ViewWalk) ) {
+	if ( perspectiveMode || view == ViewWalk ) {
 		// Perspective View
 		if ( nr < 1.0 * scale() )
 			nr = 1.0 * scale();
@@ -360,24 +346,22 @@ void GLView::glProjection( int x, int y )
 
 		if ( nr > fr ) {
 			// add: swap them when needed
-			GLfloat tmp = nr;
-			nr = fr;
-			fr = tmp;
+			std::swap( nr, fr );
 		}
 
-		if ( (fr - nr) < 0.00001f ) {
+		if ( (fr - nr) < 0.00001 ) {
 			// add: ensure distance
 			nr = 1.0 * scale();
 			fr = 2.0 * scale();
 		}
 
-		GLdouble h2 = tan( ( cfg.fov / Zoom ) / 360 * M_PI ) * nr;
-		GLdouble w2 = h2 * aspect;
+		GLdouble h2 = tan( double( cfg.fov ) * M_PI / ( Zoom * 360.0 ) ) * nr;
+		GLdouble w2 = h2 * aspectWidth / aspectHeight;
 		glFrustum( -w2, +w2, -h2, +h2, nr, fr );
 	} else {
 		// Orthographic View
 		GLdouble h2 = Dist / Zoom;
-		GLdouble w2 = h2 * aspect;
+		GLdouble w2 = h2 * aspectWidth / aspectHeight;
 		glOrtho( -w2, +w2, -h2, +h2, nr, fr );
 	}
 
@@ -627,7 +611,6 @@ void GLView::paintGL()
 
 	if ( scene->hasOption(Scene::ShowAxes) ) {
 		// Resize viewport to small corner of screen
-		int axesSize = std::min( width() / 10, 125 );
 		glViewport( 0, 0, axesSize, axesSize );
 
 		// Reset matrices
@@ -635,9 +618,9 @@ void GLView::paintGL()
 		glLoadIdentity();
 
 		// Square frustum
-		auto nr = 1.0;
-		auto fr = 250.0;
-		GLdouble h2 = tan( cfg.fov / 360 * M_PI ) * nr;
+		double nr = 1.0;
+		double fr = 250.0;
+		GLdouble h2 = tan( double( cfg.fov ) * M_PI / 360.0 ) * nr;
 		GLdouble w2 = h2;
 		glFrustum( -w2, +w2, -h2, +h2, nr, fr );
 
@@ -651,7 +634,7 @@ void GLView::paintGL()
 		auto viewTransOrig = viewTrans.translation;
 
 		// Zoom out slightly
-		viewTrans.translation = { 0, 0, -150.0 };
+		viewTrans.translation = { 0, 0, -140.0 };
 
 		// Load modified viewTrans
 		glLoadMatrix( viewTrans );
@@ -663,12 +646,12 @@ void GLView::paintGL()
 		auto vtr = viewTrans.rotation;
 		QVector<float> axesDots = { vtr( 2, 0 ), vtr( 2, 1 ), vtr( 2, 2 ) };
 
-		drawAxesOverlay( { 0, 0, 0 }, 50.0, sortAxes( axesDots ) );
+		drawAxesOverlay( { 0, 0, 0 }, 50.0, sortAxes( axesDots ), uiScale );
 
 		glPopMatrix();
 
 		// Restore viewport size
-		glViewport( 0, 0, width(), height() );
+		glViewport( 0, 0, viewportWidth, viewportHeight );
 		// Restore matrices
 		glProjection();
 	}
@@ -696,15 +679,13 @@ void GLView::paintGL()
 }
 
 
-void GLView::resizeGL( int width, int height )
+void GLView::resizeGL( [[maybe_unused]] int width, [[maybe_unused]] int height )
 {
-	resize( width, height );
-
 	makeCurrent();
 	if ( !isValid() )
 		return;
-	aspect = (GLdouble)width / (GLdouble)height;
-	glViewport( 0, 0, width, height );
+	cacheViewportSize();
+	glViewport( 0, 0, viewportWidth, viewportHeight );
 
 	glDisable(GL_FRAMEBUFFER_SRGB);
 	qglClearColor(clearColor());
@@ -1337,221 +1318,239 @@ void GLView::advanceGears()
 	}
 }
 
-
-// TODO: Separate widget
-void GLView::saveImage()
+ScreenshotDialog::ScreenshotDialog( GLView * parent )
+	: ToolDialog( parent, tr("Save Screenshot"), ToolDialog::HResize, 500 ), // parent
+	view( parent )
 {
-	auto dlg = new QDialog( qApp->activeWindow() );
-	QGridLayout * lay = new QGridLayout( dlg );
-	dlg->setWindowTitle( tr( "Save View" ) );
-	dlg->setLayout( lay );
-	dlg->setMinimumWidth( 400 );
+	setSettingsFolder( "Screenshot" );
 
-	QString date = QDateTime::currentDateTime().toString( "yyyyMMdd_HH-mm-ss" );
-	QString name = model->getFilename();
+	appScreenshotsPath = QFileInfo( QApplication::applicationDirPath() + "/screenshots" ).absoluteFilePath();
+	const QString & modelDirPath = modelFolder();
+	bool hasModelFile = !modelDirPath.isEmpty();
 
-	QString nifFolder = model->getFolder();
-	// TODO: Default extension in Settings
-	QString filename = name + (!name.isEmpty() ? "_" : "") + date + ".jpg";
+	QVBoxLayout * mainLayout = addVBoxLayout( this );
 
-	// Default: NifSkope directory
-	// TODO: User-configurable default screenshot path in Options
-	QString nifskopePath = "screenshots/" + filename;
-	// Absolute: NIF directory
-	QString nifPath = nifFolder + (!nifFolder.isEmpty() ? "/" : "") + filename;
+	// Image path
+	QString imgName;
+	if ( hasModelFile ) {
+		imgName += view->model->getFilename();
+		if ( !imgName.isEmpty() )
+			imgName += "-";
+	}
+	imgName += QDateTime::currentDateTime().toString( "yyyy-MM-dd-HHmmss" ) + "." + settingsStrValue( "Format", "jpg" );
 
-	FileSelector * file = new FileSelector( FileSelector::SaveFile, tr( "File" ), QBoxLayout::LeftToRight );
-	file->setParent( dlg );
-	// TODO: Default extension in Settings
-	file->setFilter( { "Images (*.jpg *.png *.webp *.bmp)", "JPEG (*.jpg)", "PNG (*.png)", "WebP (*.webp)", "BMP (*.bmp)" } );
-	file->setFile( nifskopePath );
-	lay->addWidget( file, 0, 0, 1, -1 );
+	pathWidget = new FileSelector( FileSelector::SaveFile, "...", QBoxLayout::LeftToRight );
+	pathWidget->setFilter( { "Images (*.jpg *.png *.webp *.bmp)", "JPEG (*.jpg)", "PNG (*.png)", "WebP (*.webp)", "BMP (*.bmp)" } );
+	pathWidget->setFile( imgName );
+	switchToDirectory( ( hasModelFile && settingsIntValue( "ModelDirectory", 0 ) ) ? modelDirPath : appScreenshotsPath );
+	connect( pathWidget, &FileSelector::sigEdited, this, &ScreenshotDialog::onPathEdit );
+	connect( pathWidget, &FileSelector::sigActivated, this, &ScreenshotDialog::onPathEdit );
+	mainLayout->addWidget( pathWidget );
 
-	auto grpDir = new QButtonGroup( dlg );
-	
-	QRadioButton * nifskopeDir = new QRadioButton( tr( "NifSkope Directory" ), dlg );
-	nifskopeDir->setChecked( true );
-	nifskopeDir->setToolTip( tr( "Save to NifSkope screenshots directory" ) );
+	// Directory selectors
+	QHBoxLayout * dirSelLayout = addHBoxLayout( mainLayout );
 
-	QRadioButton * niffileDir = new QRadioButton( tr( "NIF Directory" ), dlg );
-	niffileDir->setChecked( false );
-	niffileDir->setDisabled( nifFolder.isEmpty() );
-	niffileDir->setToolTip( tr( "Save to NIF file directory" ) );
+	QPushButton * btnAppDir = addPushButton( dirSelLayout, tr("NifSkope Directory") );
+	lockPushButtonSize( btnAppDir );
+	btnAppDir->setToolTip( tr("Switch to NifSkope screenshots directory") );
+	connect( btnAppDir, &QPushButton::clicked, this, &ScreenshotDialog::onAppDirClicked );
 
-	grpDir->addButton( nifskopeDir );
-	grpDir->addButton( niffileDir );
-	grpDir->setExclusive( true );
+	QPushButton * btnModelDir = addPushButton( dirSelLayout, tr("NIF Directory") );
+	lockPushButtonSize( btnModelDir );
+	btnModelDir->setToolTip( tr("Switch to the current NIF file directory") );
+	btnModelDir->setEnabled( hasModelFile );
+	connect( btnModelDir, &QPushButton::clicked, this, &ScreenshotDialog::onNifDirClicked );
 
-	lay->addWidget( nifskopeDir, 1, 0, 1, 1 );
-	lay->addWidget( niffileDir, 1, 1, 1, 1 );
+	addStretch( dirSelLayout, 1 );
 
-	// Save JPEG Quality
-	QSettings settings;
-	int jpegQuality = settings.value( "JPEG/Quality", 90 ).toInt();
-	settings.setValue( "JPEG/Quality", jpegQuality );
+	// JPEG/WebP Quality
+	qualityLabel = addLabel( dirSelLayout, tr("Quality:"), true );
+	qualityBox = addSpinBox( dirSelLayout, 0, 100, settingsIntValue( "Quality", 95 ) );
+	updateQualityUI( imagePathInfo().suffix() );
 
-	QHBoxLayout * pixBox = new QHBoxLayout;
-	pixBox->setAlignment( Qt::AlignRight );
-	QSpinBox * pixQuality = new QSpinBox( dlg );
-	pixQuality->setRange( -1, 100 );
-	pixQuality->setSingleStep( 10 );
-	pixQuality->setValue( jpegQuality );
-	pixQuality->setSpecialValueText( tr( "Auto" ) );
-	pixQuality->setMaximumWidth( pixQuality->minimumSizeHint().width() );
-	pixBox->addWidget( new QLabel( tr( "JPEG Quality" ), dlg ) );
-	pixBox->addWidget( pixQuality );
-	lay->addLayout( pixBox, 1, 2, Qt::AlignRight );
+	// Image scale
+	QHBoxLayout * imageScaleLayout = addHBoxLayout();
+	imageScaleGroup = beginRadioGroup();
 
-
-	// Image Size radio button lambda
-	auto btnSize = [dlg]( const QString & name ) {
-		auto btn = new QRadioButton( name, dlg );
-		btn->setCheckable( true );
-		
-		return btn;
-	};
-
-	// Get max viewport size for platform
-	GLint dims;
-	glGetIntegerv( GL_MAX_VIEWPORT_DIMS, &dims );
+	GLint dims;	
+	glGetIntegerv( GL_MAX_VIEWPORT_DIMS, &dims ); // Get max viewport size for platform
 	int maxSize = dims;
 
-	// Default size
-	auto btnOneX = btnSize( "1x" );
-	btnOneX->setChecked( true );
-	// Disable any of these that would exceed the max viewport size of the platform
-	auto btnTwoX = btnSize( "2x" );
-	btnTwoX->setDisabled( (width() * 2) > maxSize || (height() * 2) > maxSize );
-	auto btnFourX = btnSize( "4x" );
-	btnFourX->setDisabled( (width() * 4) > maxSize || (height() * 4) > maxSize );
-	auto btnEightX = btnSize( "8x" );
-	btnEightX->setDisabled( (width() * 8) > maxSize || (height() * 8) > maxSize );
-
-
-	auto grpBox = new QGroupBox( tr( "Image Size" ), dlg );
-	auto grpBoxLayout = new QHBoxLayout;
-	grpBoxLayout->addWidget( btnOneX );
-	grpBoxLayout->addWidget( btnTwoX );
-	grpBoxLayout->addWidget( btnFourX );
-	grpBoxLayout->addWidget( btnEightX );
-	grpBoxLayout->addWidget( new QLabel( "<b>Caution:</b><br/> 4x and 8x may be memory intensive.", dlg ) );
-	grpBoxLayout->addStretch( 1 );
-	grpBox->setLayout( grpBoxLayout );
-
-	auto grpSize = new QButtonGroup( dlg );
-	grpSize->addButton( btnOneX, 1 );
-	grpSize->addButton( btnTwoX, 2 );
-	grpSize->addButton( btnFourX, 4 );
-	grpSize->addButton( btnEightX, 8 );
-
-	grpSize->setExclusive( true );
-	
-	lay->addWidget( grpBox, 2, 0, 1, -1 );
-
-
-	QHBoxLayout * hBox = new QHBoxLayout;
-	QPushButton * btnOk = new QPushButton( tr( "Save" ), dlg );
-	QPushButton * btnCancel = new QPushButton( tr( "Cancel" ), dlg );
-	hBox->addWidget( btnOk );
-	hBox->addWidget( btnCancel );
-	lay->addLayout( hBox, 3, 0, 1, -1 );
-
-	// Set FileSelector to NifSkope dir (relative)
-	connect( nifskopeDir, &QRadioButton::clicked, [=]()
-		{
-			file->setText( nifskopePath );
-			file->setFile( nifskopePath );
+	for ( int sz = 1; sz <= 8; sz *= 2 ) {
+		QRadioButton * btn = addRadioButton( imageScaleLayout, QString::number( sz ) + "x", sz );
+		if ( sz == 1 ) {
+			btn->setChecked( true );
+		} else { // sz > 1
+			btn->setDisabled( ( view->viewportWidth * sz ) > maxSize || ( view->viewportHeight * sz ) > maxSize );
 		}
-	);
-	// Set FileSelector to NIF File dir (absolute)
-	connect( niffileDir, &QRadioButton::clicked, [=]()
-		{
-			file->setText( nifPath );
-			file->setFile( nifPath );
-		}
-	);
-
-	// Validate on OK
-	connect( btnOk, &QPushButton::clicked, [&]() 
-		{
-			// Save JPEG Quality
-			QSettings settings;
-			settings.setValue( "JPEG/Quality", pixQuality->value() );
-
-			// TODO: Set up creation of screenshots directory in Options
-			if ( nifskopeDir->isChecked() ) {
-				QDir workingDir;
-				workingDir.mkpath( "screenshots" );
-			}
-
-			// Supersampling
-			int ss = grpSize->checkedId();
-
-			int w, h;
-
-			w = width();
-			h = height();
-
-			// Resize viewport for supersampling
-			if ( ss > 1 ) {
-				w *= ss;
-				h *= ss;
-
-				resizeGL( w, h );
-			}
-			
-			QOpenGLFramebufferObjectFormat fboFmt;
-			fboFmt.setTextureTarget( GL_TEXTURE_2D );
-			fboFmt.setInternalTextureFormat( GL_RGB );
-			fboFmt.setMipmap( false );
-			fboFmt.setAttachment( QOpenGLFramebufferObject::Attachment::Depth );
-			fboFmt.setSamples( 16 / ss );
-
-			QOpenGLFramebufferObject fbo( w, h, fboFmt );
-			fbo.bind();
-
-			update();
-			updateGL();
-
-			fbo.release();
-
-			QImage * img = new QImage(fbo.toImage());
-
-			// Return viewport to original size
-			if ( ss > 1 )
-				resizeGL( width(), height() );
-
-
-			QImageWriter writer( file->file() );
-
-			// Set Compression for formats that can use it
-			writer.setCompression( 1 );
-
-			// Handle JPEG/WebP Quality exclusively
-			//	PNG will not use compression if Quality is set
-			if ( file->file().endsWith( ".jpg", Qt::CaseInsensitive ) ) {
-				writer.setFormat( "jpg" );
-				writer.setQuality( 50 + pixQuality->value() / 2 );
-			} else if ( file->file().endsWith( ".webp", Qt::CaseInsensitive ) ) {
-				writer.setFormat( "webp" );
-				writer.setQuality( 75 + pixQuality->value() / 4 );
-			}
-
-			if ( writer.write( *img ) ) {
-				dlg->accept();
-			} else {
-				Message::critical( this, tr( "Could not save %1" ).arg( file->file() ) );
-			}
-
-			delete img;
-			img = nullptr;
-		}
-	);
-	connect( btnCancel, &QPushButton::clicked, dlg, &QDialog::reject );
-
-	if ( dlg->exec() != QDialog::Accepted ) {
-		return;
 	}
+	addLabel( imageScaleLayout, tr("<b>Caution:</b><br/> 4x and 8x may be memory intensive.") );
+	addStretch( imageScaleLayout, 1 );
+
+	addGroupBox( mainLayout, tr("Image Size"), imageScaleLayout );
+
+	// Main buttons
+	beginMainButtonLayout( mainLayout );
+
+	QPushButton * btnSave = addMainButton( tr("Save"), true );
+	connect( btnSave, &QPushButton::clicked, this, &ScreenshotDialog::onSaveClicked );
+	addCloseButton( tr("Cancel") );
+}
+
+const QString & ScreenshotDialog::modelFolder() const
+{
+	return view->model->getFolder();
+}
+
+QFileInfo ScreenshotDialog::imagePathInfo() const
+{
+	if ( pathWidget )
+		return QFileInfo( pathWidget->file() );
+	return QFileInfo();
+}
+
+static bool isJpegExtension( const QString & extension )
+{
+	return extension.compare( QStringLiteral("jpg"), Qt::CaseInsensitive ) == 0 || extension.compare( QStringLiteral("jpeg"), Qt::CaseInsensitive ) == 0;
+}
+
+static bool isWebpExtension( const QString & extension )
+{
+	return extension.compare( QStringLiteral("webp"), Qt::CaseInsensitive ) == 0;
+}
+
+void ScreenshotDialog::updateQualityUI( const QString & extension )
+{
+	bool qualityEnabled = isJpegExtension( extension ) || isWebpExtension( extension );
+	if ( qualityLabel )
+		qualityLabel->setEnabled( qualityEnabled );
+	if ( qualityBox )
+		qualityBox->setEnabled( qualityEnabled );
+}
+
+void ScreenshotDialog::onPathEdit()
+{
+	updateQualityUI( imagePathInfo().suffix() );
+}
+
+void ScreenshotDialog::onAppDirClicked()
+{
+	switchToDirectory( appScreenshotsPath );
+}
+
+void ScreenshotDialog::onNifDirClicked()
+{
+	const QString & modelDirPath = modelFolder();
+	if ( !modelDirPath.isEmpty() )
+		switchToDirectory( modelDirPath );
+}
+
+void ScreenshotDialog::switchToDirectory( const QString & dirPath )
+{
+	QString newPath = QDir( dirPath ).filePath( imagePathInfo().fileName() );
+	pathWidget->setText( QDir::toNativeSeparators( newPath ) );
+}
+
+void ScreenshotDialog::onSaveClicked()
+{
+	QFileInfo pathInfo = imagePathInfo();
+	QString outPath = QDir::toNativeSeparators( pathInfo.absoluteFilePath() );
+	QString outExt = pathInfo.suffix();
+	QDir outDir( pathInfo.absolutePath() );
+	const QString & modelDirPath = modelFolder();
+	int quality = qualityBox->value();
+	int imageScale = std::max( imageScaleGroup->checkedId(), 1 );
+
+	setSettingsStrValue( "Format", outExt );
+	setSettingsIntValue( "Quality", quality );
+	setSettingsIntValue( "ModelDirectory", outDir == QDir( modelDirPath ) );
+
+	QDir appScreenshotsDir( appScreenshotsPath );
+	if ( outDir == appScreenshotsDir && !appScreenshotsDir.exists() ) {
+		if ( !QDir().mkdir( appScreenshotsPath ) ) {
+			QFileInfo appScreenshotsInfo( appScreenshotsPath );
+			Message::critical( this, tr("Could not create \"%1\" folder in \"%2\".").arg( appScreenshotsInfo.fileName(), appScreenshotsInfo.absolutePath() ) );
+			return;
+		}
+	}
+
+	if ( imageScale > 1 ) // Image scales 2x or greater can take a significant amount of time to save...
+		setCursor( Qt::WaitCursor );
+
+	QImage img = view->captureScreenshot( imageScale );
+
+	QImageWriter writer( outPath );
+
+	// Set Compression for formats that can use it
+	writer.setCompression( 1 );
+
+	// Handle JPEG/WebP Quality exclusively
+	//	PNG will not use compression if Quality is set
+	if ( isJpegExtension( outExt ) ) {
+		writer.setFormat( "jpg" );
+		writer.setQuality( quality );
+	} else if ( isWebpExtension( outExt ) ) {
+		writer.setFormat( "webp" );
+		writer.setQuality( quality );
+	}
+
+	if ( writer.write( img ) ) {
+		close();
+	} else {
+		Message::critical( this, tr("Could not save \"%1\":\n\n").arg( outPath ) + writer.errorString() );
+	} 
+
+	if ( imageScale > 1 )
+		setCursor( Qt::ArrowCursor );
+}
+
+void GLView::saveImage()
+{
+	auto dlg = new ScreenshotDialog( this );
+	dlg->open( true );
+}
+
+QImage GLView::captureScreenshot( int imageScale )
+{
+	// Supersampling
+	int oldw = width();
+	int oldh = height();
+
+	// Resize viewport for supersampling
+	if ( imageScale > 1 ) {
+		int neww = oldw * imageScale;
+		int newh = oldh * imageScale;
+
+		globalScale = imageScale;
+		resize( neww, newh );
+		resizeGL( neww, newh );
+	}
+
+	QOpenGLFramebufferObjectFormat fboFmt;
+	fboFmt.setTextureTarget( GL_TEXTURE_2D );
+	fboFmt.setInternalTextureFormat( GL_RGB );
+	fboFmt.setMipmap( false );
+	fboFmt.setAttachment( QOpenGLFramebufferObject::Attachment::Depth );
+	fboFmt.setSamples( 16 );
+
+	QOpenGLFramebufferObject fbo( viewportWidth, viewportHeight, fboFmt );
+	fbo.bind();
+
+	updateGL();
+
+	fbo.release();
+
+	auto img = fbo.toImage();
+
+	// Return viewport to the original size
+	if ( imageScale > 1 ) {
+		globalScale = 1;
+		resize( oldw, oldh );
+		resizeGL( oldw, oldh );
+		updateGL();
+	}
+
+	return img;
 }
 
 
@@ -1804,6 +1803,17 @@ void GLView::wheelEvent( QWheelEvent * event )
 	}
 }
 
+void GLView::cacheViewportSize()
+{
+	auto vportSize = UIUtils::widgetRealSize( this );
+
+	viewportWidth  = std::max( vportSize.width(), 0 );
+	viewportHeight = std::max( vportSize.height(), 0 );
+	aspectWidth    = viewportWidth;
+	aspectHeight   = viewportHeight > 0 ? viewportHeight : 1;
+	uiScale        = UIUtils::widgetUIScaleFactor( this ) * globalScale;
+	axesSize       = std::min( qRound( uiScale * 125 ), std::min( viewportWidth / 10, viewportHeight ) );
+}
 
 void GLGraphicsView::setupViewport( QWidget * viewport )
 {
