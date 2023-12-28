@@ -637,7 +637,7 @@ bool NifOStream::write( const NifValue & val )
 			v[1] = (uint16_t) round(vec->xyz[1]);
 			v[2] = (uint16_t) round(vec->xyz[2]);
 
-			return device->write( (char*)v, 6 ) == 3;
+			return device->write( (char*)v, 6 ) == 6;
 		}
 	case NifValue::tHalfVector3:
 		{

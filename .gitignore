@@ -72,3 +72,6 @@ vc100.pdb
 # OS
 [Tt]humbs.db
 *.DS_Store
+
+# VSCode
+.vscode/
