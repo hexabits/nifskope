@@ -49,9 +49,7 @@ void Shape::clear()
 {
 	Node::clear();
 
-	resetSkinning();
-	resetVertexData();
-	resetSkeletonData();
+	resetBlockData();
 
 	transVerts.clear();
 	transNorms.clear();
@@ -71,26 +69,51 @@ void Shape::clear()
 
 void Shape::transform()
 {
-	if ( needUpdateData ) {
-		needUpdateData = false;
-
-		auto nif = NifModel::fromValidIndex( iBlock );
-		if ( nif ) {
-			needUpdateBounds = true; // Force update bounds
-			updateData(nif);
-
-			if ( isVertexAlphaAnimation ) {
-				int nColors = colors.count();
-				for ( int i = 0; i < nColors; i++ )
-					colors[i].setRGBA( colors[i].red(), colors[i].green(), colors[i].blue(), 1 );
-			}
-		} else {
-			clear();
-			return;
-		}
-	}
+	if ( needUpdateData )
+		updateData( NifModel::fromValidIndex( iBlock ) );
 
 	Node::transform();
+}
+
+template <typename T> inline void normalizeVectorSize(QVector<T> & v, int nRequiredSize, bool hasVertexData)
+{
+	if ( hasVertexData ) {
+		if ( v.count() < nRequiredSize )
+			v.resize( nRequiredSize );
+	} else {
+		v.clear();
+	}
+}
+
+void Shape::updateData( const NifModel* nif )
+{
+	needUpdateData = false;
+
+	if ( !nif ) {
+		clear();
+		return;
+	}
+
+	needUpdateBounds = true; // Force update bounds
+	resetBlockData();
+
+	updateDataImpl(nif);
+
+	numVerts = verts.count();
+
+	// Validating vertex data
+	normalizeVectorSize( norms, numVerts, hasVertexNormals );
+	normalizeVectorSize( tangents, numVerts, hasVertexTangents );
+	normalizeVectorSize( bitangents, numVerts, hasVertexBitangents );
+
+	normalizeVectorSize( colors, numVerts, hasVertexColors );
+	if ( isVertexAlphaAnimation ) {
+		for ( auto & c : colors )
+			c.setAlpha(1.0f);
+	}
+
+	for ( auto & uvset : coords )
+		normalizeVectorSize( uvset, numVerts, hasVertexUVs );
 }
 
 void Shape::setController( const NifModel * nif, const QModelIndex & iController )
@@ -158,17 +181,18 @@ void Shape::boneSphere( const NifModel * nif, const QModelIndex & index ) const
 	}
 }
 
-void Shape::resetSkinning()
+void Shape::resetBlockData()
 {
-	isSkinned = false;
-	iSkin = iSkinData = iSkinPart = QModelIndex();
-}
-
-void Shape::resetVertexData()
-{
+	// Vertex data
 	numVerts = 0;
 
 	iData = iTangentData = QModelIndex();
+
+	hasVertexNormals    = false;
+	hasVertexTangents   = false;
+	hasVertexBitangents = false;
+	hasVertexUVs        = false;
+	hasVertexColors     = false;
 
 	verts.clear();
 	norms.clear();
@@ -178,10 +202,12 @@ void Shape::resetVertexData()
 	bitangents.clear();
 	triangles.clear();
 	tristrips.clear();
-}
 
-void Shape::resetSkeletonData()
-{
+	// Skinning data
+	isSkinned = false;
+	iSkin = iSkinData = iSkinPart = QModelIndex();
+
+	// Skeleton data
 	skeletonRoot = 0;
 	skeletonTrans = Transform();
 

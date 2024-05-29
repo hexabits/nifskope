@@ -1107,89 +1107,68 @@ public:
 	// Child fields
 
 	//! Get a child field by its index.
-	NifFieldTemplate field( int childIndex, bool reportErrors = true ) const 
+	NifFieldTemplate child( int childIndex, bool reportErrors = false ) const 
 	{
 		return NifFieldTemplate( m_item ? _model()->getItem( m_item, childIndex, reportErrors ) : nullptr );
 	}
 	//! Get a child field by its name.
-	NifFieldTemplate field( const QString & childName, bool reportErrors = false ) const
+	NifFieldTemplate child( const QString & childName, bool reportErrors = false ) const
 	{
 		return NifFieldTemplate( m_item ? _model()->getItem( m_item, childName, reportErrors ) : nullptr );
 	}
 	//! Get a child field by its name.
-	NifFieldTemplate field( const QLatin1String & name, bool reportErrors = false ) const
+	NifFieldTemplate child( const QLatin1String & name, bool reportErrors = false ) const
 	{
 		return NifFieldTemplate( m_item ? _model()->getItem( m_item, name, reportErrors ) : nullptr );
 	}
 	//! Get a child field by its name.
-	NifFieldTemplate field( const char * name, bool reportErrors = false ) const
+	NifFieldTemplate child( const char * name, bool reportErrors = false ) const
 	{
-		return field( QLatin1String(name), reportErrors );
+		return child( QLatin1String(name), reportErrors );
 	}
 
 	//! Get a child field by its index. Same as field(...) with with reportErrors = true.
 	NifFieldTemplate operator [] ( int childIndex ) const
 	{
-		return field( childIndex, true );
+		return child( childIndex, true );
 	}
 	//! Get a child field by its name. Same as field(...) with with reportErrors = true.
 	NifFieldTemplate operator [] ( const QString & childName ) const
 	{
-		return field( childName, true );
+		return child( childName, true );
 	}
 	//! Get a child field by its name. Same as field(...) with with reportErrors = true.
 	NifFieldTemplate operator [] ( const QLatin1String & childName ) const
 	{
-		return field( childName, true );
+		return child( childName, true );
 	}
 	//! Get a child field by its name. Same as field(...) with with reportErrors = true.
 	NifFieldTemplate operator [] ( const char * childName ) const
 	{
-		return field( QLatin1String(childName), true );
-	}
-
-	//! Get a child field by its index. Same as field(...) with with reportErrors = false.
-	NifFieldTemplate operator >> ( int childIndex ) const
-	{
-		return field( childIndex, false );
-	}
-	//! Get a child field by its name. Same as field(...) with with reportErrors = false.
-	NifFieldTemplate operator >> ( const QString & childName ) const
-	{
-		return field( childName, false );
-	}
-	//! Get a child field by its name. Same as field(...) with with reportErrors = false.
-	NifFieldTemplate operator >> ( const QLatin1String & childName ) const
-	{
-		return field( childName, false );
-	}
-	//! Get a child field by its name. Same as field(...) with with reportErrors = false.
-	NifFieldTemplate operator >> ( const char * childName ) const
-	{
-		return field( QLatin1String(childName), false );
+		return child( QLatin1String(childName), true );
 	}
 
 	//! Get the number of child fields.
-	int fieldCount() const
+	int childCount() const
 	{
 		return m_item ? m_item->childCount() : 0;
 	}
 
 	//! Get iterator of child fields for for(...) loops.
 	// The iterator returns only the child fields that pass evalCondition check.
-	NifFieldIteratorEval<ModelPtr, ItemPtr> fieldIter() const
+	NifFieldIteratorEval<ModelPtr, ItemPtr> iter() const
 	{
 		return NifFieldIteratorEval<ModelPtr, ItemPtr>( m_item );
 	}
 	//! Get iterator of child fields for for(...) loops, starting at iStart index.
 	// The iterator returns only the child fields that pass evalCondition check.
-	NifFieldIteratorEval<ModelPtr, ItemPtr> fieldIter( int iStart ) const
+	NifFieldIteratorEval<ModelPtr, ItemPtr> iter( int iStart ) const
 	{
 		return NifFieldIteratorEval<ModelPtr, ItemPtr>( m_item, iStart );
 	}
 	//! Get iterator of child fields for for(...) loops, starting at iStart index and ending at iLast (inclusive).
 	// The iterator returns only the child fields that pass evalCondition check.
-	NifFieldIteratorEval<ModelPtr, ItemPtr> fieldIter( int iStart, int iLast ) const
+	NifFieldIteratorEval<ModelPtr, ItemPtr> iter( int iStart, int iLast ) const
 	{
 		return NifFieldIteratorEval<ModelPtr, ItemPtr>( m_item, iStart, iLast );
 	}
@@ -1703,21 +1682,21 @@ public:
 
 	//! Get the field value.
 	template <typename T>
-	T get() const
+	T value() const
 	{
 		return m_item ? _model()->get<T>( m_item ) : T();
 	}
 
 	//! Set the field value.
 	template <typename T>
-	bool set( const T & val ) const
+	bool setValue( const T & val ) const
 	{
 		return m_item && _model()->set<T>( m_item, val );
 	}
 
-	//! Get the field child values as a QVector.
+	//! Get the child fields' values as a QVector.
 	template <typename T>
-	QVector<T> getArray() const
+	QVector<T> array() const
 	{
 		return m_item ? _model()->getArray<T>( m_item ) : QVector<T>();
 	}
@@ -1741,12 +1720,12 @@ public:
 			_model()->fillArray<T>( m_item, val );
 	}
 
-	qint32 getLink() const
+	qint32 link() const
 	{
 		return m_item ? m_item->getLinkValue() : -1;
 	}
 
-	NifFieldTemplate getLinkBlock() const
+	NifFieldTemplate linkBlock() const
 	{
 		if ( m_item ) {
 			auto link = m_item->getLinkValue();
@@ -1755,11 +1734,38 @@ public:
 		}
 		return NifFieldTemplate();
 	}
-
-	QVector<qint32> getLinkArray() const
-	{
-		return m_item ? _model()->getLinkArray( m_item ) : QVector<qint32>();
-	}
+	//! Get the link's block, with a check that it inherits testAncestor.
+	NifFieldTemplate linkBlock( const QString & testAncestor ) const;
+	//! Get the link's block, with a check that it inherits testAncestor1 or testAncestor2.
+	NifFieldTemplate linkBlock( const QString & testAncestor1, const QString & testAncestor2 ) const;
+	//! Get the link's block, with a check that it inherits testAncestor1 or testAncestor2 or testAncestor3.
+	NifFieldTemplate linkBlock( const QString & testAncestor1, const QString & testAncestor2, const QString & testAncestor3 ) const;
+	//! Get the link's block, with a check that it inherits testAncestor1 or testAncestor2 or testAncestor3 or testAncestor4.
+	NifFieldTemplate linkBlock( const QString & testAncestor1, const QString & testAncestor2, const QString & testAncestor3, const QString & testAncestor4 ) const;
+	//! Get the link's block, with a check that it inherits testAncestor1 or testAncestor2 or testAncestor3 or testAncestor4 or testAncestor5.
+	NifFieldTemplate linkBlock( const QString & testAncestor1, const QString & testAncestor2, const QString & testAncestor3, const QString & testAncestor4, const QString & testAncestor5 ) const;
+	//! Get the link's block, with a check that it inherits testAncestor.
+	NifFieldTemplate linkBlock( const QLatin1String & testAncestor ) const;
+	//! Get the link's block, with a check that it inherits testAncestor1 or testAncestor2.
+	NifFieldTemplate linkBlock( const QLatin1String & testAncestor1, const QLatin1String & testAncestor2 ) const;
+	//! Get the link's block, with a check that it inherits testAncestor1 or testAncestor2 or testAncestor3.
+	NifFieldTemplate linkBlock( const QLatin1String & testAncestor1, const QLatin1String & testAncestor2, const QLatin1String & testAncestor3 ) const;
+	//! Get the link's block, with a check that it inherits testAncestor1 or testAncestor2 or testAncestor3 or testAncestor4.
+	NifFieldTemplate linkBlock( const QLatin1String & testAncestor1, const QLatin1String & testAncestor2, const QLatin1String & testAncestor3, const QLatin1String & testAncestor4 ) const;
+	//! Get the link's block, with a check that it inherits testAncestor1 or testAncestor2 or testAncestor3 or testAncestor4 or testAncestor5.
+	NifFieldTemplate linkBlock( const QLatin1String & testAncestor1, const QLatin1String & testAncestor2, const QLatin1String & testAncestor3, const QLatin1String & testAncestor4, const QLatin1String & testAncestor5 ) const;
+	//! Get the link's block, with a check that it inherits testAncestor.
+	NifFieldTemplate linkBlock( const char * testAncestor ) const;
+	//! Get the link's block, with a check that it inherits testAncestor1 or testAncestor2.
+	NifFieldTemplate linkBlock( const char * testAncestor1, const char * testAncestor2 ) const;
+	//! Get the link's block, with a check that it inherits testAncestor1 or testAncestor2 or testAncestor3.
+	NifFieldTemplate linkBlock( const char * testAncestor1, const char * testAncestor2, const char * testAncestor3 ) const;
+	//! Get the link's block, with a check that it inherits testAncestor1 or testAncestor2 or testAncestor3 or testAncestor4.
+	NifFieldTemplate linkBlock( const char * testAncestor1, const char * testAncestor2, const char * testAncestor3, const char * testAncestor4 ) const;
+	//! Get the link's block, with a check that it inherits testAncestor1 or testAncestor2 or testAncestor3 or testAncestor4 or testAncestor5.
+	NifFieldTemplate linkBlock( const char * testAncestor1, const char * testAncestor2, const char * testAncestor3, const char * testAncestor4, const char * testAncestor5 ) const;
+	//! Get the link's block, with a check that it inherits any of testAncestors.
+	NifFieldTemplate linkBlock( const QStringList & testAncestors ) const;
 
 	bool setLink( qint32 link ) const
 	{
@@ -1781,22 +1787,38 @@ public:
 			return _model()->setLink( m_item, -1 );
 
 		if ( block._model() != _model() ) {
-			_model()->reportError( m_item, __func__, QString( "Item \"%1\" belongs to another model." ).arg( block.repr() ) );
+			reportError( __func__, QString( "Item \"%1\" belongs to another model." ).arg( block.repr() ) );
 			return false;
 		}
 
 		auto link = block.toLink();
 		if ( link < 0 ) {
-			_model()->reportError( m_item, __func__, QString( "Item \"%1\" is not a NiBlock." ).arg( block.repr() ) );
+			reportError( __func__, QString( "Item \"%1\" is not a NiBlock." ).arg( block.repr() ) );
 			return false;
 		}
 
 		return _model()->setLink( m_item, link );
 	}
 
+	QVector<qint32> linkArray() const
+	{
+		return m_item ? _model()->getLinkArray( m_item ) : QVector<qint32>();
+	}
+
 	bool setLinkArray( QVector<qint32> links ) const
 	{
 		return m_item && _model()->setLinkArray( m_item, links );
+	}
+
+	void reportError( const QString & msg ) const
+	{
+		if ( m_item )
+			_model()->reportError( m_item, msg );
+	}
+	void reportError( const QString & funcName, const QString & msg ) const
+	{
+		if ( m_item )
+			_model()->reportError( m_item, funcName, msg );
 	}
 };
 
@@ -3185,6 +3207,156 @@ template<typename ModelPtr, typename ItemPtr>
 inline bool NifFieldTemplate<ModelPtr, ItemPtr>::hasValType( NifValue::Type testType1, NifValue::Type testType2, NifValue::Type testType3, NifValue::Type testType4, NifValue::Type testType5 ) const
 {
 	return m_item && ( m_item->valueType() == testType1 || m_item->valueType() == testType2 || m_item->valueType() == testType3 || m_item->valueType() == testType4 || m_item->valueType() == testType5 );
+}
+
+
+// NifFieldTemplate - getLinkBlock() methods (generated)
+
+template<typename ModelPtr, typename ItemPtr>
+inline NifFieldTemplate<ModelPtr, ItemPtr> NifFieldTemplate<ModelPtr, ItemPtr>::linkBlock( const QString & testAncestor ) const
+{
+	if ( m_item ) {
+		auto link = m_item->getLinkValue();
+		auto block = _model()->getBlockItem( link );
+		if ( block && _inherits( block, testAncestor ) )
+			return NifFieldTemplate<ModelPtr, ItemPtr>( block );
+	}
+	return NifFieldTemplate<ModelPtr, ItemPtr>();
+}
+template<typename ModelPtr, typename ItemPtr>
+inline NifFieldTemplate<ModelPtr, ItemPtr> NifFieldTemplate<ModelPtr, ItemPtr>::linkBlock( const QString & testAncestor1, const QString & testAncestor2 ) const
+{
+	if ( m_item ) {
+		auto link = m_item->getLinkValue();
+		auto block = _model()->getBlockItem( link );
+		if ( block && ( _inherits( block, testAncestor1 ) || _inherits( block, testAncestor2 ) ) )
+			return NifFieldTemplate<ModelPtr, ItemPtr>( block );
+	}
+	return NifFieldTemplate<ModelPtr, ItemPtr>();
+}
+template<typename ModelPtr, typename ItemPtr>
+inline NifFieldTemplate<ModelPtr, ItemPtr> NifFieldTemplate<ModelPtr, ItemPtr>::linkBlock( const QString & testAncestor1, const QString & testAncestor2, const QString & testAncestor3 ) const
+{
+	if ( m_item ) {
+		auto link = m_item->getLinkValue();
+		auto block = _model()->getBlockItem( link );
+		if ( block && ( _inherits( block, testAncestor1 ) || _inherits( block, testAncestor2 ) || _inherits( block, testAncestor3 ) ) )
+			return NifFieldTemplate<ModelPtr, ItemPtr>( block );
+	}
+	return NifFieldTemplate<ModelPtr, ItemPtr>();
+}
+template<typename ModelPtr, typename ItemPtr>
+inline NifFieldTemplate<ModelPtr, ItemPtr> NifFieldTemplate<ModelPtr, ItemPtr>::linkBlock( const QString & testAncestor1, const QString & testAncestor2, const QString & testAncestor3, const QString & testAncestor4 ) const
+{
+	if ( m_item ) {
+		auto link = m_item->getLinkValue();
+		auto block = _model()->getBlockItem( link );
+		if ( block && ( _inherits( block, testAncestor1 ) || _inherits( block, testAncestor2 ) || _inherits( block, testAncestor3 ) || _inherits( block, testAncestor4 ) ) )
+			return NifFieldTemplate<ModelPtr, ItemPtr>( block );
+	}
+	return NifFieldTemplate<ModelPtr, ItemPtr>();
+}
+template<typename ModelPtr, typename ItemPtr>
+inline NifFieldTemplate<ModelPtr, ItemPtr> NifFieldTemplate<ModelPtr, ItemPtr>::linkBlock( const QString & testAncestor1, const QString & testAncestor2, const QString & testAncestor3, const QString & testAncestor4, const QString & testAncestor5 ) const
+{
+	if ( m_item ) {
+		auto link = m_item->getLinkValue();
+		auto block = _model()->getBlockItem( link );
+		if ( block && ( _inherits( block, testAncestor1 ) || _inherits( block, testAncestor2 ) || _inherits( block, testAncestor3 ) || _inherits( block, testAncestor4 ) || _inherits( block, testAncestor5 ) ) )
+			return NifFieldTemplate<ModelPtr, ItemPtr>( block );
+	}
+	return NifFieldTemplate<ModelPtr, ItemPtr>();
+}
+template<typename ModelPtr, typename ItemPtr>
+inline NifFieldTemplate<ModelPtr, ItemPtr> NifFieldTemplate<ModelPtr, ItemPtr>::linkBlock( const QLatin1String & testAncestor ) const
+{
+	if ( m_item ) {
+		auto link = m_item->getLinkValue();
+		auto block = _model()->getBlockItem( link );
+		if ( block && _inherits( block, testAncestor ) )
+			return NifFieldTemplate<ModelPtr, ItemPtr>( block );
+	}
+	return NifFieldTemplate<ModelPtr, ItemPtr>();
+}
+template<typename ModelPtr, typename ItemPtr>
+inline NifFieldTemplate<ModelPtr, ItemPtr> NifFieldTemplate<ModelPtr, ItemPtr>::linkBlock( const QLatin1String & testAncestor1, const QLatin1String & testAncestor2 ) const
+{
+	if ( m_item ) {
+		auto link = m_item->getLinkValue();
+		auto block = _model()->getBlockItem( link );
+		if ( block && ( _inherits( block, testAncestor1 ) || _inherits( block, testAncestor2 ) ) )
+			return NifFieldTemplate<ModelPtr, ItemPtr>( block );
+	}
+	return NifFieldTemplate<ModelPtr, ItemPtr>();
+}
+template<typename ModelPtr, typename ItemPtr>
+inline NifFieldTemplate<ModelPtr, ItemPtr> NifFieldTemplate<ModelPtr, ItemPtr>::linkBlock( const QLatin1String & testAncestor1, const QLatin1String & testAncestor2, const QLatin1String & testAncestor3 ) const
+{
+	if ( m_item ) {
+		auto link = m_item->getLinkValue();
+		auto block = _model()->getBlockItem( link );
+		if ( block && ( _inherits( block, testAncestor1 ) || _inherits( block, testAncestor2 ) || _inherits( block, testAncestor3 ) ) )
+			return NifFieldTemplate<ModelPtr, ItemPtr>( block );
+	}
+	return NifFieldTemplate<ModelPtr, ItemPtr>();
+}
+template<typename ModelPtr, typename ItemPtr>
+inline NifFieldTemplate<ModelPtr, ItemPtr> NifFieldTemplate<ModelPtr, ItemPtr>::linkBlock( const QLatin1String & testAncestor1, const QLatin1String & testAncestor2, const QLatin1String & testAncestor3, const QLatin1String & testAncestor4 ) const
+{
+	if ( m_item ) {
+		auto link = m_item->getLinkValue();
+		auto block = _model()->getBlockItem( link );
+		if ( block && ( _inherits( block, testAncestor1 ) || _inherits( block, testAncestor2 ) || _inherits( block, testAncestor3 ) || _inherits( block, testAncestor4 ) ) )
+			return NifFieldTemplate<ModelPtr, ItemPtr>( block );
+	}
+	return NifFieldTemplate<ModelPtr, ItemPtr>();
+}
+template<typename ModelPtr, typename ItemPtr>
+inline NifFieldTemplate<ModelPtr, ItemPtr> NifFieldTemplate<ModelPtr, ItemPtr>::linkBlock( const QLatin1String & testAncestor1, const QLatin1String & testAncestor2, const QLatin1String & testAncestor3, const QLatin1String & testAncestor4, const QLatin1String & testAncestor5 ) const
+{
+	if ( m_item ) {
+		auto link = m_item->getLinkValue();
+		auto block = _model()->getBlockItem( link );
+		if ( block && ( _inherits( block, testAncestor1 ) || _inherits( block, testAncestor2 ) || _inherits( block, testAncestor3 ) || _inherits( block, testAncestor4 ) || _inherits( block, testAncestor5 ) ) )
+			return NifFieldTemplate<ModelPtr, ItemPtr>( block );
+	}
+	return NifFieldTemplate<ModelPtr, ItemPtr>();
+}
+template<typename ModelPtr, typename ItemPtr>
+inline NifFieldTemplate<ModelPtr, ItemPtr> NifFieldTemplate<ModelPtr, ItemPtr>::linkBlock( const char * testAncestor ) const
+{
+	return linkBlock( QLatin1String(testAncestor) );
+}
+template<typename ModelPtr, typename ItemPtr>
+inline NifFieldTemplate<ModelPtr, ItemPtr> NifFieldTemplate<ModelPtr, ItemPtr>::linkBlock( const char * testAncestor1, const char * testAncestor2 ) const
+{
+	return linkBlock( QLatin1String(testAncestor1), QLatin1String(testAncestor2) );
+}
+template<typename ModelPtr, typename ItemPtr>
+inline NifFieldTemplate<ModelPtr, ItemPtr> NifFieldTemplate<ModelPtr, ItemPtr>::linkBlock( const char * testAncestor1, const char * testAncestor2, const char * testAncestor3 ) const
+{
+	return linkBlock( QLatin1String(testAncestor1), QLatin1String(testAncestor2), QLatin1String(testAncestor3) );
+}
+template<typename ModelPtr, typename ItemPtr>
+inline NifFieldTemplate<ModelPtr, ItemPtr> NifFieldTemplate<ModelPtr, ItemPtr>::linkBlock( const char * testAncestor1, const char * testAncestor2, const char * testAncestor3, const char * testAncestor4 ) const
+{
+	return linkBlock( QLatin1String(testAncestor1), QLatin1String(testAncestor2), QLatin1String(testAncestor3), QLatin1String(testAncestor4) );
+}
+template<typename ModelPtr, typename ItemPtr>
+inline NifFieldTemplate<ModelPtr, ItemPtr> NifFieldTemplate<ModelPtr, ItemPtr>::linkBlock( const char * testAncestor1, const char * testAncestor2, const char * testAncestor3, const char * testAncestor4, const char * testAncestor5 ) const
+{
+	return linkBlock( QLatin1String(testAncestor1), QLatin1String(testAncestor2), QLatin1String(testAncestor3), QLatin1String(testAncestor4), QLatin1String(testAncestor5) );
+}
+template<typename ModelPtr, typename ItemPtr>
+inline NifFieldTemplate<ModelPtr, ItemPtr> NifFieldTemplate<ModelPtr, ItemPtr>::linkBlock( const QStringList & testAncestors ) const
+{
+	if ( m_item ) {
+		auto link = m_item->getLinkValue();
+		auto block = _model()->getBlockItem( link );
+		if ( block && _inherits( block, testAncestors ) )
+			return NifFieldTemplate<ModelPtr, ItemPtr>( block );
+	}
+	return NifFieldTemplate<ModelPtr, ItemPtr>();
 }
 
 #endif

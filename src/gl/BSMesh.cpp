@@ -263,12 +263,9 @@ void BSMesh::updateImpl(const NifModel* nif, const QModelIndex& index)
 	forMeshIndex(nif, createMeshFile);
 }
 
-void BSMesh::updateData(const NifModel* nif)
+void BSMesh::updateDataImpl(const NifModel* nif)
 {
 	qDebug() << "updateData";
-	resetSkinning();
-	resetVertexData();
-	resetSkeletonData();
 	gpuLODs.clear();
 	boneNames.clear();
 	boneTransforms.clear();

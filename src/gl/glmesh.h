@@ -64,7 +64,7 @@ public:
 
 protected:
 	void updateImpl( const NifModel * nif, const QModelIndex & index ) override;
-	void updateData( const NifModel * nif ) override;
+	void updateDataImpl( const NifModel * nif ) override;
 
 	void updateData_NiMesh( const NifModel * nif );
 	void updateData_NiTriShape( const NifModel * nif );

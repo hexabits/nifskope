@@ -54,7 +54,7 @@ public:
 
 protected:
 	void updateImpl(const NifModel* nif, const QModelIndex& index) override;
-	void updateData(const NifModel* nif) override;
+	void updateDataImpl(const NifModel* nif) override;
 
 	QModelIndex iMeshes;
 

@@ -55,6 +55,7 @@ public:
 	BoundSphere();
 	BoundSphere( const BoundSphere & );
 	BoundSphere( const NifModel * nif, const QModelIndex & );
+	BoundSphere( NifFieldConst sphereRoot );
 	BoundSphere( const Vector3 & center, float radius );
 	BoundSphere( const QVector<Vector3> & vertices );
 
@@ -111,9 +112,9 @@ class BoneWeights
 {
 public:
 	BoneWeights() {}
-	BoneWeights( const NifModel * nif, const QModelIndex & index, int b, int vcnt = 0 );
+	BoneWeights( NifFieldConst boneEntry, int b, int vcnt = 0 );
 
-	void setTransform( const NifModel * nif, const QModelIndex & index );
+	void setTransform( NifFieldConst boneEntry );
 
 	Transform trans;
 	Vector3 center;
@@ -138,6 +139,7 @@ class SkinPartition final
 public:
 	SkinPartition() { numWeightsPerVertex = 0; }
 	SkinPartition( const NifModel * nif, const QModelIndex & index );
+	SkinPartition( NifFieldConst partitionEntry );
 
 	QVector<Triangle> getRemappedTriangles() const;
 	QVector<QVector<quint16>> getRemappedTristrips() const;

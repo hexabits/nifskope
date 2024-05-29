@@ -21,8 +21,6 @@ ToolDialog::ToolDialog( QWidget * parent, const QString & title, ToolDialogFlags
 
 void ToolDialog::open( bool autoDeleteOnClose )
 {
-	QWidget * parentW = parentWidget();
-
 	setAttribute( Qt::WA_DeleteOnClose, autoDeleteOnClose );
 
 	// Finalize main button layout
@@ -54,24 +52,7 @@ void ToolDialog::open( bool autoDeleteOnClose )
 	mainButtons.clear(); // Don't need it anymore
 
 	// Window flags and modality
-	bool isNonModal = hasToolDialogFlag( Flags::NonBlocking ) && parentW;
-
-	Qt::WindowFlags winFlags = Qt::CustomizeWindowHint | Qt::WindowTitleHint | Qt::WindowCloseButtonHint;
-	Qt::WindowModality winModality = Qt::WindowModality::WindowModal;
-	if ( isNonModal ) {
-		winFlags |= Qt::Tool;
-		winModality = Qt::WindowModality::NonModal;
-	} else {
-		winFlags |= Qt::Dialog | Qt::WindowSystemMenuHint;
-		if ( hasToolDialogFlag( Flags::ApplicationBlocking ) || !parentW )
-			winModality = Qt::WindowModality::ApplicationModal;
-	}
-
-	if ( !hasToolDialogFlag( Flags::Resize ) )
-		winFlags |= Qt::MSWindowsFixedSizeDialogHint;
-
-	setWindowFlags( winFlags );
-	setWindowModality( winModality );
+	setDialogFlagsAndModality( this, toolDialogFlags );
 
 	// Setting sizes
 	QSize szHint = sizeHint();
@@ -113,9 +94,34 @@ void ToolDialog::open( bool autoDeleteOnClose )
 	}
 
 	// Show and activate me
-	show();
-	if ( isNonModal )
-		activateWindow();
+	showDialog( this );
+}
+
+void ToolDialog::setDialogFlagsAndModality( QWidget * dialog, ToolDialogFlagsType flags )
+{
+	Qt::WindowModality winModality = Qt::WindowModality::WindowModal;
+	if ( ( flags & Flags::ApplicationBlocking ) || !dialog->parentWidget() )
+		winModality = Qt::WindowModality::ApplicationModal;
+	else if ( flags & Flags::NonBlocking )
+		winModality = Qt::WindowModality::NonModal;
+
+	Qt::WindowFlags winFlags = Qt::CustomizeWindowHint | Qt::WindowTitleHint | Qt::WindowCloseButtonHint;
+	if ( winModality == Qt::WindowModality::NonModal )
+		winFlags |= Qt::Tool;
+	else
+		winFlags |= Qt::Dialog | Qt::WindowSystemMenuHint;
+	if ( ( flags & Flags::Resize ) == 0 ) // If the dialog is not resizable...
+		winFlags |= Qt::MSWindowsFixedSizeDialogHint;
+
+	dialog->setWindowFlags( winFlags );
+	dialog->setWindowModality( winModality );
+}
+
+void ToolDialog::showDialog( QWidget * dialog )
+{
+	dialog->show();
+	if ( dialog->windowModality() == Qt::WindowModality::NonModal )
+		dialog->activateWindow();
 }
 
 void ToolDialog::closeEvent( QCloseEvent * event )

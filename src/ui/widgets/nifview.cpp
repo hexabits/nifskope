@@ -532,30 +532,30 @@ void NifTreeView::autoExpandBlock( const QModelIndex & blockIndex )
 
 	if ( field.isHeader() ) {
 		// Auto-Expand BS Header
-		autoExpandItem( field >> "BS Header" );
+		autoExpandItem( field.child("BS Header") );
 		return;
 
 	} else if ( field.isBlock() ) {
 		if ( field.inherits("NiTransformInterpolator", "NiBSplineTransformInterpolator") ) {
 			// Auto-Expand NiQuatTransform
-			autoExpandItem( field >> "Transform" );
+			autoExpandItem( field.child("Transform") );
 			return;
 		}
 		if ( field.inherits("NiNode") ) {
 			// Auto-Expand Children array
-			autoExpandItem( field >> "Children" );
+			autoExpandItem( field.child("Children") );
 			return;		
 		} 
 		if ( field.inherits("NiSkinPartition", "BSDismemberSkinInstance") ) {
 			// Auto-Expand skin partitions array
-			autoExpandItem( field >> "Partitions" );
+			autoExpandItem( field.child("Partitions") );
 			return;
 		}
 	}
 
 	// Auto-Expand final arrays/compounds
-	for( int i = field.fieldCount() - 1; i >= 0; i-- ) {
-		auto f = field >> i;
+	for( int i = field.childCount() - 1; i >= 0; i-- ) {
+		auto f = field.child(i);
 		if ( f && !isRowHidden(f.item()) ) {
 			autoExpandItem( f );
 			break;
@@ -565,7 +565,7 @@ void NifTreeView::autoExpandBlock( const QModelIndex & blockIndex )
 
 void NifTreeView::autoExpandItem( NifFieldConst field )
 {
-	auto nChildren = field.fieldCount();
+	auto nChildren = field.childCount();
 	if ( nChildren > 0 && nChildren < 100 ) {
 		autoExpanded = true;
 		blockMouseSelection = true;

@@ -8,7 +8,7 @@
 #include <QTimer>
 
 #include "ui/UiUtils.h"
-
+#include "ui/ToolDialog.h"
 
 Q_LOGGING_CATEGORY( ns, "nifskope" )
 Q_LOGGING_CATEGORY( nsGl, "nifskope.gl" )
@@ -28,34 +28,26 @@ Message::~Message()
 }
 
 //! Static helper for message box without detail text
-QMessageBox* Message::message( QWidget * parent, const QString & str, QMessageBox::Icon icon )
+void Message::message( QWidget * parent, const QString & str, QMessageBox::Icon icon )
 {
 	auto msgBox = new QMessageBox( parent );
-	msgBox->setWindowFlags( msgBox->windowFlags() | Qt::Tool );
 	msgBox->setAttribute( Qt::WA_DeleteOnClose );
-	msgBox->setWindowModality( Qt::NonModal );
 	UIUtils::setWindowTitle( msgBox );
 
 	msgBox->setText( str );
 	msgBox->setIcon( icon );
 
 	msgBox->show();
-
-	msgBox->activateWindow();
-
-	return msgBox;
 }
 
 //! Static helper for message box with detail text
-QMessageBox* Message::message( QWidget * parent, const QString & str, const QString & err, QMessageBox::Icon icon )
+void Message::message( QWidget * parent, const QString & str, const QString & err, QMessageBox::Icon icon )
 {
 	if ( !parent )
 		parent = qApp->activeWindow();
 
 	auto msgBox = new QMessageBox( parent );
 	msgBox->setAttribute( Qt::WA_DeleteOnClose );
-	msgBox->setWindowModality( Qt::NonModal );
-	msgBox->setWindowFlags( msgBox->windowFlags() | Qt::Tool );
 	UIUtils::setWindowTitle( msgBox );
 
 	msgBox->setText( str );
@@ -63,10 +55,6 @@ QMessageBox* Message::message( QWidget * parent, const QString & str, const QStr
 	msgBox->setDetailedText( err );
 
 	msgBox->show();
-
-	msgBox->activateWindow();
-
-	return msgBox;
 }
 
 //! Static helper for installed message handler
@@ -235,8 +223,7 @@ void Message::append( QWidget * parent, const QString & str, const QString & err
 		messageBoxes.append( msgBox );
 
 		msgBox->setAttribute( Qt::WA_DeleteOnClose );
-		msgBox->setWindowModality( Qt::NonModal );
-		msgBox->setWindowFlags( msgBox->windowFlags() | Qt::Tool );
+		ToolDialog::setDialogFlagsAndModality( msgBox, ToolDialog::NonBlocking );
 
 		// Set the min. width of the label containing str to a quarter of the screen resolution.
 		// This makes the detailed text more readable even when str is short.

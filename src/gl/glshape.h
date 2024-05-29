@@ -68,7 +68,8 @@ protected:
 
 	void setController( const NifModel * nif, const QModelIndex & controller ) override;
 	void updateImpl( const NifModel * nif, const QModelIndex & index ) override;
-	virtual void updateData( const NifModel* nif ) = 0;
+	void updateData( const NifModel* nif );
+	virtual void updateDataImpl( const NifModel* nif ) = 0;
 
 	void boneSphere( const NifModel * nif, const QModelIndex & index ) const;
 
@@ -85,8 +86,6 @@ protected:
 	QPersistentModelIndex iSkinData;
 	//! Skin partition
 	QPersistentModelIndex iSkinPart;
-
-	void resetSkinning();
 
 	int numVerts = 0;
 
@@ -108,8 +107,6 @@ protected:
 	QVector<TriStrip> tristrips;
 	//! Sorted triangles
 	QVector<Triangle> sortedTriangles;
-
-	void resetVertexData();
 
 	//! Is the transform rigid or weighted?
 	bool transformRigid = true;
@@ -133,7 +130,7 @@ protected:
 	QVector<BoneWeights> weights;
 	QVector<SkinPartition> partitions;
 
-	void resetSkeletonData();
+	void resetBlockData();
 
 	//! Holds the name of the shader, or "" if no shader
 	QString shader = "";
@@ -151,6 +148,11 @@ protected:
 	bool isDoubleSided = false;
 	//! Is shader set to animate using vertex alphas?
 	bool isVertexAlphaAnimation = false;
+
+	bool hasVertexNormals = false;
+	bool hasVertexTangents = false;
+	bool hasVertexBitangents = false;
+	bool hasVertexUVs = false;
 	//! Is "Has Vertex Colors" set to Yes
 	bool hasVertexColors = false;
 

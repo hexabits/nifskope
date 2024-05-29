@@ -1099,6 +1099,7 @@ public:
 	 * @param	transform	The index to create the transform from.
 	 */
 	Transform( const NifModel * nif, const QModelIndex & transform );
+	Transform( NifFieldConst transformRoot );
 	//! Default constructor
 	Transform() { scale = 1.0; }
 

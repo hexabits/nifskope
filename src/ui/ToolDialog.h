@@ -106,6 +106,12 @@ private:
 	int gridLayoutRow = 0;
 
 
+	// Dialog helpers (static)
+public:
+	static void setDialogFlagsAndModality( QWidget * dialog, ToolDialogFlagsType flags );
+	static void showDialog( QWidget * dialog );
+
+
 	// Widget helpers
 public:
 	void lockWidgetSize( QWidget * widget ) { widget->setSizePolicy( QSizePolicy::Fixed, QSizePolicy::Fixed ); }

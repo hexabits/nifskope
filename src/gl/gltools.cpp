@@ -47,29 +47,36 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 //! \file gltools.cpp GL helper functions
 
-BoneWeights::BoneWeights( const NifModel * nif, const QModelIndex & index, int b, int vcnt )
+BoneWeights::BoneWeights( NifFieldConst boneEntry, int b, int vcnt )
 {
-	trans  = Transform( nif, index );
-	auto sph = BoundSphere( nif, index );
-	center = sph.center;
-	radius = sph.radius;
+	setTransform( boneEntry );
+
 	bone = b;
 
-	QModelIndex idxWeights = nif->getIndex( index, "Vertex Weights" );
-	if ( vcnt && idxWeights.isValid() ) {
-		for ( int c = 0; c < nif->rowCount( idxWeights ); c++ ) {
-			QModelIndex idx = idxWeights.child( c, 0 );
-			weights.append( VertexWeight( nif->get<int>( idx, "Index" ), nif->get<float>( idx, "Weight" ) ) );
+	auto weightEntries = boneEntry.child("Vertex Weights");
+	int nWeights = weightEntries.childCount();
+	if ( nWeights > 0 ) {
+		auto firstWeight = weightEntries[0];
+
+		int iIndexField = firstWeight["Index"].row();
+		int iWeightField = firstWeight["Weight"].row();
+
+		if ( iIndexField >= 0 && iWeightField >= 0 ) {
+			weights.reserve( nWeights );
+			for ( auto entry : weightEntries.iter() ) {
+				weights.append( VertexWeight( entry[iIndexField].value<int>(), entry[iWeightField].value<float>() ) );
+			}
 		}
 	}
 }
 
-void BoneWeights::setTransform( const NifModel * nif, const QModelIndex & index )
+void BoneWeights::setTransform( NifFieldConst boneEntry )
 {
-	trans = Transform( nif, index );
-	auto sph = BoundSphere( nif, index );
-	center = sph.center;
-	radius = sph.radius;
+	trans = Transform( boneEntry );
+
+	auto sphere = BoundSphere( boneEntry );
+	center = sphere.center;
+	radius = sphere.radius;
 }
 
 BoneWeightsUNorm::BoneWeightsUNorm(QVector<QPair<quint16, quint16>> weights, int v)
@@ -83,6 +90,7 @@ BoneWeightsUNorm::BoneWeightsUNorm(QVector<QPair<quint16, quint16>> weights, int
 
 SkinPartition::SkinPartition( const NifModel * nif, const QModelIndex & index )
 {
+	// TODO: Replace with SkinPartition( NifFieldConst partitionEntry ) everywhere
 	numWeightsPerVertex = nif->get<int>( index, "Num Weights Per Vertex" );
 
 	vertexMap = nif->getArray<int>( index, "Vertex Map" );
@@ -118,6 +126,42 @@ SkinPartition::SkinPartition( const NifModel * nif, const QModelIndex & index )
 	}
 
 	triangles = nif->getArray<Triangle>( index, "Triangles" );
+}
+
+SkinPartition::SkinPartition( NifFieldConst partitionEntry )
+{
+	numWeightsPerVertex = partitionEntry.child("Num Weights Per Vertex").value<int>();
+
+	vertexMap = partitionEntry.child("Vertex Map").array<int>();
+	int nVertices = vertexMap.count();
+	if ( nVertices <= 0 ) {
+		nVertices = partitionEntry.child("Num Vertices").value<int>();
+		if ( nVertices > 0 ) {
+			vertexMap.resize( nVertices );
+			for ( int i = 0; i < nVertices; i++ )
+				vertexMap[i] = i;
+		}
+	}
+
+	boneMap = partitionEntry.child("Bones").array<int>();
+
+	weights.resize( nVertices * numWeightsPerVertex );
+	auto weightEntries = partitionEntry.child("Vertex Weights");
+	auto boneIndicesEntries = partitionEntry.child("Bone Indices");
+	auto pw = weights.data();
+	for ( int v = 0; v < nVertices; v++ ) {
+		auto bentry = boneIndicesEntries[v];
+		auto wentry = weightEntries[v];
+		for ( int w = 0; w < numWeightsPerVertex; w++, pw++ ) {
+			pw->first = bentry[w].value<int>();
+			pw->second = wentry[w].value<float>();
+		}
+	}
+
+	for ( auto ps : partitionEntry.child("Strips").iter() )
+		tristrips << ps.array<quint16>();
+
+	triangles = partitionEntry.child("Triangles").array<Triangle>();
 }
 
 QVector<Triangle> SkinPartition::getRemappedTriangles() const
@@ -167,6 +211,7 @@ BoundSphere::BoundSphere( const BoundSphere & other )
 
 BoundSphere::BoundSphere( const NifModel * nif, const QModelIndex & index )
 {
+	// TODO: Replace with BoundSphere( NifFieldConst sphereRoot ) everywhere
 	auto idx = index;
 	auto sph = nif->getIndex( idx, "Bounding Sphere" );
 	if ( sph.isValid() )
@@ -174,6 +219,16 @@ BoundSphere::BoundSphere( const NifModel * nif, const QModelIndex & index )
 
 	center = nif->get<Vector3>( idx, "Center" );
 	radius = nif->get<float>( idx, "Radius" );
+}
+
+BoundSphere::BoundSphere( NifFieldConst sphereRoot )
+{
+	NifFieldConst sphere = sphereRoot.child("Bounding Sphere");
+	if ( sphere )
+		sphereRoot = sphere;
+
+	center = sphereRoot["Center"].value<Vector3>();
+	radius = sphereRoot["Radius"].value<float>();
 }
 
 BoundSphere::BoundSphere( const QVector<Vector3> & verts )

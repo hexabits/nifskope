@@ -707,6 +707,7 @@ bool Transform::canConstruct( const NifModel * nif, const QModelIndex & parent )
 
 Transform::Transform( const NifModel * nif, const QModelIndex & transform )
 {
+	// TODO: Replace with Transform( NifFieldConst transformRoot ) everywhere.
 	QModelIndex t = nif->getIndex( transform, "Transform" );
 	if ( !t.isValid() ) {
 		t = nif->getIndex( transform, "Skin Transform" );
@@ -717,6 +718,20 @@ Transform::Transform( const NifModel * nif, const QModelIndex & transform )
 	rotation = nif->get<Matrix>( t, "Rotation" );
 	translation = nif->get<Vector3>( t, "Translation" );
 	scale = nif->get<float>( t, "Scale" );
+}
+
+Transform::Transform( NifFieldConst transformRoot )
+{
+	NifFieldConst transformEntry = transformRoot.child("Transform");
+	if ( !transformEntry ) {
+		transformEntry  = transformRoot.child("Skin Transform");
+		if ( !transformEntry )
+			transformEntry = transformRoot;
+	}
+
+	rotation = transformEntry["Rotation"].value<Matrix>();
+	translation = transformEntry["Translation"].value<Vector3>();
+	scale = transformEntry["Scale"].value<float>();
 }
 
 void Transform::writeBack( NifModel * nif, const QModelIndex & transform ) const
