@@ -166,7 +166,7 @@ bool BSA::canOpen( const QString & fn )
 		if ( magic == F4_BSAHEADER_FILEID ) {
 			if ( f.read( (char *) & version, sizeof( version ) ) != 4 )
 				return false;
-			return version == F4_BSAHEADER_VERSION || version == SF_BSAHEADER_VERSION2 || version == SF_BSAHEADER_VERSION3;
+			return (version == F4_BSAHEADER_VERSION1 || version == F4_BSAHEADER_VERSION7 || version == F4_BSAHEADER_VERSION8 || version == SF_BSAHEADER_VERSION2 || version == SF_BSAHEADER_VERSION3);
 		} else if ( magic == OB_BSAHEADER_FILEID ) {
 			if ( f.read( (char *)&version, sizeof( version ) ) != 4 )
 				return false;
@@ -232,8 +232,8 @@ bool BSA::open()
 			}
 
 			// Two new ints for Starfield
-			quint32 OFFSET = (version == F4_BSAHEADER_VERSION) ? 8 : 16;
-			OFFSET = (version >= SF_BSAHEADER_VERSION3) ? 20 : OFFSET;
+			quint32 OFFSET = (version == F4_BSAHEADER_VERSION1 || version == F4_BSAHEADER_VERSION7 || version == F4_BSAHEADER_VERSION8) ? 8 : 16;
+			OFFSET = (version == SF_BSAHEADER_VERSION3) ? 20 : OFFSET;
 
 			QString h = QString::fromLatin1( header.type, 4 );
 			if ( h == "GNRL" ) {
