@@ -92,9 +92,6 @@
    <addaction name="aShowHidden"/>
   </widget>
   <widget class="QToolBar" name="tAnim">
-   <property name="enabled">
-    <bool>false</bool>
-   </property>
    <property name="windowTitle">
     <string>Animation</string>
    </property>
