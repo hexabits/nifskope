@@ -40,9 +40,19 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <QVector>
 #include <QString>
 
-//! @file glshape.h Shape
+//! @file glshape.h TriangleRange
 
-class NifModel;
+struct TriangleRange
+{
+	NifFieldConst rootField;
+	int start;
+	int end;
+	int validStart;
+	int validLength;
+};
+
+
+//! @file glshape.h Shape
 
 class Shape : public Node
 {
@@ -72,6 +82,10 @@ protected:
 	virtual void updateDataImpl( const NifModel* nif ) = 0;
 
 	void boneSphere( const NifModel * nif, const QModelIndex & index ) const;
+
+	void reportCountMismatch( NifFieldConst rootEntry1, int entryCount1, NifFieldConst rootEntry2, int entryCount2, NifFieldConst reportEntry ) const;
+	inline void reportCountMismatch( NifFieldConst rootEntry1, NifFieldConst rootEntry2, NifFieldConst reportEntry ) const
+		{ reportCountMismatch( rootEntry1, rootEntry1.childCount(), rootEntry2, rootEntry2.childCount(), reportEntry ); }
 
 	//! Shape data
 	QPersistentModelIndex iData;
@@ -103,10 +117,18 @@ protected:
 	QVector<TexCoords> coords;
 	//! Triangles
 	QVector<Triangle> triangles;
+	//! Map of triangle indices in the shape data to their indices in the QVector
+	QVector<int> triangleMap;
+	//! Triangle ranges
+	QVector<TriangleRange> triangleRanges;
 	//! Strip points
 	QVector<TriStrip> tristrips;
 	//! Sorted triangles
 	QVector<Triangle> sortedTriangles;
+
+	void addTriangleRange( NifFieldConst rangeRootField, int iStart, int iEnd );
+	void addTriangleRange( NifFieldConst rangeRootField, const QVector<Triangle> & tris);
+	void addTriangleRange( NifFieldConst arrayRoot ) { addTriangleRange( arrayRoot, arrayRoot.array<Triangle>() ); }
 
 	//! Is the transform rigid or weighted?
 	bool transformRigid = true;
@@ -126,9 +148,12 @@ protected:
 
 	int skeletonRoot = 0;
 	Transform skeletonTrans;
-	QVector<int> bones;
-	QVector<BoneWeights> weights;
-	QVector<SkinPartition> partitions;
+	QVector<SkinBone> bones;
+
+	void initSkinBones( NifFieldConst nodeMapRoot, NifFieldConst nodeListRoot, NifFieldConst block );
+
+	void applySkinningTransforms( const Transform & baseTransform );
+	void applyRigidTransforms();
 
 	void resetBlockData();
 

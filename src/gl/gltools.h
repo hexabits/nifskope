@@ -34,6 +34,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define GLTOOLS_H
 
 #include "data/niftypes.h"
+#include "model/nifmodel.h"
 
 #include <QOpenGLContext>
 #include <QPair>
@@ -42,7 +43,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //! @file gltools.h BoundSphere, VertexWeight, BoneWeights, SkinPartition
 
 
-using TriStrip = QVector<quint16>;
+using TriStrip = QVector<TriVertexIndex>;
 Q_DECLARE_TYPEINFO(TriStrip, Q_MOVABLE_TYPE);
 using TexCoords = QVector<Vector2>;
 Q_DECLARE_TYPEINFO(TexCoords, Q_MOVABLE_TYPE);
@@ -108,50 +109,26 @@ public:
 };
 
 //! A set of vertices weighted to a bone
-class BoneWeights
+class SkinBone
 {
 public:
-	BoneWeights() {}
-	BoneWeights( NifFieldConst boneEntry, int b, int vcnt = 0 );
+	SkinBone() {}
+	SkinBone( NifFieldConst transformEntry, int nodeLink )
+		: baseTransform( transformEntry ), nodeLink( nodeLink ) {}
 
-	void setTransform( NifFieldConst boneEntry );
-
-	Transform trans;
-	Vector3 center;
-	float radius = 0;
-	Vector3 tcenter;
-	int bone = 0;
-	QVector<VertexWeight> weights;
+	Transform baseTransform;
+	Transform transform;
+	int nodeLink = -1;
+	QVector<VertexWeight> vertexWeights;
 };
 
-class BoneWeightsUNorm : public BoneWeights
+class BoneWeightsUNorm : public SkinBone
 {
 public:
 	BoneWeightsUNorm() {}
-	BoneWeightsUNorm(QVector<QPair<quint16, quint16>> weights, int v);
+	BoneWeightsUNorm(QVector<QPair<quint16, quint16>> weights);
 
 	QVector<BoneWeightUNORM16> weightsUNORM;
-};
-
-//! A skin partition
-class SkinPartition final
-{
-public:
-	SkinPartition() { numWeightsPerVertex = 0; }
-	SkinPartition( const NifModel * nif, const QModelIndex & index );
-	SkinPartition( NifFieldConst partitionEntry );
-
-	QVector<Triangle> getRemappedTriangles() const;
-	QVector<QVector<quint16>> getRemappedTristrips() const;
-
-	QVector<int> boneMap;
-	QVector<int> vertexMap;
-
-	int numWeightsPerVertex;
-	QVector<QPair<int, float> > weights;
-
-	QVector<Triangle> triangles;
-	QVector<QVector<quint16> > tristrips;
 };
 
 float bhkScale( const NifModel * nif );

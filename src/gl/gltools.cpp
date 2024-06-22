@@ -47,39 +47,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 //! \file gltools.cpp GL helper functions
 
-BoneWeights::BoneWeights( NifFieldConst boneEntry, int b, int vcnt )
-{
-	setTransform( boneEntry );
-
-	bone = b;
-
-	auto weightEntries = boneEntry.child("Vertex Weights");
-	int nWeights = weightEntries.childCount();
-	if ( nWeights > 0 ) {
-		auto firstWeight = weightEntries[0];
-
-		int iIndexField = firstWeight["Index"].row();
-		int iWeightField = firstWeight["Weight"].row();
-
-		if ( iIndexField >= 0 && iWeightField >= 0 ) {
-			weights.reserve( nWeights );
-			for ( auto entry : weightEntries.iter() ) {
-				weights.append( VertexWeight( entry[iIndexField].value<int>(), entry[iWeightField].value<float>() ) );
-			}
-		}
-	}
-}
-
-void BoneWeights::setTransform( NifFieldConst boneEntry )
-{
-	trans = Transform( boneEntry );
-
-	auto sphere = BoundSphere( boneEntry );
-	center = sphere.center;
-	radius = sphere.radius;
-}
-
-BoneWeightsUNorm::BoneWeightsUNorm(QVector<QPair<quint16, quint16>> weights, int v)
+BoneWeightsUNorm::BoneWeightsUNorm(QVector<QPair<quint16, quint16>> weights)
 {
 	weightsUNORM.resize(weights.size());
 	for ( int i = 0; i < weights.size(); i++ ) {
@@ -88,110 +56,9 @@ BoneWeightsUNorm::BoneWeightsUNorm(QVector<QPair<quint16, quint16>> weights, int
 }
 
 
-SkinPartition::SkinPartition( const NifModel * nif, const QModelIndex & index )
-{
-	// TODO: Replace with SkinPartition( NifFieldConst partitionEntry ) everywhere
-	numWeightsPerVertex = nif->get<int>( index, "Num Weights Per Vertex" );
-
-	vertexMap = nif->getArray<int>( index, "Vertex Map" );
-
-	if ( vertexMap.isEmpty() ) {
-		vertexMap.resize( nif->get<int>( index, "Num Vertices" ) );
-
-		for ( int x = 0; x < vertexMap.count(); x++ )
-			vertexMap[x] = x;
-	}
-
-	boneMap = nif->getArray<int>( index, "Bones" );
-
-	QModelIndex iWeights = nif->getIndex( index, "Vertex Weights" );
-	QModelIndex iBoneIndices = nif->getIndex( index, "Bone Indices" );
-
-	weights.resize( vertexMap.count() * numWeightsPerVertex );
-
-	for ( int v = 0; v < vertexMap.count(); v++ ) {
-		for ( int w = 0; w < numWeightsPerVertex; w++ ) {
-			QModelIndex iw = iWeights.child( v, 0 ).child( w, 0 );
-			QModelIndex ib = iBoneIndices.child( v, 0 ).child( w, 0 );
-
-			weights[ v * numWeightsPerVertex + w ].first  = ( ib.isValid() ? nif->get<int>( ib ) : 0 );
-			weights[ v * numWeightsPerVertex + w ].second = ( iw.isValid() ? nif->get<float>( iw ) : 0 );
-		}
-	}
-
-	QModelIndex iStrips = nif->getIndex( index, "Strips" );
-
-	for ( int s = 0; s < nif->rowCount( iStrips ); s++ ) {
-		tristrips << nif->getArray<quint16>( iStrips.child( s, 0 ) );
-	}
-
-	triangles = nif->getArray<Triangle>( index, "Triangles" );
-}
-
-SkinPartition::SkinPartition( NifFieldConst partitionEntry )
-{
-	numWeightsPerVertex = partitionEntry.child("Num Weights Per Vertex").value<int>();
-
-	vertexMap = partitionEntry.child("Vertex Map").array<int>();
-	int nVertices = vertexMap.count();
-	if ( nVertices <= 0 ) {
-		nVertices = partitionEntry.child("Num Vertices").value<int>();
-		if ( nVertices > 0 ) {
-			vertexMap.resize( nVertices );
-			for ( int i = 0; i < nVertices; i++ )
-				vertexMap[i] = i;
-		}
-	}
-
-	boneMap = partitionEntry.child("Bones").array<int>();
-
-	weights.resize( nVertices * numWeightsPerVertex );
-	auto weightEntries = partitionEntry.child("Vertex Weights");
-	auto boneIndicesEntries = partitionEntry.child("Bone Indices");
-	auto pw = weights.data();
-	for ( int v = 0; v < nVertices; v++ ) {
-		auto bentry = boneIndicesEntries[v];
-		auto wentry = weightEntries[v];
-		for ( int w = 0; w < numWeightsPerVertex; w++, pw++ ) {
-			pw->first = bentry[w].value<int>();
-			pw->second = wentry[w].value<float>();
-		}
-	}
-
-	for ( auto ps : partitionEntry.child("Strips").iter() )
-		tristrips << ps.array<quint16>();
-
-	triangles = partitionEntry.child("Triangles").array<Triangle>();
-}
-
-QVector<Triangle> SkinPartition::getRemappedTriangles() const
-{
-	QVector<Triangle> tris;
-
-	for ( const auto& t : triangles )
-		tris << Triangle( vertexMap[t.v1()], vertexMap[t.v2()], vertexMap[t.v3()] );
-
-	return tris;
-}
-
-QVector<QVector<quint16>> SkinPartition::getRemappedTristrips() const
-{
-	QVector<QVector<quint16>> tris;
-
-	for ( const auto& t : tristrips ) {
-		QVector<quint16> points;
-		for ( const auto& p : t )
-			points << vertexMap[p];
-		tris << points;
-	}
-
-	return tris;
-}
-
 /*
  *  Bound Sphere
  */
-
 
 BoundSphere::BoundSphere()
 {

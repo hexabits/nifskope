@@ -720,18 +720,18 @@ Transform::Transform( const NifModel * nif, const QModelIndex & transform )
 	scale = nif->get<float>( t, "Scale" );
 }
 
-Transform::Transform( NifFieldConst transformRoot )
+Transform::Transform( NifFieldConst dataRoot )
 {
-	NifFieldConst transformEntry = transformRoot.child("Transform");
-	if ( !transformEntry ) {
-		transformEntry  = transformRoot.child("Skin Transform");
-		if ( !transformEntry )
-			transformEntry = transformRoot;
+	NifFieldConst transformRoot = dataRoot.child("Transform");
+	if ( !transformRoot ) {
+		transformRoot  = dataRoot.child("Skin Transform");
+		if ( !transformRoot )
+			transformRoot = dataRoot;
 	}
 
-	rotation = transformEntry["Rotation"].value<Matrix>();
-	translation = transformEntry["Translation"].value<Vector3>();
-	scale = transformEntry["Scale"].value<float>();
+	rotation = transformRoot["Rotation"].value<Matrix>();
+	translation = transformRoot["Translation"].value<Vector3>();
+	scale = transformRoot["Scale"].value<float>();
 }
 
 void Transform::writeBack( NifModel * nif, const QModelIndex & transform ) const

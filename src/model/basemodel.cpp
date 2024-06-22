@@ -779,14 +779,17 @@ bool BaseModel::evalConditionImpl( const NifItem * item ) const
 	return true;
 }
 
-QString BaseModel::itemRepr( const NifItem * item ) const
+QString BaseModel::itemRepr( const NifItem * item, const NifItem * cutoffParent ) const
 {
 	if ( !item )
 		return QString("[NULL]");
 	if ( item->model() != this )
-		return item->model()->itemRepr( item );
+		return item->model()->itemRepr( item, cutoffParent );
 	if ( item == root )
 		return QString("[ROOT]");
+
+	while( cutoffParent && cutoffParent->isArray() )
+		cutoffParent = cutoffParent->parent();
 
 	QString result;
 	while( true ) {
@@ -794,18 +797,22 @@ QString BaseModel::itemRepr( const NifItem * item ) const
 		if ( !parent ) {
 			result = "???" + result; // WTF...
 			break;
-		} else if ( parent == root ) {
+		}
+		if ( parent == root ) {
 			result = topItemRepr( item ) + result;
 			break;
-		} else {
-			QString subres;
-			if ( parent->isArray() )
-				subres = QString(" [%1]").arg( item->row() );
-			else
-				subres = SLASH_QSTRING + item->name();
-			result = subres + result;
-			item = parent;
 		}
+
+		QString subres;
+		if ( parent->isArray() )
+			subres = QString(" [%1]").arg( item->row() );
+		else
+			subres = SLASH_QSTRING + item->name();
+		result = subres + result;
+
+		if ( parent == cutoffParent )
+			break;
+		item = parent;
 	}
 
 	return result;

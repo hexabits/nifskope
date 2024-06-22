@@ -34,7 +34,6 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "gl/controllers.h"
 #include "gl/glscene.h"
-#include "model/nifmodel.h"
 #include "io/material.h"
 
 #include <QDebug>
@@ -101,7 +100,7 @@ void Shape::updateData( const NifModel* nif )
 
 	numVerts = verts.count();
 
-	// Validating vertex data
+	// Validate vertex data
 	normalizeVectorSize( norms, numVerts, hasVertexNormals );
 	normalizeVectorSize( tangents, numVerts, hasVertexTangents );
 	normalizeVectorSize( bitangents, numVerts, hasVertexBitangents );
@@ -114,6 +113,58 @@ void Shape::updateData( const NifModel* nif )
 
 	for ( auto & uvset : coords )
 		normalizeVectorSize( uvset, numVerts, hasVertexUVs );
+
+	// Validate triangle data
+	int nTotalTris = triangles.count();
+	int nValidTris = 0;
+	if ( nTotalTris > 0 ) {
+		triangleMap.fill( -1, nTotalTris );
+		for ( int i = 0; i < nTotalTris; i++ ) {
+			const auto & t = triangles[i];
+			if ( t[0] < numVerts && t[1] < numVerts && t[2] < numVerts )
+				triangleMap[i] = nValidTris++;
+		}
+
+		if (nValidTris < nTotalTris) {
+			if ( nValidTris > 0 ) {
+				for ( int i = nTotalTris - 1; i >= 0; i-- ) {
+					if ( triangleMap[i] < 0 )
+						triangles.remove(i);
+				}
+			} else {
+				triangles.clear();
+			}
+		}
+	}
+
+	// Validate all triangleRanges, so they would not point to invalid triangles.
+	for ( TriangleRange & r : triangleRanges ) {
+		int iStart = r.start;
+		if ( iStart < 0 ) // Just in case...
+			iStart = 0;
+
+		int iEnd = r.end;
+		if ( nValidTris <= 0 ) { 
+			// No valid tris anyway, just make sure that iEnd < iStart...
+			iEnd = iStart - 1;
+		} else if ( iEnd >= nTotalTris )
+			iEnd = nTotalTris - 1;
+
+		if ( nValidTris < nTotalTris && iStart <= iEnd ) {
+			while ( iStart <= iEnd && triangleMap[iStart] < 0 )
+				iStart++;
+			while ( iEnd >= iStart && triangleMap[iEnd] < 0 )
+				iEnd--;
+		}
+
+		if ( iStart <= iEnd ) {
+			r.validStart  = triangleMap[iStart];
+			r.validLength = triangleMap[iEnd] - r.validStart + 1;
+		} else {
+			r.validStart  = 0; // Whatever...
+			r.validLength = 0;
+		}
+	}
 }
 
 void Shape::setController( const NifModel * nif, const QModelIndex & iController )
@@ -165,7 +216,7 @@ void Shape::updateImpl( const NifModel * nif, const QModelIndex & index )
 void Shape::boneSphere( const NifModel * nif, const QModelIndex & index ) const
 {
 	Node * root = findParent( 0 );
-	Node * bone = root ? root->findChild( bones.value( index.row() ) ) : 0;
+	Node * bone = root ? root->findChild( bones.value( index.row() ).nodeLink ) : 0;
 	if ( !bone )
 		return;
 
@@ -179,6 +230,97 @@ void Shape::boneSphere( const NifModel * nif, const QModelIndex & index ) const
 		auto pos = boneT.rotation.inverted() * (bSphere.center - boneT.translation);
 		drawSphereSimple( t * pos, bSphere.radius, 36 );
 	}
+}
+
+void Shape::reportCountMismatch( NifFieldConst rootEntry1, int entryCount1, NifFieldConst rootEntry2, int entryCount2, NifFieldConst reportEntry ) const
+{
+	if ( rootEntry1 && rootEntry2 && entryCount1 != entryCount2 ) {
+		reportEntry.reportError( 
+			tr("The number of entries in %1 (%2) does not match that in %3 (%4)")
+				.arg( rootEntry1.repr( reportEntry ) )
+				.arg( entryCount1 )
+				.arg( rootEntry2.repr( reportEntry ) )
+				.arg( entryCount2 ) 
+		);
+	}
+}
+
+void Shape::addTriangleRange( NifFieldConst rangeRootField, const QVector<Triangle> & tris)
+{
+	if ( tris.count() > 0 ) {
+		int iStart = triangles.count();
+		triangles << tris;
+		addTriangleRange( rangeRootField, iStart, triangles.count() - 1 );
+	}
+}
+
+void Shape::addTriangleRange( NifFieldConst rangeRootField, int iStart, int iEnd )
+{
+	TriangleRange r;
+	r.rootField = rangeRootField;
+	r.start = iStart;
+	r.end = iEnd;
+	triangleRanges.append( r );
+}
+
+void Shape::initSkinBones( NifFieldConst nodeMapRoot, NifFieldConst nodeListRoot, NifFieldConst block )
+{
+	reportCountMismatch( nodeMapRoot, nodeListRoot, block );
+	int nTotalBones = std::max( nodeMapRoot.childCount(), nodeListRoot.childCount() );
+	bones.reserve( nTotalBones );
+	for ( int bind = 0; bind < nTotalBones; bind++ )
+		bones << SkinBone( nodeListRoot.child(bind), nodeMapRoot.child(bind).link() );
+}
+
+void Shape::applySkinningTransforms( const Transform & baseTransform )
+{
+	transformRigid = false;
+
+	transVerts.resize( numVerts );
+	transVerts.fill( Vector3() );
+	transNorms.resize( norms.count() );
+	transNorms.fill( Vector3() );
+	transTangents.resize( tangents.count() );
+	transTangents.fill( Vector3() );
+	transBitangents.resize( bitangents.count() );
+	transBitangents.fill( Vector3() );
+
+	Node * root = findParent( skeletonRoot );
+	for ( SkinBone & bone : bones ) {
+		Node * boneNode = root ? root->findChild( bone.nodeLink ) : nullptr;
+		bone.transform = boneNode ?  ( baseTransform * boneNode->localTrans( skeletonRoot ) * bone.baseTransform ) : baseTransform;
+
+		for ( const VertexWeight & vw : bone.vertexWeights ) {
+			transVerts[vw.vertex] += bone.transform * verts[vw.vertex] * vw.weight;
+			if ( hasVertexNormals )
+				transNorms[vw.vertex] += bone.transform.rotation * norms[vw.vertex] * vw.weight;
+			if ( hasVertexTangents )
+				transTangents[vw.vertex] += bone.transform.rotation * tangents[vw.vertex] * vw.weight;
+			if ( hasVertexBitangents )
+				transBitangents[vw.vertex] += bone.transform.rotation * bitangents[vw.vertex] * vw.weight;
+		}
+	}
+
+	for ( auto & v : transNorms )
+		v.normalize();
+	for ( auto & v : transTangents )
+		v.normalize();
+	for ( auto & v : transBitangents )
+		v.normalize();
+
+	boundSphere = BoundSphere( transVerts );
+	boundSphere.applyInv( viewTrans() );
+	needUpdateBounds = false;
+}
+
+void Shape::applyRigidTransforms()
+{
+	transformRigid = true;
+
+	transVerts = verts;
+	transNorms = norms;
+	transTangents = tangents;
+	transBitangents = bitangents;
 }
 
 void Shape::resetBlockData()
@@ -201,6 +343,8 @@ void Shape::resetBlockData()
 	tangents.clear();
 	bitangents.clear();
 	triangles.clear();
+	triangleMap.clear();
+	triangleRanges.clear();
 	tristrips.clear();
 
 	// Skinning data
@@ -212,8 +356,6 @@ void Shape::resetBlockData()
 	skeletonTrans = Transform();
 
 	bones.clear();
-	weights.clear();
-	partitions.clear();
 }
 
 void Shape::updateShader()

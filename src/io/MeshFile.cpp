@@ -228,7 +228,7 @@ quint32 MeshFile::readMesh()
 					weightsUNORM.append({0, 0});
 				}
 			}
-			weights[i] = BoneWeightsUNorm(weightsUNORM, i);
+			weights[i] = BoneWeightsUNorm(weightsUNORM);
 		}
 
 		quint32 numLODs;

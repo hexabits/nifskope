@@ -269,7 +269,7 @@ public:
 public:
 	//! Return string representation ("path") of an item within its model (e.g., "NiTriShape [0]\Vertex Data [3]\Vertex colors").
 	// Mostly for messages and debug.
-	QString itemRepr( const NifItem * item ) const;
+	QString itemRepr( const NifItem * item, const NifItem * cutoffParent = nullptr ) const;
 
 	//! Return string representation ("path") of a model index within its model (e.g., "NiTriShape [0]\Vertex Data [3]\Vertex colors").
 	// Mostly for messages and debug.

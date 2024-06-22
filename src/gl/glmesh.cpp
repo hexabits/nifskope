@@ -193,7 +193,6 @@ void Mesh::updateData_NiMesh( const NifModel * nif )
 			tangents.resize( maxSize );
 			bitangents.resize( maxSize );
 			colors.resize( maxSize );
-			weights.resize( maxSize );
 			if ( coords.size() == 0 )
 				coords.resize( 1 );
 
@@ -378,20 +377,19 @@ void Mesh::updateData_NiMesh( const NifModel * nif )
 		hasVertexUVs = true;
 	if ( semFlags & NiMesh::HAS_COLOR )
 		hasVertexColors = true;
-	if ( !(semFlags & NiMesh::HAS_BLENDINDICES) || !(semFlags & NiMesh::HAS_BLENDWEIGHT) )
-		weights.clear();
 
 	Q_ASSERT( verts.size() == maxIndex + 1 );
 	Q_ASSERT( indices.size() == totalIndices );
 	numVerts = verts.count();
 
 	// Make geometry
-	triangles.resize( indices.size() / 3 );
+	int nTotalTris = indices.size() / 3;
+	triangles.resize( nTotalTris );
 	auto typeField = block["Primitive Type"];
 	auto meshPrimitiveType = typeField.value<uint>();
 	switch ( meshPrimitiveType ) {
 	case NiMesh::PRIMITIVE_TRIANGLES:
-		for ( int k = 0, t = 0; k < indices.size(); k += 3, t++ )
+		for ( int t = 0, k = 0; t < nTotalTris; t++, k += 3 )
 			triangles[t] = { indices[k], indices[k + 1], indices[k + 2] };
 		break;
 	case NiMesh::PRIMITIVE_TRISTRIPS:
@@ -406,6 +404,8 @@ void Mesh::updateData_NiMesh( const NifModel * nif )
 
 void Mesh::updateData_NiTriShape( const NifModel * nif )
 {
+	NifFieldConst block = nif->block(iBlock);
+
 	// Find iData and iSkin blocks among the children
 	NifFieldConst dataBlock, skinBlock;
 	for ( auto childLink : nif->getChildLinks( id() ) ) {
@@ -417,20 +417,37 @@ void Mesh::updateData_NiTriShape( const NifModel * nif )
 			if ( !dataBlock )
 				dataBlock = childBlock;
 			else if ( dataBlock != childBlock )
-				nif->block(iBlock).reportError( tr( "Block has multiple data blocks" ) );
+				block.reportError( tr( "Block has multiple data blocks" ) );
 		} else if ( childBlock.inherits( "NiSkinInstance" ) ) {
 			if ( !skinBlock )
 				skinBlock = childBlock;
 			else if ( skinBlock != childBlock )
-				nif->block(iBlock).reportError( tr( "Block has multiple skin instances" ) );
+				block.reportError( tr( "Block has multiple skin instances" ) );
 		}
 	}
 	if ( !dataBlock )
 		return;
 	iData = dataBlock.toIndex(); // ???
 
+	NifFieldConst skinDataBlock, skinPartBlock;
+	if ( skinBlock ) {
+		isSkinned = true;
+		iSkin = skinBlock.toIndex(); // ???
+
+		skinDataBlock = skinBlock.child("Data").linkBlock("NiSkinData");
+		iSkinData = skinDataBlock.toIndex(); // ???
+
+		skinPartBlock = skinBlock.child("Skin Partition").linkBlock("NiSkinPartition");
+		if ( !skinPartBlock && skinDataBlock ) {
+			// nif versions < 10.2.0.0 have skin partition linked in the skin data block
+			skinPartBlock = skinDataBlock.child("Skin Partition").linkBlock("NiSkinPartition");
+		}
+		iSkinPart = skinPartBlock.toIndex(); // ???
+	}
+
 	// Fill vertex data
-	verts = dataBlock.child("Vertices").array<Vector3>();
+	auto vertexDataRoot = dataBlock.child("Vertices");
+	verts = vertexDataRoot.array<Vector3>();
 	numVerts = verts.count();
 
 	auto normalsField = dataBlock.child("Normals");
@@ -451,14 +468,16 @@ void Mesh::updateData_NiTriShape( const NifModel * nif )
 		bitangents = bitangentsField.array<Vector3>();
 	}
 
-	for ( auto extraLink : nif->block(iBlock).child("Extra Data List").linkArray() ) {
+	for ( auto extraLink : block.child("Extra Data List").linkArray() ) {
 		auto extraBlock = nif->block(extraLink);
 		if ( extraBlock.inherits("NiBinaryExtraData") && extraBlock.child("Name").value<QString>() == QLatin1String("Tangent space (binormal & tangent vectors)") ) {
 			hasVertexTangents = true;
 			hasVertexBitangents = true;
 			iTangentData = extraBlock.toIndex(); // ???
-			QByteArray extraData = extraBlock.child("Binary Data").value<QByteArray>();
+			auto extraDataRoot = extraBlock.child("Binary Data");
+			QByteArray extraData = extraDataRoot.value<QByteArray>();
 			int nExtraCount = extraData.count() / ( sizeof(Vector3) * 2 );
+			reportCountMismatch( vertexDataRoot, numVerts, extraDataRoot, nExtraCount, block );
 			tangents.resize(nExtraCount);
 			bitangents.resize(nExtraCount);
 			Vector3 * t = (Vector3 *) extraData.data();
@@ -483,73 +502,186 @@ void Mesh::updateData_NiTriShape( const NifModel * nif )
 	}
 	
 	// Fill triangle/strips data
-	if ( dataBlock.isBlockType("NiTriShapeData") ) {
-		triangles = dataBlock.child("Triangles").array<Triangle>();
-	} else if ( dataBlock.isBlockType("NiTriStripsData") ) {
-		auto stripPoints = dataBlock.child("Points");
-		if ( stripPoints ) {
-			for ( auto ps : stripPoints.iter() )
-				tristrips.append( ps.array<quint16>() );
+	if ( !skinPartBlock ) {
+		if ( dataBlock.isBlockType("NiTriShapeData") ) {
+			addTriangleRange( dataBlock.child("Triangles") );
+		} else if ( dataBlock.isBlockType("NiTriStripsData") ) {
+			auto stripPoints = dataBlock.child("Points");
+			if ( stripPoints ) {
+				for ( auto ps : stripPoints.iter() )
+					tristrips.append( ps.array<quint16>() );
+			} else {
+				dataBlock.reportError( tr("Invalid 'Points' array") );
+			}
 		} else {
-			dataBlock.reportError( tr("Invalid 'Points' array") );
+			dataBlock.reportError( tr("Could not find triangles or strips") );
 		}
 	}
 
 	// Fill skinning and skeleton data
 	if ( skinBlock ) {
-		isSkinned = true;
-		iSkin = skinBlock.toIndex(); // ???
-
-		auto skinDataBlock = skinBlock.child("Data").linkBlock("NiSkinData");
-		iSkinData = skinDataBlock.toIndex(); // ???
-
-		auto skinPartBlock = skinBlock.child("Skin Partition").linkBlock("NiSkinPartition");
-		if ( !skinPartBlock && skinDataBlock ) {
-			// nif versions < 10.2.0.0 have skin partition linked in the skin data block
-			skinPartBlock = skinDataBlock.child("Skin Partition").linkBlock("NiSkinPartition");
-		}
-		iSkinPart = skinPartBlock.toIndex(); // ???
-
 		skeletonRoot = skinBlock.child("Skeleton Root").link();
 		
 		skeletonTrans = Transform( skinDataBlock );
 
-		bones = skinBlock.child("Bones").linkArray();
+		// Fill bones
+		auto nodeListRoot = skinDataBlock.child("Bone List");
+		initSkinBones( skinBlock.child("Bones"), nodeListRoot, block );
+		int nTotalBones = bones.count();
 
-		auto boneList = skinDataBlock.child("Bone List");
-		if ( boneList ) {
-			int nTotalBones = bones.count();
-			int nBoneList = boneList.childCount();
-			if ( nBoneList > nTotalBones )
-				nBoneList = nTotalBones;
-			// Ignore weights listed in NiSkinData if NiSkinPartition exists
-			int vcnt = ( skinDataBlock.child("Has Vertex Weights").value<unsigned char>() && !skinPartBlock ) ? numVerts : 0;
-			for ( int i = 0; i < nBoneList; i++ )
-				weights.append( BoneWeights( boneList[i], bones[i], vcnt ) );
-		}
-
+		// Fill vertex weights, triangles, strips
 		if ( skinPartBlock ) {
-			auto partitionEntries = skinPartBlock.child("Partitions");
+			QVector<bool> weightedVertices( numVerts );
+			for ( auto partEntry : skinPartBlock.child("Partitions").iter() ) {
+				// Vertex map
+				auto vertexMapRoot = partEntry.child("Vertex Map");
+				int nPartMappedVertices = vertexMapRoot.childCount();
+				QVector<int> partVertexMap;
+				partVertexMap.reserve( nPartMappedVertices );
+				for ( auto mapEntry : vertexMapRoot.iter() ) {
+					int v = mapEntry.value<int>();
+					if ( v < 0 || v >= numVerts )
+						mapEntry.reportError( tr("Invalid vertex index %1").arg(v) );
+					partVertexMap << v;
+				}
 
-			uint numTris = 0;
-			uint numStrips = 0;
-			partitions.reserve( partitionEntries.childCount() );
-			for ( auto pentry : partitionEntries.iter() ) {
-				auto p = SkinPartition( pentry );
-				partitions.append( p );
-				numTris += p.triangles.size();
-				numStrips += p.tristrips.size();
+				// Bone map
+				auto boneMapRoot = partEntry.child("Bones");
+				int nPartBones = boneMapRoot.childCount();
+				QVector<int> partBoneMap;
+				partBoneMap.reserve( nPartBones );
+				for ( auto mapEntry : boneMapRoot.iter() ) {
+					int b = mapEntry.value<int>();
+					if ( b < 0 || b >= nTotalBones )
+						mapEntry.reportError( tr("Invalid bone index %1").arg(b) );
+					partBoneMap << b;
+				}
+
+				// Vertex weights
+				int weightsPerVertex = partEntry.child("Num Weights Per Vertex").value<int>();
+				auto boneIndicesRoot = partEntry.child("Bone Indices");
+				auto weightsRoot = partEntry.child("Vertex Weights");
+				reportCountMismatch( boneIndicesRoot, weightsRoot, partEntry );
+				int nDataVerts = std::min( boneIndicesRoot.childCount(), weightsRoot.childCount() );
+				if ( nPartMappedVertices > 0 ) {
+					reportCountMismatch( boneIndicesRoot, vertexMapRoot, partEntry );
+					if ( nPartMappedVertices < nDataVerts )
+						nDataVerts = nPartMappedVertices;
+				} else {
+					if ( numVerts < nDataVerts )
+						nDataVerts = numVerts;
+				}
+				for ( int v = 0; v < nDataVerts; v++ ) {
+					int vind;
+					if ( nPartMappedVertices > 0 ) {
+						vind = partVertexMap[v];
+						if ( vind < 0 || vind >= numVerts )
+							continue;
+					} else {
+						vind = v;
+					}
+
+					if ( weightedVertices[vind] )
+						continue;
+					weightedVertices[vind] = true;
+
+					auto bentry = boneIndicesRoot[v];
+					auto wentry = weightsRoot[v];
+					for ( int wind = 0; wind < weightsPerVertex; wind++ ) {
+						float w = wentry[wind].value<float>();
+						if ( w == 0.0f )
+							continue;
+						int b = bentry[wind].value<int>();
+						if ( b < 0 || b >= nPartBones ) {
+							bentry[wind].reportError( tr("Invalid bone index %1").arg(b) );
+							continue;
+						}
+						int bind = partBoneMap[b];
+						if ( bind < 0 || bind >= nTotalBones )
+							continue;
+						bones[bind].vertexWeights << VertexWeight( vind, w );
+					}
+				}
+
+				// Triangles
+				auto partTrisRoot = partEntry.child("Triangles");
+				if ( nPartMappedVertices > 0 ) {
+					QVector<Triangle> tris;
+					tris.reserve( partTrisRoot.childCount() );
+					for ( auto triEntry : partTrisRoot.iter() ) {
+						Triangle t = triEntry.value<Triangle>();
+						bool success = true;
+						for ( TriVertexIndex & tv : t.v ) {
+							if ( tv < nPartMappedVertices ) {
+								tv = partVertexMap[tv];
+							} else {
+								triEntry.reportError( tr("Invalid vertex map index %1").arg(tv) );
+								success = false;
+							}
+						}
+						if ( !success ) {
+							// Intentionally break all vertices of the triangle if any of them failed mapping.
+							// Then it will be discarded on post-update triangles cleanup.
+							// In the worst case (the total number of vertices in the shape is (Triangle::MAX_VERTEX_INDEX + 1) or greater) it still won't be rendered.
+							t.set( Triangle::MAX_VERTEX_INDEX, Triangle::MAX_VERTEX_INDEX, Triangle::MAX_VERTEX_INDEX );
+						}
+						tris << t;
+					}
+					addTriangleRange( partTrisRoot, tris );
+				} else {
+					addTriangleRange( partTrisRoot );
+				}
+
+				// Strips
+				auto partStripsRoot = partEntry.child("Strips");
+				if ( nPartMappedVertices > 0 ) {
+					for ( auto stripEntry: partStripsRoot.iter() ) {
+						TriStrip stripPoints;
+						stripPoints.reserve( stripEntry.childCount() );
+						for ( auto pointEntry : stripEntry.iter() ) {
+							TriVertexIndex p = pointEntry.value<TriVertexIndex>();
+							if ( p < nPartMappedVertices ) {
+								p = partVertexMap[p];
+							} else {
+								pointEntry.reportError( tr("Invalid vertex map index %1").arg(p) );
+								p = Triangle::MAX_VERTEX_INDEX;
+							}
+							stripPoints << p;
+						}
+						tristrips << stripPoints;
+					}
+				} else {
+					for ( auto stripEntry: partStripsRoot.iter() )
+						tristrips << stripEntry.array<TriVertexIndex>();
+				}
 			}
 
-			triangles.clear();
-			tristrips.clear();
+		} else if ( skinDataBlock.child("Has Vertex Weights").value<unsigned char>() ) {
+			for ( int bind = 0, nListedBones = nodeListRoot.childCount(); bind < nListedBones; bind++ ) {
+				auto inData = nodeListRoot[bind].child("Vertex Weights");
+				int nWeights = inData.childCount();
+				if ( nWeights <= 0 )
+					continue;
 
-			triangles.reserve( numTris );
-			tristrips.reserve( numStrips );
+				auto firstWeight = inData[0];
+				int iIndexField = firstWeight["Index"].row();
+				int iWeightField = firstWeight["Weight"].row();
+				if ( iIndexField < 0 || iWeightField < 0 )
+					continue;
 
-			for ( const SkinPartition& part : partitions ) {
-				triangles << part.getRemappedTriangles();
-				tristrips << part.getRemappedTristrips();
+				auto & outWeights = bones[bind].vertexWeights;
+				outWeights.reserve( nWeights );
+				for ( auto wentry : inData.iter() ) {
+					float w = wentry[iWeightField].value<float>();
+					if ( w == 0.0f )
+						continue;
+					int vind = wentry[iIndexField].value<int>();
+					if ( vind < 0 || vind >= numVerts ) {
+						wentry[iIndexField].reportError( tr("Invalid vertex index %1").arg(vind) );
+						continue;
+					}
+					outWeights << VertexWeight( vind, w );
+				}
 			}
 		}
 	}
@@ -567,11 +699,6 @@ QModelIndex Mesh::vertexAt( int idx ) const
 	return iVertex;
 }
 
-bool compareTriangles( const QPair<int, float> & tri1, const QPair<int, float> & tri2 )
-{
-	return ( tri1.second < tri2.second );
-}
-
 void Mesh::transformShapes()
 {
 	if ( isHidden() )
@@ -579,114 +706,12 @@ void Mesh::transformShapes()
 
 	Node::transformShapes();
 
-	transformRigid = true;
-
-	if ( isSkinned && ( weights.count() || partitions.count() ) && scene->hasOption(Scene::DoSkinning) ) {
-		transformRigid = false;
-
-		int vcnt = verts.count();
-		int ncnt = norms.count();
-		int tcnt = tangents.count();
-		int bcnt = bitangents.count();
-
-		transVerts.resize( vcnt );
-		transVerts.fill( Vector3() );
-		transNorms.resize( vcnt );
-		transNorms.fill( Vector3() );
-		transTangents.resize( vcnt );
-		transTangents.fill( Vector3() );
-		transBitangents.resize( vcnt );
-		transBitangents.fill( Vector3() );
-
-		Node * root = findParent( skeletonRoot );
-
-		if ( partitions.count() ) {
-			for ( const SkinPartition& part : partitions ) {
-				QVector<Transform> boneTrans( part.boneMap.count() );
-
-				for ( int t = 0; t < boneTrans.count(); t++ ) {
-					Node * bone = root ? root->findChild( bones.value( part.boneMap[t] ) ) : 0;
-					boneTrans[ t ] = scene->view;
-
-					if ( bone )
-						boneTrans[ t ] = boneTrans[ t ] * bone->localTrans( skeletonRoot ) * weights.value( part.boneMap[t] ).trans;
-
-					//if ( bone ) boneTrans[ t ] = bone->viewTrans() * weights.value( part.boneMap[t] ).trans;
-				}
-
-				for ( int v = 0; v < part.vertexMap.count(); v++ ) {
-					int vindex = part.vertexMap[ v ];
-					if ( vindex < 0 || vindex >= vcnt )
-						break;
-
-					if ( transVerts[vindex] == Vector3() ) {
-						for ( int w = 0; w < part.numWeightsPerVertex; w++ ) {
-							QPair<int, float> weight = part.weights[ v * part.numWeightsPerVertex + w ];
-
-
-							Transform trans = boneTrans.value( weight.first );
-
-							if ( vcnt > vindex )
-								transVerts[vindex] += trans * verts[vindex] * weight.second;
-							if ( ncnt > vindex )
-								transNorms[vindex] += trans.rotation * norms[vindex] * weight.second;
-							if ( tcnt > vindex )
-								transTangents[vindex] += trans.rotation * tangents[vindex] * weight.second;
-							if ( bcnt > vindex )
-								transBitangents[vindex] += trans.rotation * bitangents[vindex] * weight.second;
-						}
-					}
-				}
-			}
-		} else {
-			int x = 0;
-			for ( const BoneWeights& bw : weights ) {
-				Transform trans = viewTrans() * skeletonTrans;
-				Node * bone = root ? root->findChild( bw.bone ) : 0;
-
-				if ( bone )
-					trans = trans * bone->localTrans( skeletonRoot ) * bw.trans;
-
-				if ( bone )
-					weights[x++].tcenter = bone->viewTrans() * bw.center;
-				else
-					x++;
-
-				for ( const VertexWeight& vw : bw.weights ) {
-					int vindex = vw.vertex;
-					if ( vindex < 0 || vindex >= vcnt )
-						break;
-
-					if ( vcnt > vindex )
-						transVerts[vindex] += trans * verts[vindex] * vw.weight;
-					if ( ncnt > vindex )
-						transNorms[vindex] += trans.rotation * norms[vindex] * vw.weight;
-					if ( tcnt > vindex )
-						transTangents[vindex] += trans.rotation * tangents[vindex] * vw.weight;
-					if ( bcnt > vindex )
-						transBitangents[vindex] += trans.rotation * bitangents[vindex] * vw.weight;
-				}
-			}
-		}
-
-		for ( int n = 0; n < transNorms.count(); n++ )
-			transNorms[n].normalize();
-
-		for ( int t = 0; t < transTangents.count(); t++ )
-			transTangents[t].normalize();
-
-		for ( int t = 0; t < transBitangents.count(); t++ )
-			transBitangents[t].normalize();
-
-		boundSphere = BoundSphere( transVerts );
-		boundSphere.applyInv( viewTrans() );
-		needUpdateBounds = false;
+	if ( isSkinned && bones.count() && scene->hasOption(Scene::DoSkinning) ) {
+		// TODO (Gavrant): I've no idea why it requires different transforms depending on whether it's partitioned or not.
+		Transform baseTrans = iSkinPart.isValid() ? scene->view : ( viewTrans() * skeletonTrans );
+		applySkinningTransforms( baseTrans );
 	} else {
-		transVerts = verts;
-		transNorms = norms;
-		transTangents = tangents;
-		transBitangents = bitangents;
-		transColors = colors;
+		applyRigidTransforms();
 	}
 
 	sortedTriangles = triangles;
@@ -694,16 +719,16 @@ void Mesh::transformShapes()
 	MaterialProperty * matprop = findProperty<MaterialProperty>();
 	if ( matprop && matprop->alphaValue() != 1.0 ) {
 		float a = matprop->alphaValue();
-		transColors.resize( colors.count() );
-
-		for ( int c = 0; c < colors.count(); c++ )
+		int nColors = colors.count();
+		transColors.resize( nColors );
+		for ( int c = 0; c < nColors; c++ )
 			transColors[c] = colors[c].blend( a );
 	} else {
 		transColors = colors;
 		// TODO (Gavrant): suspicious code. Should the check be replaced with !bssp.hasVertexAlpha ?
 		if ( bslsp && !bslsp->hasSF1(ShaderFlags::SLSF1_Vertex_Alpha) ) {
-			for ( int c = 0; c < colors.count(); c++ )
-				transColors[c] = Color4( colors[c].red(), colors[c].green(), colors[c].blue(), 1.0f );
+			for ( auto & c : transColors )
+				c.setAlpha(1.0f);
 		}
 	}
 }
@@ -1191,6 +1216,7 @@ void Mesh::drawSelection() const
 		}
 	}
 
+	/*
 	if ( n == "Partitions" ) {
 
 		for ( int c = 0; c < partitions.count(); c++ ) {
@@ -1230,7 +1256,7 @@ void Mesh::drawSelection() const
 				}
 			}
 		}
-	}
+	}*/
 
 	if ( n == "Bone List" ) {
 		if ( nif->isArray( idx ) ) {

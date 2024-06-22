@@ -22,9 +22,7 @@ void BSShape::updateDataImpl( const NifModel * nif )
 {
 	NifFieldConst block = nif->block(iBlock);
 
-	auto vertexFlags = block.child("Vertex Desc").value<BSVertexDesc>();
-
-	isSkinned = vertexFlags.HasFlag(VertexAttribute::VA_SKINNING);
+	isSkinned = block.child("Vertex Desc").value<BSVertexDesc>().HasFlag(VertexAttribute::VA_SKINNING);
 	isDynamic = block.inherits("BSDynamicTriShape");
 
 	dataBound = BoundSphere(block);
@@ -58,7 +56,6 @@ void BSShape::updateDataImpl( const NifModel * nif )
 	if ( skinPartBlock ) {
 		// For skinned geometry, the vertex data is stored in the NiSkinPartition
 		// The triangles are split up among the partitions
-		vertexFlags = skinPartBlock["Vertex Desc"].value<BSVertexDesc>();
 		vertexData = skinPartBlock.child("Vertex Data");
 		int dataSize = skinPartBlock.child("Data Size").value<int>();
 		int vertexSize = skinPartBlock.child("Vertex Size").value<int>();
@@ -66,28 +63,39 @@ void BSShape::updateDataImpl( const NifModel * nif )
 			numVerts = dataSize / vertexSize;
 	} else {
 		vertexData = block.child("Vertex Data");
-		if ( vertexData )
-			numVerts = vertexData.childCount();
+		numVerts = vertexData.childCount();
 	}
 	iData = vertexData.toIndex(); // ???
-
-	hasVertexNormals    = vertexFlags.HasFlag(VertexAttribute::VA_NORMAL);
-	hasVertexTangents   = vertexFlags.HasFlag(VertexAttribute::VA_BINORMAL);
-	hasVertexBitangents = hasVertexTangents;
-	hasVertexUVs        = vertexFlags.HasFlag(VertexAttribute::VA_TEXCOORD0);
-	hasVertexColors     = vertexFlags.HasFlag(VertexAttribute::VA_COLOR);
 
 	TexCoords coordset; // For compatibility with coords list
 
 	QVector<Vector4> dynVerts;
 	if ( isDynamic ) { // TODO: What if it is "dynamic" AND has NiSkinPartition?
-		dynVerts = block.child("Vertices").array<Vector4>();
-		int nDynVerts = dynVerts.count();
-		if ( nDynVerts < numVerts )
-			numVerts = nDynVerts;
+		auto dynVertsRoot = block.child("Vertices");
+		reportCountMismatch( vertexData, numVerts, dynVertsRoot, dynVertsRoot.childCount(), block );
+		dynVerts = dynVertsRoot.array<Vector4>();
+		numVerts = std::min( numVerts, dynVerts.count() );
 	}
 
 	if ( numVerts > 0 ) {
+		// Pre-cache num. indices of all needed vertex fields to avoid looking them by string name for every vertex in the shape again and again.
+		auto firstVertex = vertexData[0];
+
+		int iVertexField     = firstVertex.child("Vertex").row();
+		int iNormalField     = firstVertex.child("Normal").row();
+		int iTangentField    = firstVertex.child("Tangent").row();
+		int iBitangentXField = firstVertex.child("Bitangent X").row();
+		int iBitangentYField = firstVertex.child("Bitangent Y").row();
+		int iBitangentZField = firstVertex.child("Bitangent Z").row();
+		int iUVField         = firstVertex.child("UV").row();
+		int iColorField      = firstVertex.child("Vertex Colors").row();
+
+		hasVertexNormals    = ( iNormalField >= 0 );
+		hasVertexTangents   = ( iTangentField >= 0 );
+		hasVertexBitangents = ( ( iBitangentXField >= 0 || isDynamic ) && ( iBitangentYField >= 0 ) && ( iBitangentZField >= 0 ) );
+		hasVertexUVs        = ( iUVField >= 0 );
+		hasVertexColors     = ( iColorField >= 0 );
+
 		verts.reserve(numVerts);
 		if ( hasVertexNormals )
 			norms.reserve(numVerts);
@@ -100,20 +108,8 @@ void BSShape::updateDataImpl( const NifModel * nif )
 		if ( hasVertexColors )
 			colors.reserve(numVerts);
 
-		// Pre-cache num. indices of all needed vertex fields to avoid looking them by string name for every vertex in the shape again and again.
-		auto firstVertex = vertexData[0];
-
-		int iVertexField     = ( !isDynamic ) ? firstVertex["Vertex"].row() : -1;
-		int iNormField       = hasVertexNormals ? firstVertex["Normal"].row() : -1;
-		int iTangentField    = hasVertexTangents ? firstVertex["Tangent"].row() : -1;
-		int iBitangentXField = ( hasVertexBitangents && !isDynamic ) ? firstVertex["Bitangent X"].row() : -1;
-		int iBitangentYField = hasVertexBitangents ? firstVertex["Bitangent Y"].row() : -1;
-		int iBitangentZField = hasVertexBitangents ? firstVertex["Bitangent Z"].row() : -1;
-		int iUVField         = hasVertexUVs ? firstVertex["UV"].row() : -1;
-		int iColorField      = hasVertexColors ? firstVertex["Vertex Colors"].row() : -1;
-
 		for ( int i = 0; i < numVerts; i++ ) {
-			float bitX, bitY, bitZ;
+			float bitX;
 			auto vdata = vertexData[i];
 
 			if ( isDynamic ) {
@@ -122,83 +118,73 @@ void BSShape::updateDataImpl( const NifModel * nif )
 				bitX = dynv[3];
 			} else {
 				verts << ( iVertexField >= 0 ? vdata[iVertexField].value<Vector3>() : Vector3() );
-				bitX = ( iBitangentXField >= 0 ? vdata[iBitangentXField].value<float>() : 0.0f);
+				bitX = ( iBitangentXField >= 0 ) ? vdata[iBitangentXField].value<float>() : 0.0f;
 			}
 
 			if ( hasVertexNormals )
-				norms << ( iNormField >= 0 ? vdata[iNormField].value<ByteVector3>() : Vector3() );
+				norms << vdata[iNormalField].value<ByteVector3>();
 			if ( hasVertexTangents )
-				tangents << ( iTangentField >= 0 ? vdata[iTangentField].value<ByteVector3>() : Vector3() );
-			if ( hasVertexBitangents ) {
-				bitY = ( iBitangentYField >= 0 ) ? vdata[iBitangentYField].value<float>() : 0.0f;
-				bitZ = ( iBitangentZField >= 0 ) ? vdata[iBitangentZField].value<float>() : 0.0f;
-				bitangents << Vector3( bitX, bitY, bitZ );
-			}
+				tangents << vdata[iTangentField].value<ByteVector3>();
+			if ( hasVertexBitangents )
+				bitangents << Vector3( bitX, vdata[iBitangentYField].value<float>(), vdata[iBitangentZField].value<float>() );
 			if ( hasVertexUVs )
-				coordset << ( iUVField >= 0 ? vdata[iUVField].value<HalfVector2>() : Vector2() );
+				coordset << vdata[iUVField].value<HalfVector2>();
 			if ( hasVertexColors )
-				colors << ( iColorField >= 0 ? vdata[iColorField].value<ByteColor4>() : Color4(0, 0, 0, 1) );
+				colors << vdata[iColorField].value<ByteColor4>();
 		}
 	}
 
 	// Add coords as the first set of QList
 	coords.append( coordset );
 
-	numVerts = verts.count();
-
 	// Fill triangle data
 	if ( skinPartBlock ) {
 		for ( auto p : skinPartBlock.child("Partitions").iter() )
-			triangles << p.child("Triangles").array<Triangle>();
+			addTriangleRange( p.child("Triangles") );
 	} else {
-		triangles << block.child("Triangles").array<Triangle>();
+		addTriangleRange( block.child("Triangles") );
 	}
 
 	// Fill skeleton data
 	if ( skinBlock ) {
-		skeletonRoot = skinBlock.child("Skeleton Root").link();
+		// skeletonRoot = skinBlock.child("Skeleton Root").link(); 
+		skeletonRoot = 0; // Always 0
 
 		if ( nif->getBSVersion() < 130 )
 			skeletonTrans = Transform( skinDataBlock );
 
-		bones = skinBlock.child("Bones").linkArray();
-		auto nTotalBones = bones.count();
+		initSkinBones( skinBlock.child("Bones"), skinDataBlock.child("Bone List"), block );
 
-		weights.fill( BoneWeights(), nTotalBones );
-		for ( int i = 0; i < nTotalBones; i++ )
-			weights[i].bone = bones[i];
-		auto nTotalWeights = weights.count();
-
-		if ( numVerts > 0 ) {
+		// Read vertex weights from vertex data
+		int nBones = bones.count();
+		if ( nBones > 0 && numVerts > 0 ) {
 			auto firstVertex = vertexData[0];
+			int iIndicesField = firstVertex["Bone Indices"].row();
+			int iWeightsField = firstVertex["Bone Weights"].row();
 
-			int iBoneWeightsField = firstVertex["Bone Weights"].row();
-			int iBoneIndicesField = firstVertex["Bone Indices"].row();
-
-			if ( iBoneWeightsField >= 0 && iBoneIndicesField >= 0 ) {
-				for ( int i = 0; i < numVerts; i++ ) {
-					auto vdata = vertexData[i];
-					auto wts = vdata[iBoneWeightsField].array<float>();
-					if ( wts.count() < 4 )
-						continue;
-					auto bns = vdata[iBoneIndicesField].array<quint8>();
-					if ( bns.count() < 4 )
+			if ( iIndicesField >= 0 && iWeightsField >= 0 ) {
+				const int WEIGHTS_PER_VERTEX = 4;
+				for ( int vind = 0; vind < numVerts; vind++ ) {
+					auto vdata = vertexData[vind];
+					auto vbones = vdata[iIndicesField];
+					auto vweights = vdata[iWeightsField];
+					if ( vbones.childCount() < WEIGHTS_PER_VERTEX || vweights.childCount() < WEIGHTS_PER_VERTEX )
 						continue;
 
-					for ( int j = 0; j < 4; j++ ) {
-						if ( bns[j] >= nTotalWeights )
+					for ( int wind = 0; wind < WEIGHTS_PER_VERTEX; wind++ ) {
+						float w = vweights[wind].value<float>();
+						if ( w <= 0.0f )
 							continue;
-
-						if ( wts[j] > 0.0 )
-							weights[bns[j]].weights << VertexWeight( i, wts[j] );
+						int bind = vbones[wind].value<int>();
+						if ( bind >= nBones || bind < 0 ) {
+							vbones[wind].reportError( tr("Invalid bone index %1").arg(bind) );
+							continue;
+						}
+						bones[bind].vertexWeights << VertexWeight( vind, w );
 					}
 				}
 			}
 		}
-
-		auto boneList = skinDataBlock.child("Bone List");
-		for ( int i = 0; i < nTotalWeights; i++ )
-			weights[i].setTransform( boneList[i] );
 	}
 }
 
@@ -233,58 +219,16 @@ void BSShape::transformShapes()
 
 	Node::transformShapes();
 
-	transformRigid = true;
-
-	if ( isSkinned && weights.count() && scene->hasOption(Scene::DoSkinning) ) {
-		transformRigid = false;
-
-		transVerts.resize( numVerts );
-		transVerts.fill( Vector3() );
-		transNorms.resize( numVerts );
-		transNorms.fill( Vector3() );
-		transTangents.resize( numVerts );
-		transTangents.fill( Vector3() );
-		transBitangents.resize( numVerts );
-		transBitangents.fill( Vector3() );
-
-		Node * root = findParent( 0 );
-		for ( const BoneWeights & bw : weights ) {
-			Node * bone = root ? root->findChild( bw.bone ) : nullptr;
-			if ( bone ) {
-				Transform t = scene->view * bone->localTrans( 0 ) * bw.trans;
-				for ( const VertexWeight & w : bw.weights ) {
-					if ( w.vertex >= numVerts )
-						continue;
-
-					transVerts[w.vertex] += t * verts[w.vertex] * w.weight;
-					transNorms[w.vertex] += t.rotation * norms[w.vertex] * w.weight;
-					transTangents[w.vertex] += t.rotation * tangents[w.vertex] * w.weight;
-					transBitangents[w.vertex] += t.rotation * bitangents[w.vertex] * w.weight;
-				}
-			}
-		}
-
-		for ( int n = 0; n < numVerts; n++ ) {
-			transNorms[n].normalize();
-			transTangents[n].normalize();
-			transBitangents[n].normalize();
-		}
-
-		boundSphere = BoundSphere( transVerts );
-		boundSphere.applyInv( viewTrans() );
-		needUpdateBounds = false;
+	if ( isSkinned && bones.count() && scene->hasOption(Scene::DoSkinning) ) {
+		applySkinningTransforms( scene->view );
 	} else {
-		transVerts = verts;
-		transNorms = norms;
-		transTangents = tangents;
-		transBitangents = bitangents;
+		applyRigidTransforms();
 	}
 
 	transColors = colors;
-	// TODO (Gavrant): suspicious code. Should the check be replaced with !bssp.hasVertexAlpha ?
 	if ( nif->getBSVersion() < 130 && bslsp && !bslsp->hasSF1(ShaderFlags::SLSF1_Vertex_Alpha) ) {
-		for ( int c = 0; c < colors.count(); c++ )
-			transColors[c] = Color4( colors[c].red(), colors[c].green(), colors[c].blue(), 1.0f );
+		for ( auto & c : transColors )
+			c.setAlpha(1.0f);
 	}
 }
 
@@ -292,8 +236,6 @@ void BSShape::drawShapes( NodeList * secondPass, bool presort )
 {
 	if ( isHidden() )
 		return;
-
-	glPointSize( 8.5 );
 
 	// TODO: Only run this if BSXFlags has "EditorMarkers present" flag
 	if ( !scene->hasOption(Scene::ShowMarkers) && name.contains( "EditorMarker" ) )
@@ -304,6 +246,8 @@ void BSShape::drawShapes( NodeList * secondPass, bool presort )
 		secondPass->add( this );
 		return;
 	}
+
+	glPointSize( 8.5 );
 
 	auto nif = NifModel::fromIndex( iBlock );
 

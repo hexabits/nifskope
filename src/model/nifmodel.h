@@ -1102,6 +1102,10 @@ public:
 	{
 		return m_item ? _model()->itemRepr(m_item) : "[NULL]";
 	}
+	QString repr( NifFieldConst cutoffParent ) const
+	{
+		return m_item ? _model()->itemRepr(m_item, cutoffParent.item() ) : "[NULL]";
+	}
 
 
 	// Child fields

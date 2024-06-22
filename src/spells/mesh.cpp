@@ -759,22 +759,52 @@ bool spUpdateTrianglesFromSkin::isApplicable( const NifModel * nif, const QModel
 
 QModelIndex spUpdateTrianglesFromSkin::cast( NifModel * nif, const QModelIndex & index )
 {
-	auto iData = nif->getBlockIndex( nif->getLink( index, "Data" ) );
-	auto iSkin = nif->getBlockIndex( nif->getLink( index, "Skin Instance" ) );
-	auto iSkinPart = nif->getBlockIndex( nif->getLink( iSkin, "Skin Partition" ) );
-	if ( !iSkinPart.isValid() || !iData.isValid() )
+	auto block = nif->block(index);
+	auto dataBlock = block.child("Data").linkBlock();
+	auto skinBlock = block.child("Skin Instance").linkBlock();
+	auto skinPartBlock = skinBlock.child("Skin Partition").linkBlock();
+	if ( !skinPartBlock || !dataBlock )
 		return QModelIndex();
 
-	QVector<Triangle> tris;
-	auto iParts = nif->getIndex( iSkinPart, "Partitions" );
-	for ( int i = 0; i < nif->rowCount( iParts ) && iParts.isValid(); i++ )
-		tris << SkinPartition( nif, iParts.child( i, 0 ) ).getRemappedTriangles();
+	QVector<Triangle> combinedTris;
+	bool success = true;
+	for ( auto partEntry : skinPartBlock["Partitions"].iter() ) {
+		auto partTrisRoot = partEntry.child("Triangles");
+		int nPartTris = partTrisRoot.childCount();
+		if ( nPartTris <= 0 )
+			continue;
+		combinedTris.reserve( combinedTris.count() + nPartTris );
 
-	nif->set<bool>( iData, "Has Triangles", true );
-	nif->set<ushort>( iData, "Num Triangles", tris.size() );
-	nif->set<uint>( iData, "Num Triangle Points", tris.size() * 3 );
-	nif->updateArraySize( iData, "Triangles" );
-	nif->setArray( iData, "Triangles", tris );
+		auto vertexMap =  partEntry.child("Vertex Map").array<int>();
+		int nMappedVertices = vertexMap.count();
+
+		for ( auto triEntry : partTrisRoot.iter() ) {
+			Triangle t = triEntry.value<Triangle>();
+
+			if ( nMappedVertices > 0 ) {
+				for ( TriVertexIndex & tv : t.v ) {
+					if ( tv < nMappedVertices ) {
+						tv = vertexMap[tv];
+					} else {
+						triEntry.reportError( tr("Invalid vertex index %1").arg(tv) );
+						success = false;
+					}
+				}
+			}
+
+			combinedTris << t;
+		}
+	}
+	if ( !success )
+		return QModelIndex();
+
+	int nTris = combinedTris.count();
+	dataBlock["Has Triangles"].setValue<bool>( true );
+	dataBlock["Num Triangles"].setValue<ushort>( nTris );
+	dataBlock["Num Triangle Points"].setValue<uint>( nTris * 3 );
+	auto triField = dataBlock["Triangles"];
+	triField.updateArraySize();
+	triField.setArray( combinedTris );
 
 	return index;
 }
