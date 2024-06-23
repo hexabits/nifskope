@@ -7,17 +7,6 @@
 #include "model/nifmodel.h"
 
 
-void BSShape::updateImpl( const NifModel * nif, const QModelIndex & index )
-{
-	Shape::updateImpl( nif, index );
-
-	if ( index == iBlock ) {
-		isLOD = nif->isNiBlock( iBlock, "BSMeshLODTriShape" );
-		if ( isLOD )
-			emit nif->lodSliderChanged(true);
-	}
-}
-
 void BSShape::updateDataImpl( const NifModel * nif )
 {
 	NifFieldConst block = nif->block(iBlock);
@@ -137,12 +126,26 @@ void BSShape::updateDataImpl( const NifModel * nif )
 	// Add coords as the first set of QList
 	coords.append( coordset );
 
+	// LODs
+	if ( block.isBlockType( "BSMeshLODTriShape" ) ) {
+		isLOD = true;
+
+		auto lod0 = block["LOD0 Size"].value<uint>();
+		auto lod1 = block["LOD1 Size"].value<uint>();
+		auto lod2 = block["LOD2 Size"].value<uint>();
+
+		lodRanges.resize( 3 );
+		lodRanges[0] = addTriangleRange( NifFieldConst(), 0, lod0 );
+		lodRanges[1] = addTriangleRange( NifFieldConst(), lod0, lod1 );
+		lodRanges[2] = addTriangleRange( NifFieldConst(), lod0 + lod1, lod2 );
+	}
+
 	// Fill triangle data
 	if ( skinPartBlock ) {
 		for ( auto p : skinPartBlock.child("Partitions").iter() )
-			addTriangleRange( p.child("Triangles") );
+			addTriangles( p.child("Triangles") );
 	} else {
-		addTriangleRange( block.child("Triangles") );
+		addTriangles( block.child("Triangles") );
 	}
 
 	// Fill skeleton data
@@ -310,36 +313,15 @@ void BSShape::drawShapes( NodeList * secondPass, bool presort )
 	
 	if ( isDoubleSided ) {
 		glCullFace( GL_FRONT );
-		glDrawElements( GL_TRIANGLES, triangles.count() * 3, GL_UNSIGNED_SHORT, triangles.constData() );
+		drawTriangles();
 		glCullFace( GL_BACK );
 	}
 
-	if ( !isLOD ) {
-		glDrawElements( GL_TRIANGLES, triangles.count() * 3, GL_UNSIGNED_SHORT, triangles.constData() );
-	} else if ( triangles.count() ) {
-		auto lod0 = nif->get<uint>( iBlock, "LOD0 Size" );
-		auto lod1 = nif->get<uint>( iBlock, "LOD1 Size" );
-		auto lod2 = nif->get<uint>( iBlock, "LOD2 Size" );
-
-		auto lod0tris = triangles.mid( 0, lod0 );
-		auto lod1tris = triangles.mid( lod0, lod1 );
-		auto lod2tris = triangles.mid( lod0 + lod1, lod2 );
-
-		// If Level2, render all
-		// If Level1, also render Level0
-		switch ( scene->lodLevel ) {
-		case Scene::Level0:
-			if ( lod2tris.count() )
-				glDrawElements( GL_TRIANGLES, lod2tris.count() * 3, GL_UNSIGNED_SHORT, lod2tris.constData() );
-		case Scene::Level1:
-			if ( lod1tris.count() )
-				glDrawElements( GL_TRIANGLES, lod1tris.count() * 3, GL_UNSIGNED_SHORT, lod1tris.constData() );
-		case Scene::Level2:
-		default:
-			if ( lod0tris.count() )
-				glDrawElements( GL_TRIANGLES, lod0tris.count() * 3, GL_UNSIGNED_SHORT, lod0tris.constData() );
-			break;
-		}
+	if ( isLOD && scene->lodLevel >= 0 && scene->lodLevel < lodRanges.count() ) {
+		for ( int lvl = scene->lodLevel; lvl >= 0; lvl-- )
+			drawTriangles( lodRanges[lvl] );
+	} else {
+		drawTriangles();
 	}
 
 	if ( !Node::SELECTING )

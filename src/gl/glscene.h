@@ -92,7 +92,11 @@ public:
 	Property * getProperty( const NifModel * nif, const QModelIndex & iProperty );
 	Property * getProperty( const NifModel * nif, const QModelIndex & iParentBlock, const QString & itemName, const QString & mustInherit );
 
-	Game::GameMode game = Game::OTHER;
+private:
+	Game::GameMode game;
+public:
+	void setGame( Game::GameMode newGame );
+	inline Game::GameMode getGame() const { return game; }
 
 	enum SceneOption
 	{
@@ -148,15 +152,13 @@ public:
 	inline bool isSelModeObject() const { return ( selMode & SelObject ); }
 	inline bool isSelModeVertex() const { return ( selMode & SelVertex ); }
 
-	enum LodLevel
-	{
-		Level0 = 0,
-		Level1 = 1,
-		Level2 = 2,
-		Level3 = 3
-	};
+	static constexpr int MAX_LOD_LEVEL_STARFIELD = 3;
+	static constexpr int MAX_LOD_LEVEL_DEFAULT = 2;
 
-	LodLevel lodLevel;
+	int lodLevel;
+
+	int maxLodLevel() const;
+	int defaultLodLevel() const;
 
 	
 	Renderer * renderer;

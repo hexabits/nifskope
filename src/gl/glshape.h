@@ -42,13 +42,21 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 //! @file glshape.h TriangleRange
 
-struct TriangleRange
+class TriangleRange final
 {
+	friend class Shape;
+
+public:
 	NifFieldConst rootField;
 	int start;
-	int end;
-	int validStart;
-	int validLength;
+	int length;
+	int realStart = 0;
+	int realLength = 0;
+
+	TriangleRange() = delete;
+private:
+	TriangleRange( NifFieldConst rootField, int start, int length )
+		: rootField( rootField ), start( start ), length( length ) {}
 };
 
 
@@ -84,8 +92,7 @@ protected:
 	void boneSphere( const NifModel * nif, const QModelIndex & index ) const;
 
 	void reportCountMismatch( NifFieldConst rootEntry1, int entryCount1, NifFieldConst rootEntry2, int entryCount2, NifFieldConst reportEntry ) const;
-	inline void reportCountMismatch( NifFieldConst rootEntry1, NifFieldConst rootEntry2, NifFieldConst reportEntry ) const
-		{ reportCountMismatch( rootEntry1, rootEntry1.childCount(), rootEntry2, rootEntry2.childCount(), reportEntry ); }
+	void reportCountMismatch( NifFieldConst rootEntry1, NifFieldConst rootEntry2, NifFieldConst reportEntry ) const;
 
 	//! Shape data
 	QPersistentModelIndex iData;
@@ -120,15 +127,21 @@ protected:
 	//! Map of triangle indices in the shape data to their indices in the QVector
 	QVector<int> triangleMap;
 	//! Triangle ranges
-	QVector<TriangleRange> triangleRanges;
+	QVector<TriangleRange *> triangleRanges;
+	QVector<TriangleRange *> lodRanges;
 	//! Strip points
 	QVector<TriStrip> tristrips;
 	//! Sorted triangles
 	QVector<Triangle> sortedTriangles;
 
-	void addTriangleRange( NifFieldConst rangeRootField, int iStart, int iEnd );
-	void addTriangleRange( NifFieldConst rangeRootField, const QVector<Triangle> & tris);
-	void addTriangleRange( NifFieldConst arrayRoot ) { addTriangleRange( arrayRoot, arrayRoot.array<Triangle>() ); }
+	TriangleRange * addTriangleRange( NifFieldConst rangeRootField, int iStart, int iEnd );
+
+	TriangleRange * addTriangles( NifFieldConst rangeRootField, const QVector<Triangle> & tris);
+	TriangleRange * addTriangles( NifFieldConst arrayRoot );
+
+	void drawTriangles( int iStartOffset, int nTris ) const;
+	void drawTriangles() const;
+	void drawTriangles( const TriangleRange * range ) const;
 
 	//! Is the transform rigid or weighted?
 	bool transformRigid = true;
@@ -193,5 +206,26 @@ protected:
 
 	bool isLOD = false;
 };
+
+inline void Shape::reportCountMismatch( NifFieldConst rootEntry1, NifFieldConst rootEntry2, NifFieldConst reportEntry ) const
+{
+	reportCountMismatch( rootEntry1, rootEntry1.childCount(), rootEntry2, rootEntry2.childCount(), reportEntry );
+}
+
+inline TriangleRange * Shape::addTriangles( NifFieldConst arrayRoot )
+{
+	return addTriangles( arrayRoot, arrayRoot.array<Triangle>() );
+}
+
+inline void Shape::drawTriangles() const
+{
+	drawTriangles( 0, triangles.count() );
+}
+
+inline void Shape::drawTriangles( const TriangleRange * range ) const
+{
+	if ( range )
+		drawTriangles( range->realStart, range->realLength );
+}
 
 #endif

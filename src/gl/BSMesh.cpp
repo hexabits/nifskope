@@ -280,7 +280,7 @@ void BSMesh::updateDataImpl(const NifModel* nif)
 		qWarning() << "Both static and skeletal mesh LODs exist";
 	}
 
-	lodLevel = std::min(scene->lodLevel, Scene::LodLevel(lodCount - 1));
+	lodLevel = std::min( scene->lodLevel, Scene::MAX_LOD_LEVEL_STARFIELD );
 
 	auto meshIndex = (hasMeshLODs) ? 0 : lodLevel;
 	if ( lodCount > lodLevel ) {

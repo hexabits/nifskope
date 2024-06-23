@@ -34,7 +34,6 @@ protected:
 
 	bool isDynamic = false;
 
-	void updateImpl( const NifModel * nif, const QModelIndex & index ) override;
 	void updateDataImpl( const NifModel * nif ) override;
 };
 

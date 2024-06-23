@@ -47,23 +47,15 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <QOpenGLFunctions>
 
 
-//! @file glmesh.cpp Scene management for visible meshes such as NiTriShapes.
 
-const char * NIMESH_ABORT = QT_TR_NOOP( "NiMesh rendering encountered unsupported types. Rendering may be broken." );
+//! @file glmesh.cpp Scene management for visible meshes such as NiTriShapes.
 
 void Mesh::updateImpl( const NifModel * nif, const QModelIndex & index )
 {
 	Shape::updateImpl(nif, index);
 
-	if ( index == iBlock ) {
-		isLOD = nif->isNiBlock( iBlock, "BSLODTriShape" );
-		if ( isLOD )
-			emit nif->lodSliderChanged( true );
-
-	} else if ( index == iData || index == iTangentData ) {
+	if ( index == iData || index == iTangentData )
 		needUpdateData = true;
-
-	}
 }
 
 void Mesh::updateDataImpl( const NifModel * nif )
@@ -500,11 +492,25 @@ void Mesh::updateData_NiTriShape( const NifModel * nif )
 		hasVertexColors = true;
 		colors = colorsField.array<Color4>();
 	}
-	
+
+	// LODs
+	if ( block.isBlockType( "BSLODTriShape" ) ) {
+		isLOD = true;
+
+		auto lod0 = block["LOD0 Size"].value<uint>();
+		auto lod1 = block["LOD1 Size"].value<uint>();
+		auto lod2 = block["LOD2 Size"].value<uint>();
+
+		lodRanges.resize( 3 );
+		lodRanges[0] = addTriangleRange( NifFieldConst(), 0, lod0 );
+		lodRanges[1] = addTriangleRange( NifFieldConst(), lod0, lod1 );
+		lodRanges[2] = addTriangleRange( NifFieldConst(), lod0 + lod1, lod2 );
+	}
+
 	// Fill triangle/strips data
 	if ( !skinPartBlock ) {
 		if ( dataBlock.isBlockType("NiTriShapeData") ) {
-			addTriangleRange( dataBlock.child("Triangles") );
+			addTriangles( dataBlock.child("Triangles") );
 		} else if ( dataBlock.isBlockType("NiTriStripsData") ) {
 			auto stripPoints = dataBlock.child("Points");
 			if ( stripPoints ) {
@@ -627,9 +633,9 @@ void Mesh::updateData_NiTriShape( const NifModel * nif )
 						}
 						tris << t;
 					}
-					addTriangleRange( partTrisRoot, tris );
+					addTriangles( partTrisRoot, tris );
 				} else {
-					addTriangleRange( partTrisRoot );
+					addTriangles( partTrisRoot );
 				}
 
 				// Strips
@@ -832,35 +838,11 @@ void Mesh::drawShapes( NodeList * secondPass, bool presort )
 		glDisable( GL_CULL_FACE );
 	}
 
-	if ( !isLOD ) {
-		// render the triangles
-		if ( sortedTriangles.count() )
-			glDrawElements( GL_TRIANGLES, sortedTriangles.count() * 3, GL_UNSIGNED_SHORT, sortedTriangles.constData() );
-
-	} else if ( sortedTriangles.count() ) {
-		auto lod0 = nif->get<uint>( iBlock, "LOD0 Size" );
-		auto lod1 = nif->get<uint>( iBlock, "LOD1 Size" );
-		auto lod2 = nif->get<uint>( iBlock, "LOD2 Size" );
-
-		auto lod0tris = sortedTriangles.mid( 0, lod0 );
-		auto lod1tris = sortedTriangles.mid( lod0, lod1 );
-		auto lod2tris = sortedTriangles.mid( lod0 + lod1, lod2 );
-
-		// If Level2, render all
-		// If Level1, also render Level0
-		switch ( scene->lodLevel ) {
-		case Scene::Level0:
-			if ( lod2tris.count() )
-				glDrawElements( GL_TRIANGLES, lod2tris.count() * 3, GL_UNSIGNED_SHORT, lod2tris.constData() );
-		case Scene::Level1:
-			if ( lod1tris.count() )
-				glDrawElements( GL_TRIANGLES, lod1tris.count() * 3, GL_UNSIGNED_SHORT, lod1tris.constData() );
-		case Scene::Level2:
-		default:
-			if ( lod0tris.count() )
-				glDrawElements( GL_TRIANGLES, lod0tris.count() * 3, GL_UNSIGNED_SHORT, lod0tris.constData() );
-			break;
-		}
+	if ( isLOD && scene->lodLevel >= 0 && scene->lodLevel < lodRanges.count() ) {
+		for ( int lvl = scene->lodLevel; lvl >= 0; lvl-- )
+			drawTriangles( lodRanges[lvl] );
+	} else {
+		drawTriangles();
 	}
 
 	// render the tristrips

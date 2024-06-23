@@ -53,6 +53,8 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 Scene::Scene( TexCache * texcache, QOpenGLContext * context, QOpenGLFunctions * functions, QObject * parent ) :
 	QObject( parent )
 {
+	setGame( Game::OTHER );
+
 	renderer = new Renderer( context, functions );
 
 	currentBlock = currentIndex = QModelIndex();
@@ -64,8 +66,6 @@ Scene::Scene( TexCache * texcache, QOpenGLContext * context, QOpenGLFunctions * 
 	textures = texcache;
 
 	options = ( DoLighting | DoTexturing | DoMultisampling | DoBlending | DoVertexColors | DoSpecular | DoGlow | DoCubeMapping );
-
-	lodLevel = Level0;
 
 	visMode = VisNone;
 
@@ -103,6 +103,12 @@ Scene::~Scene()
 	delete renderer;
 }
 
+void Scene::setGame( Game::GameMode newGame )
+{
+	game = newGame;
+	lodLevel = defaultLodLevel();
+}
+
 void Scene::updateShaders()
 {
 	renderer->updateShaders();
@@ -124,7 +130,7 @@ void Scene::clear( bool flushTextures )
 
 	sceneBoundsValid = timeBoundsValid = false;
 
-	game = Game::OTHER;
+	setGame( Game::OTHER );
 }
 
 void Scene::update( const NifModel * nif, const QModelIndex & index )
@@ -197,11 +203,21 @@ void Scene::updateSelectMode( QAction * action )
 	emit sceneUpdated();
 }
 
-void Scene::updateLodLevel( int level )
+int Scene::maxLodLevel() const
 {
-	if ( game != Game::STARFIELD )
-		level = std::max(level, 2);
-	lodLevel = LodLevel( level );
+	return ( game == Game::STARFIELD ) ? MAX_LOD_LEVEL_STARFIELD : MAX_LOD_LEVEL_DEFAULT;
+}
+
+int Scene::defaultLodLevel() const
+{
+	return ( game == Game::STARFIELD ) ? 0 : 2;
+}
+
+void Scene::updateLodLevel( int newLevel )
+{
+	if ( newLevel < 0 || newLevel > maxLodLevel() )
+		newLevel = defaultLodLevel();
+	lodLevel = newLevel;
 }
 
 void Scene::make( NifModel * nif, bool flushTextures )
@@ -211,7 +227,7 @@ void Scene::make( NifModel * nif, bool flushTextures )
 	if ( !nif )
 		return;
 
-	game = Game::GameManager::get_game(nif->getVersionNumber(), nif->getUserVersion(), nif->getBSVersion());
+	setGame( Game::GameManager::get_game(nif->getVersionNumber(), nif->getUserVersion(), nif->getBSVersion()) );
 
 	update( nif, QModelIndex() );
 

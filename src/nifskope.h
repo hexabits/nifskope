@@ -82,6 +82,7 @@ class QStringList;
 class QTimer;
 class QTreeView;
 class QUdpSocket;
+class QSlider;
 
 namespace nstheme
 {
@@ -258,6 +259,9 @@ protected slots:
 	//! Called after window resizing has stopped
 	void resizeDone();
 
+	void setLodSliderEnabled( bool enabled );
+	void onLodSliderChange( int newLodLevel );
+
 protected:
 	void closeEvent( QCloseEvent * e ) override final;
 	//void resizeEvent( QResizeEvent * event ) override final;
@@ -409,6 +413,8 @@ private:
 	QAction * recentFileActs[NumRecentFiles];
 	QAction * recentArchiveActs[NumRecentFiles];
 	QAction * recentArchiveFileActs[NumRecentFiles];
+
+	QSlider * lodSlider;
 
 	bool isResizing;
 	QTimer * resizeTimer;

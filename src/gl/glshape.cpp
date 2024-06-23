@@ -36,9 +36,6 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gl/glscene.h"
 #include "io/material.h"
 
-#include <QDebug>
-#include <QElapsedTimer>
-
 Shape::Shape( Scene * s, const QModelIndex & b ) : Node( s, b )
 {
 	shapeNumber = s->shapes.count();
@@ -62,7 +59,6 @@ void Shape::clear()
 	bsesp = nullptr;
 	alphaProperty = nullptr;
 
-	isLOD = false;
 	isDoubleSided = false;
 }
 
@@ -137,34 +133,29 @@ void Shape::updateData( const NifModel* nif )
 		}
 	}
 
-	// Validate all triangleRanges, so they would not point to invalid triangles.
-	for ( TriangleRange & r : triangleRanges ) {
-		int iStart = r.start;
-		if ( iStart < 0 ) // Just in case...
-			iStart = 0;
+	// "Normalize" all triangleRanges so they would not point to invalid triangles.
+	for ( TriangleRange * r : triangleRanges ) {
+		int iFirst = std::max( r->start, 0 );
+		int iLast = ( nValidTris > 0 ) ? ( std::min( r->start + r->length, nTotalTris ) - 1 ) : -1;
 
-		int iEnd = r.end;
-		if ( nValidTris <= 0 ) { 
-			// No valid tris anyway, just make sure that iEnd < iStart...
-			iEnd = iStart - 1;
-		} else if ( iEnd >= nTotalTris )
-			iEnd = nTotalTris - 1;
-
-		if ( nValidTris < nTotalTris && iStart <= iEnd ) {
-			while ( iStart <= iEnd && triangleMap[iStart] < 0 )
-				iStart++;
-			while ( iEnd >= iStart && triangleMap[iEnd] < 0 )
-				iEnd--;
+		if ( nValidTris < nTotalTris ) {
+			while ( iFirst <= iLast && triangleMap[iFirst] < 0 )
+				iFirst++;
+			while ( iLast >= iFirst && triangleMap[iLast] < 0 )
+				iLast--;
 		}
 
-		if ( iStart <= iEnd ) {
-			r.validStart  = triangleMap[iStart];
-			r.validLength = triangleMap[iEnd] - r.validStart + 1;
+		if ( iFirst <= iLast ) {
+			r->realStart  = triangleMap[iFirst];
+			r->realLength = triangleMap[iLast] - r->realStart + 1;
 		} else {
-			r.validStart  = 0; // Whatever...
-			r.validLength = 0;
+			r->realStart  = 0; // Whatever...
+			r->realLength = 0;
 		}
 	}
+
+	if ( isLOD )
+		emit nif->lodSliderChanged( true );
 }
 
 void Shape::setController( const NifModel * nif, const QModelIndex & iController )
@@ -245,22 +236,28 @@ void Shape::reportCountMismatch( NifFieldConst rootEntry1, int entryCount1, NifF
 	}
 }
 
-void Shape::addTriangleRange( NifFieldConst rangeRootField, const QVector<Triangle> & tris)
+TriangleRange * Shape::addTriangleRange( NifFieldConst rangeRootField, int iStart, int nTris )
+{
+	TriangleRange * r = new TriangleRange( rangeRootField, iStart, nTris );
+	triangleRanges.append( r );
+	return r;
+}
+
+TriangleRange * Shape::addTriangles( NifFieldConst rangeRootField, const QVector<Triangle> & tris)
 {
 	if ( tris.count() > 0 ) {
 		int iStart = triangles.count();
 		triangles << tris;
-		addTriangleRange( rangeRootField, iStart, triangles.count() - 1 );
+		return addTriangleRange( rangeRootField, iStart, triangles.count() - iStart );
 	}
+
+	return nullptr;
 }
 
-void Shape::addTriangleRange( NifFieldConst rangeRootField, int iStart, int iEnd )
+void Shape::drawTriangles( int iStartOffset, int nTris ) const
 {
-	TriangleRange r;
-	r.rootField = rangeRootField;
-	r.start = iStart;
-	r.end = iEnd;
-	triangleRanges.append( r );
+	if ( nTris > 0)
+		glDrawElements( GL_TRIANGLES, nTris * 3, GL_UNSIGNED_SHORT, triangles.constData() + iStartOffset );
 }
 
 void Shape::initSkinBones( NifFieldConst nodeMapRoot, NifFieldConst nodeListRoot, NifFieldConst block )
@@ -335,6 +332,8 @@ void Shape::resetBlockData()
 	hasVertexBitangents = false;
 	hasVertexUVs        = false;
 	hasVertexColors     = false;
+	
+	isLOD = false;
 
 	verts.clear();
 	norms.clear();
@@ -344,6 +343,8 @@ void Shape::resetBlockData()
 	bitangents.clear();
 	triangles.clear();
 	triangleMap.clear();
+	lodRanges.clear();
+	qDeleteAll(triangleRanges);
 	triangleRanges.clear();
 	tristrips.clear();
 

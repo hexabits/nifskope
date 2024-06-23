@@ -624,28 +624,19 @@ void NifSkope::initToolBars()
 	} );
 
 	// LOD Toolbar
-	QToolBar * tLOD = ui->tLOD;
-
-	//QSettings settings;
-	//int lodLevel = settings.value( "GLView/LOD Level", 0 ).toInt();
-	//settings.setValue( "GLView/LOD Level", lodLevel );
-
-	QSlider * lodSlider = new QSlider( Qt::Horizontal );
+	lodSlider = new QSlider( Qt::Horizontal );
 	lodSlider->setFocusPolicy( Qt::StrongFocus );
 	lodSlider->setTickPosition( QSlider::TicksBelow );
 	lodSlider->setTickInterval( 1 );
 	lodSlider->setSingleStep( 1 );
 	lodSlider->setMinimum( 0 );
-	lodSlider->setMaximum( 3 );
-	lodSlider->setValue(0);
 
-	tLOD->addWidget( lodSlider );
-	tLOD->setEnabled( false );
-	tLOD->setVisible( false );
+	ui->tLOD->addWidget( lodSlider );
 
-	connect( lodSlider, &QSlider::valueChanged, ogl->getScene(), &Scene::updateLodLevel );
-	connect( lodSlider, &QSlider::valueChanged, ogl, &GLView::updateGL );
-	connect( nif, &NifModel::lodSliderChanged, [tLOD]( bool enabled ) { tLOD->setEnabled( enabled ); tLOD->setVisible( enabled ); } );
+	setLodSliderEnabled( false );
+
+	connect( nif, &NifModel::lodSliderChanged, this, &NifSkope::setLodSliderEnabled );
+	connect( lodSlider, &QSlider::valueChanged, this, &NifSkope::onLodSliderChange );
 }
 
 void NifSkope::initConnections()
@@ -778,8 +769,7 @@ void NifSkope::onLoadBegin()
 	kfmtree->setModel( kfmEmpty );
 
 	animGroups->clear();
-	ui->tLOD->setEnabled( false );
-	ui->tLOD->setVisible( false );
+	setLodSliderEnabled( false );
 
 	progress->setVisible( true );
 	progress->reset();
@@ -1210,6 +1200,35 @@ void NifSkope::resizeDone()
 	auto viewSize = graphicsView->size();
 	ogl->resize( viewSize.width(), viewSize.height() );
 	ogl->resizeGL( viewSize.width(), viewSize.height() );
+}
+
+void NifSkope::setLodSliderEnabled( bool enabled )
+{
+	auto tLOD = ui->tLOD;
+
+	if ( enabled ) {
+		Scene * scene = ogl->getScene();
+		if ( !scene ) { // Just in case
+			enabled = false;
+		} else if ( !tLOD->isEnabled() ) {
+			lodSlider->setMaximum( scene->maxLodLevel() );
+			lodSlider->setValue( scene->lodLevel );
+		}
+	}
+
+	tLOD->setEnabled( enabled );
+	tLOD->setVisible( enabled );
+}
+
+void NifSkope::onLodSliderChange( int newLodLevel )
+{
+	if ( ui->tLOD->isEnabled() ) {
+		Scene * scene = ogl->getScene();
+		if ( scene ) {
+			scene->updateLodLevel( newLodLevel );
+			ogl->updateGL();
+		}
+	}
 }
 
 
