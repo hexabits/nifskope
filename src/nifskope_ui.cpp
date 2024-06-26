@@ -594,27 +594,14 @@ void NifSkope::initToolBars()
 	ui->tAnim->addWidget( animSlider );
 	animGroupsAction = ui->tAnim->addWidget( animGroups );
 
-	connect( ogl, &GLView::sequencesDisabled, ui->tAnim, &QToolBar::hide );
+	hideAnimToolbar();
+
+	connect( ogl, &GLView::sequencesDisabled, this, &NifSkope::hideAnimToolbar );
 	connect( ogl, &GLView::sequenceStopped, ui->aAnimPlay, &QAction::toggle );
 	connect( ogl, &GLView::sequenceChanged, [this]( const QString & seqname ) {
 		animGroups->setCurrentIndex( ogl->getScene()->animGroups.indexOf( seqname ) );
 	} );
-	connect( ogl, &GLView::sequencesUpdated, [this]() {
-		ui->tAnim->show();
-
-		animGroups->clear();
-		animGroups->addItems( ogl->getScene()->animGroups );
-		animGroups->setCurrentIndex( ogl->getScene()->animGroups.indexOf( ogl->getScene()->animGroup ) );
-
-		if ( animGroups->count() == 0 ) {
-			animGroupsAction->setVisible( false );
-			ui->aAnimSwitch->setVisible( false );
-		} else {
-			ui->aAnimSwitch->setVisible( animGroups->count() != 1 );
-			animGroupsAction->setVisible( true );
-			animGroups->adjustSize();
-		}
-	} );
+	connect( ogl, &GLView::sequencesUpdated, this, &NifSkope::showAnimToolbar );
 
 	connect ( ogl->scene, &Scene::disableSave, [this]() {
 		ui->aSaveMenu->setDisabled(true);
@@ -769,6 +756,7 @@ void NifSkope::onLoadBegin()
 	kfmtree->setModel( kfmEmpty );
 
 	animGroups->clear();
+	hideAnimToolbar();
 	setLodSliderEnabled( false );
 
 	progress->setVisible( true );
@@ -1231,6 +1219,31 @@ void NifSkope::onLodSliderChange( int newLodLevel )
 	}
 }
 
+void NifSkope::hideAnimToolbar()
+{
+	ogl->resetAnimation();
+	ui->tAnim->setEnabled( false );
+	ui->tAnim->hide();
+}
+
+void NifSkope::showAnimToolbar()
+{
+	ui->tAnim->setEnabled( true );
+	ui->tAnim->show();
+
+	animGroups->clear();
+	animGroups->addItems( ogl->getScene()->animGroups );
+	animGroups->setCurrentIndex( ogl->getScene()->animGroups.indexOf( ogl->getScene()->animGroup ) );
+
+	if ( animGroups->count() == 0 ) {
+		animGroupsAction->setVisible( false );
+		ui->aAnimSwitch->setVisible( false );
+	} else {
+		ui->aAnimSwitch->setVisible( animGroups->count() != 1 );
+		animGroupsAction->setVisible( true );
+		animGroups->adjustSize();
+	}
+}
 
 bool NifSkope::eventFilter( QObject * o, QEvent * e )
 {

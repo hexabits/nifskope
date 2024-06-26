@@ -216,6 +216,8 @@ protected:
 	void mouseReleaseEvent( QMouseEvent * ) override final;
 	void wheelEvent( QWheelEvent * ) override final;
 
+	void resetAnimation();
+
 protected slots:
 	void saveImage();
 protected:
@@ -263,6 +265,7 @@ private:
 	QString fnDragTex, fnDragTexOrg;
 
 	bool doCompile;
+	bool doTimerReset;
 	bool doCenter;
 
 	QTimer * lightVisTimer;

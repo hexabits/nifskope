@@ -405,22 +405,29 @@ void GLView::paintGL()
 	if ( doCompile ) {
 		textures->setNifFolder( model->getFolder() );
 		scene->make( model );
-		scene->transform( Transform(), scene->timeMin() );
+
+		auto tMin = scene->timeMin();
+		auto tMax = scene->timeMax();
+
+		scene->transform( Transform(), tMin );
 
 		axis = (scene->bounds().radius <= 0) ? 1024.0 * scale() : scene->bounds().radius;
 
-		if ( scene->timeMin() != scene->timeMax() ) {
-			if ( time < scene->timeMin() || time > scene->timeMax() )
-				time = scene->timeMin();
+		if ( doTimerReset )
+			time = tMin;
+		if ( tMin != tMax ) {
+			if ( time < tMin || time > tMax  )
+				time = tMin;
 
 			emit sequencesUpdated();
 
-		} else if ( scene->timeMax() == 0 ) {
+		} else if ( tMax == 0 ) {
 			// No Animations in this NIF
 			emit sequencesDisabled( true );
 		}
-		emit sceneTimeChanged( time, scene->timeMin(), scene->timeMax() );
+		emit sceneTimeChanged( time, tMin, tMax );
 		doCompile = false;
+		doTimerReset = false;
 	}
 
 	// Center the model
@@ -1164,6 +1171,7 @@ void GLView::modelChanged()
 		return;
 
 	doCompile = true;
+	doTimerReset = true;
 	//doCenter  = true;
 	update();
 }
@@ -1315,6 +1323,17 @@ void GLView::advanceGears()
 	if ( mouseRot[0] != 0 || mouseRot[1] != 0 || mouseRot[2] != 0 ) {
 		rotateBy( mouseRot[0], mouseRot[1], mouseRot[2] );
 		mouseRot = Vector3();
+	}
+}
+
+void GLView::resetAnimation()
+{
+	if ( animState & AnimPlay ) {
+		time = scene->timeMin();
+		animState &= ~AnimPlay;
+		emit sequenceStopped();
+		emit sceneTimeChanged( time, scene->timeMin(), scene->timeMax() );
+		update();
 	}
 }
 

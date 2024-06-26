@@ -262,6 +262,9 @@ protected slots:
 	void setLodSliderEnabled( bool enabled );
 	void onLodSliderChange( int newLodLevel );
 
+	void hideAnimToolbar();
+	void showAnimToolbar();
+
 protected:
 	void closeEvent( QCloseEvent * e ) override final;
 	//void resizeEvent( QResizeEvent * event ) override final;
