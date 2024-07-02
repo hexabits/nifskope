@@ -37,7 +37,6 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gl/glscene.h"
 #include "gl/gltex.h"
 #include "io/material.h"
-#include "model/nifmodel.h"
 
 #include <QOpenGLContext>
 
@@ -54,45 +53,39 @@ Property * Property::create( Scene * scene, const NifModel * nif, const QModelIn
 {
 	Property * property = 0;
 
-	if ( nif->isNiBlock( index, "NiAlphaProperty" ) ) {
-		property = new AlphaProperty( scene, index );
-	} else if ( nif->isNiBlock( index, "NiZBufferProperty" ) ) {
-		property = new ZBufferProperty( scene, index );
-	} else if ( nif->isNiBlock( index, "NiTexturingProperty" ) ) {
-		property = new TexturingProperty( scene, index );
-	} else if ( nif->isNiBlock( index, "NiTextureProperty" ) ) {
-		property = new TextureProperty( scene, index );
-	} else if ( nif->isNiBlock( index, "NiMaterialProperty" ) ) {
-		property = new MaterialProperty( scene, index );
-	} else if ( nif->isNiBlock( index, "NiSpecularProperty" ) ) {
-		property = new SpecularProperty( scene, index );
-	} else if ( nif->isNiBlock( index, "NiWireframeProperty" ) ) {
-		property = new WireframeProperty( scene, index );
-	} else if ( nif->isNiBlock( index, "NiVertexColorProperty" ) ) {
-		property = new VertexColorProperty( scene, index );
-	} else if ( nif->isNiBlock( index, "NiStencilProperty" ) ) {
-		property = new StencilProperty( scene, index );
-	} else if ( nif->isNiBlock( index, "BSLightingShaderProperty" ) ) {
-		property = new BSLightingShaderProperty( scene, index );
-	} else if ( nif->isNiBlock( index, "BSShaderLightingProperty" ) ) {
-		property = new BSShaderLightingProperty( scene, index );
-	} else if ( nif->isNiBlock( index, "BSEffectShaderProperty" ) ) {
-		property = new BSEffectShaderProperty( scene, index );
-	} else if ( nif->isNiBlock( index, "BSWaterShaderProperty" ) ) {
-		property = new BSWaterShaderProperty( scene, index );
-	} else if ( nif->isNiBlock( index, "BSShaderNoLightingProperty" ) ) {
-		property = new BSShaderLightingProperty( scene, index );
-	} else if ( nif->isNiBlock( index, "BSShaderPPLightingProperty" ) ) {
-		property = new BSShaderLightingProperty( scene, index );
-	} else if ( index.isValid() ) {
-#ifndef QT_NO_DEBUG
-		NifItem * item = static_cast<NifItem *>( index.internalPointer() );
-
-		if ( item )
-			qCWarning( nsNif ) << tr( "Unknown property: %1" ).arg( item->name() );
-		else
-			qCWarning( nsNif ) << tr( "Unknown property: I can't determine its name" );
-#endif
+	auto block = nif->field( index );
+	if ( !block ) {
+		// Do nothing
+	} else if ( !block.isBlock() ) {
+		block.reportError( tr("Could not create Property from a non-block field") );
+	} else if ( block.hasName( "NiAlphaProperty" ) ) {
+		property = new AlphaProperty( scene, block );
+	} else if ( block.hasName( "NiZBufferProperty" ) ) {
+		property = new ZBufferProperty( scene, block );
+	} else if ( block.hasName( "NiTexturingProperty" ) ) {
+		property = new TexturingProperty( scene, block );
+	} else if ( block.hasName( "NiTextureProperty" ) ) {
+		property = new TextureProperty( scene, block );
+	} else if ( block.hasName( "NiMaterialProperty" ) ) {
+		property = new MaterialProperty( scene, block );
+	} else if ( block.hasName( "NiSpecularProperty" ) ) {
+		property = new SpecularProperty( scene, block );
+	} else if ( block.hasName( "NiWireframeProperty" ) ) {
+		property = new WireframeProperty( scene, block );
+	} else if ( block.hasName( "NiVertexColorProperty" ) ) {
+		property = new VertexColorProperty( scene, block );
+	} else if ( block.hasName( "NiStencilProperty" ) ) {
+		property = new StencilProperty( scene, block );
+	} else if ( block.hasName( "BSLightingShaderProperty" ) ) {
+		property = new BSLightingShaderProperty( scene, block );
+	} else if ( block.hasName( "BSEffectShaderProperty" ) ) {
+		property = new BSEffectShaderProperty( scene, block );
+	} else if ( block.hasName( "BSWaterShaderProperty" ) ) {
+		property = new BSWaterShaderProperty( scene, block );
+	} else if ( block.inherits( "BSShaderLightingProperty" ) ) {
+		property = new BSShaderLightingProperty( scene, block );
+	} else {
+		block.reportError( tr("Could not create Property from a block of type '%1'").arg( block.name() ) );
 	}
 
 	if ( property )
@@ -206,7 +199,7 @@ void AlphaProperty::updateImpl( const NifModel * nif, const QModelIndex & index 
 	Property::updateImpl( nif, index );
 
 	if ( index == iBlock ) {
-		unsigned short flags = nif->get<int>( iBlock, "Flags" );
+		auto flags = block["Flags"].value<ushort>();
 
 		alphaBlend = flags & 1;
 
@@ -226,7 +219,7 @@ void AlphaProperty::updateImpl( const NifModel * nif, const QModelIndex & index 
 
 		alphaTest = flags & ( 1 << 9 );
 		alphaFunc = testMap[ ( flags >> 10 ) & 0x7 ];
-		alphaThreshold = float( nif->get<int>( iBlock, "Threshold" ) ) / 255.0;
+		alphaThreshold = float( block["Threshold"].value<int>() ) / 255.0;
 
 		alphaSort = ( flags & 0x2000 ) == 0;
 
@@ -267,7 +260,7 @@ void ZBufferProperty::updateImpl( const NifModel * nif, const QModelIndex & inde
 	Property::updateImpl( nif, index );
 
 	if ( index == iBlock ) {
-		int flags = nif->get<int>( iBlock, "Flags" );
+		auto flags = block["Flags"].value<ushort>();
 		depthTest = flags & 1;
 		depthMask = flags & 2;
 		static const GLenum depthMap[8] = {
@@ -276,7 +269,7 @@ void ZBufferProperty::updateImpl( const NifModel * nif, const QModelIndex & inde
 
 		// This was checking version 0x10000001 ?
 		if ( nif->checkVersion( 0x04010012, 0x14000005 ) ) {
-			depthFunc = depthMap[ nif->get < int > ( iBlock, "Function" ) & 0x07 ];
+			depthFunc = depthMap[ block["Function"].value<int>() & 0x07 ];
 		} else if ( nif->checkVersion( 0x14010003, 0 ) ) {
 			depthFunc = depthMap[ (flags >> 2 ) & 0x07 ];
 		} else {
@@ -313,101 +306,110 @@ void TexturingProperty::updateImpl( const NifModel * nif, const QModelIndex & in
 	Property::updateImpl( nif, index );
 
 	if ( index == iBlock ) {
-		static const char * texnames[numTextures] = {
-			"Base Texture", "Dark Texture", "Detail Texture", "Gloss Texture", "Glow Texture", "Bump Map Texture", "Decal 0 Texture", "Decal 1 Texture", "Decal 2 Texture", "Decal 3 Texture"
+		static const QString FIELD_NAMES[NUM_TEXTURES] = {
+			QStringLiteral("Base Texture"),
+			QStringLiteral("Dark Texture"),
+			QStringLiteral("Detail Texture"),
+			QStringLiteral("Gloss Texture"),
+			QStringLiteral("Glow Texture"),
+			QStringLiteral("Bump Map Texture"),
+			QStringLiteral("Decal 0 Texture"),
+			QStringLiteral("Decal 1 Texture"),
+			QStringLiteral("Decal 2 Texture"),
+			QStringLiteral("Decal 3 Texture")
 		};
 
-		for ( int t = 0; t < numTextures; t++ ) {
-			QModelIndex iTex = nif->getIndex( iBlock, texnames[t] );
-
-			if ( iTex.isValid() ) {
-				textures[t].iSource  = nif->getBlockIndex( nif->getLink( iTex, "Source" ), "NiSourceTexture" );
-				textures[t].coordset = nif->get<int>( iTex, "UV Set" );
-				
-				int filterMode = 0, clampMode = 0;
-				if ( nif->checkVersion( 0, 0x14010002 ) ) {
-					filterMode = nif->get<int>( iTex, "Filter Mode" );
-					clampMode  = nif->get<int>( iTex, "Clamp Mode" );
-				} else if ( nif->checkVersion( 0x14010003, 0 ) ) {
-					auto flags = nif->get<ushort>( iTex, "Flags" );
-					filterMode = ((flags & 0x0F00) >> 0x08);
-					clampMode  = ((flags & 0xF000) >> 0x0C);
-					textures[t].coordset = (flags & 0x00FF);
-				}
-
-				float af = 1.0;
-				float max_af = get_max_anisotropy();
-				// Let User Settings decide for trilinear
-				if ( filterMode == GL_LINEAR_MIPMAP_LINEAR )
-					af = max_af;
-
-				// Override with value in NIF for 20.5+
-				if ( nif->checkVersion( 0x14050004, 0 ) )
-					af = std::min( max_af, (float)nif->get<ushort>( iTex, "Max Anisotropy" ) );
-
-				textures[t].maxAniso = std::max( 1.0f, std::min( af, max_af ) );
-
-				// See OpenGL docs on glTexParameter and GL_TEXTURE_MIN_FILTER option
-				// See also http://gregs-blog.com/2008/01/17/opengl-texture-filter-parameters-explained/
-				switch ( filterMode ) {
-				case 0:
-					textures[t].filter = GL_NEAREST;
-					break;             // nearest
-				case 1:
-					textures[t].filter = GL_LINEAR;
-					break;             // bilinear
-				case 2:
-					textures[t].filter = GL_LINEAR_MIPMAP_LINEAR;
-					break;             // trilinear
-				case 3:
-					textures[t].filter = GL_NEAREST_MIPMAP_NEAREST;
-					break;             // nearest from nearest
-				case 4:
-					textures[t].filter = GL_NEAREST_MIPMAP_LINEAR;
-					break;             // interpolate from nearest
-				case 5:
-					textures[t].filter = GL_LINEAR_MIPMAP_NEAREST;
-					break;             // bilinear from nearest
-				default:
-					textures[t].filter = GL_LINEAR;
-					break;
-				}
-
-				switch ( clampMode ) {
-				case 0:
-					textures[t].wrapS = GL_CLAMP;
-					textures[t].wrapT = GL_CLAMP;
-					break;
-				case 1:
-					textures[t].wrapS = GL_CLAMP;
-					textures[t].wrapT = GL_REPEAT;
-					break;
-				case 2:
-					textures[t].wrapS = GL_REPEAT;
-					textures[t].wrapT = GL_CLAMP;
-					break;
-				default:
-					textures[t].wrapS = GL_REPEAT;
-					textures[t].wrapT = GL_REPEAT;
-					break;
-				}
-
-				textures[t].hasTransform = nif->get<int>( iTex, "Has Texture Transform" );
-
-				if ( textures[t].hasTransform ) {
-					textures[t].translation = nif->get<Vector2>( iTex, "Translation" );
-					textures[t].tiling = nif->get<Vector2>( iTex, "Scale" );
-					textures[t].rotation = nif->get<float>( iTex, "Rotation" );
-					textures[t].center = nif->get<Vector2>( iTex, "Center" );
-				} else {
-					// we don't really need to set these since they won't be applied in bind() unless hasTransform is set
-					textures[t].translation = Vector2();
-					textures[t].tiling = Vector2( 1.0, 1.0 );
-					textures[t].rotation = 0.0;
-					textures[t].center = Vector2( 0.5, 0.5 );
-				}
-			} else {
+		for ( int t = 0; t < NUM_TEXTURES; t++ ) {
+			auto texEntry = block.child( FIELD_NAMES[t] );
+			if ( !texEntry ) {
 				textures[t].iSource = QModelIndex();
+				continue;
+			}
+
+			textures[t].iSource  = texEntry.child("Source").linkBlock("NiSourceTexture").toIndex();
+			textures[t].coordset = texEntry.child("UV Set").value<int>();
+				
+			int filterMode = 0, clampMode = 0;
+			if ( nif->checkVersion( 0, 0x14010002 ) ) {
+				filterMode = texEntry["Filter Mode"].value<int>();
+				clampMode  = texEntry["Clamp Mode"].value<int>();
+			} else if ( nif->checkVersion( 0x14010003, 0 ) ) {
+				auto flags = texEntry["Flags"].value<ushort>();
+				filterMode = ((flags & 0x0F00) >> 0x08);
+				clampMode  = ((flags & 0xF000) >> 0x0C);
+				textures[t].coordset = (flags & 0x00FF);
+			}
+
+			float af = 1.0;
+			float max_af = get_max_anisotropy();
+			// Let User Settings decide for trilinear
+			if ( filterMode == GL_LINEAR_MIPMAP_LINEAR )
+				af = max_af;
+
+			// Override with value in NIF for 20.5+
+			if ( nif->checkVersion( 0x14050004, 0 ) )
+				af = std::min( max_af, float( texEntry["Max Anisotropy"].value<ushort>() ) );
+
+			textures[t].maxAniso = std::max( 1.0f, std::min( af, max_af ) );
+
+			// See OpenGL docs on glTexParameter and GL_TEXTURE_MIN_FILTER option
+			// See also http://gregs-blog.com/2008/01/17/opengl-texture-filter-parameters-explained/
+			switch ( filterMode ) {
+			case 0:
+				textures[t].filter = GL_NEAREST;
+				break;             // nearest
+			case 1:
+				textures[t].filter = GL_LINEAR;
+				break;             // bilinear
+			case 2:
+				textures[t].filter = GL_LINEAR_MIPMAP_LINEAR;
+				break;             // trilinear
+			case 3:
+				textures[t].filter = GL_NEAREST_MIPMAP_NEAREST;
+				break;             // nearest from nearest
+			case 4:
+				textures[t].filter = GL_NEAREST_MIPMAP_LINEAR;
+				break;             // interpolate from nearest
+			case 5:
+				textures[t].filter = GL_LINEAR_MIPMAP_NEAREST;
+				break;             // bilinear from nearest
+			default:
+				textures[t].filter = GL_LINEAR;
+				break;
+			}
+
+			switch ( clampMode ) {
+			case 0:
+				textures[t].wrapS = GL_CLAMP;
+				textures[t].wrapT = GL_CLAMP;
+				break;
+			case 1:
+				textures[t].wrapS = GL_CLAMP;
+				textures[t].wrapT = GL_REPEAT;
+				break;
+			case 2:
+				textures[t].wrapS = GL_REPEAT;
+				textures[t].wrapT = GL_CLAMP;
+				break;
+			default:
+				textures[t].wrapS = GL_REPEAT;
+				textures[t].wrapT = GL_REPEAT;
+				break;
+			}
+
+			textures[t].hasTransform = texEntry.child("Has Texture Transform").value<int>();
+
+			if ( textures[t].hasTransform ) {
+				textures[t].translation = texEntry["Translation"].value<Vector2>();
+				textures[t].tiling      = texEntry["Scale"].value<Vector2>();
+				textures[t].rotation    = texEntry["Rotation"].value<float>();
+				textures[t].center      = texEntry["Center"].value<Vector2>();
+			} else {
+				// we don't really need to set these since they won't be applied in bind() unless hasTransform is set
+				textures[t].translation = Vector2();
+				textures[t].tiling      = Vector2( 1.0, 1.0 );
+				textures[t].rotation    = 0.0;
+				textures[t].center      = Vector2( 0.5, 0.5 );
 			}
 		}
 	}
@@ -417,7 +419,7 @@ bool TexturingProperty::bind( int id, const QString & fname )
 {
 	GLuint mipmaps = 0;
 
-	if ( id >= 0 && id <= (numTextures - 1) ) {
+	if ( id >= 0 && id < NUM_TEXTURES ) {
 		if ( !fname.isEmpty() )
 			mipmaps = scene->bindTexture( fname );
 		else
@@ -476,7 +478,7 @@ bool TexturingProperty::bind( int id, const QVector<QVector<Vector2> > & texcoor
 
 QString TexturingProperty::fileName( int id ) const
 {
-	if ( id >= 0 && id <= (numTextures - 1) ) {
+	if ( id >= 0 && id < NUM_TEXTURES ) {
 		QModelIndex iSource = textures[id].iSource;
 		auto nif = NifModel::fromValidIndex(iSource);
 		if ( nif ) {
@@ -489,7 +491,7 @@ QString TexturingProperty::fileName( int id ) const
 
 int TexturingProperty::coordSet( int id ) const
 {
-	if ( id >= 0 && id <= (numTextures - 1) ) {
+	if ( id >= 0 && id < NUM_TEXTURES ) {
 		return textures[id].coordset;
 	}
 
@@ -544,7 +546,7 @@ void TextureProperty::updateImpl( const NifModel * nif, const QModelIndex & inde
 	Property::updateImpl( nif, index );
 
 	if ( index == iBlock ) {
-		iImage = nif->getBlockIndex( nif->getLink( iBlock, "Image" ), "NiImage" );
+		imageBlock = block["Image"].linkBlock( "NiImage" );
 	}
 }
 
@@ -580,11 +582,7 @@ bool TextureProperty::bind( const QVector<QVector<Vector2> > & texcoords )
 
 QString TextureProperty::fileName() const
 {
-	auto nif = NifModel::fromValidIndex(iImage);
-	if ( nif )
-		return nif->get<QString>( iImage, "File Name" );
-
-	return QString();
+	return imageBlock.child("File Name").value<QString>();
 }
 
 
@@ -613,19 +611,15 @@ void MaterialProperty::updateImpl( const NifModel * nif, const QModelIndex & ind
 	Property::updateImpl( nif, index );
 
 	if ( index == iBlock ) {
-		alpha = nif->get<float>( iBlock, "Alpha" );
-		if ( alpha < 0.0 )
-			alpha = 0.0;
-		if ( alpha > 1.0 )
-			alpha = 1.0;
+		alpha = std::clamp( block["Alpha"].value<float>(), 0.0f, 1.0f );
 
-		ambient  = Color4( nif->get<Color3>( iBlock, "Ambient Color" ) );
-		diffuse  = Color4( nif->get<Color3>( iBlock, "Diffuse Color" ) );
-		specular = Color4( nif->get<Color3>( iBlock, "Specular Color" ) );
-		emissive = Color4( nif->get<Color3>( iBlock, "Emissive Color" ) );
+		ambient  = Color4( block.child("Ambient Color").value<Color3>() );
+		diffuse  = Color4( block.child("Diffuse Color").value<Color3>() );
+		specular = Color4( block.child("Specular Color").value<Color3>() );
+		emissive = Color4( block.child("Emissive Color").value<Color3>() );
 
 		// OpenGL needs shininess clamped otherwise it generates GL_INVALID_VALUE
-		shininess = std::min( std::max( nif->get<float>( iBlock, "Glossiness" ), 0.0f ), 128.0f );
+		shininess = std::clamp( block["Glossiness"].value<float>(), 0.0f, 128.0f );
 	}
 }
 
@@ -672,7 +666,7 @@ void SpecularProperty::updateImpl( const NifModel * nif, const QModelIndex & ind
 	Property::updateImpl( nif, index );
 
 	if ( index == iBlock ) {
-		spec = nif->get<int>( iBlock, "Flags" ) != 0;
+		spec = block["Flags"].value<int>() != 0;
 	}
 }
 
@@ -681,7 +675,7 @@ void WireframeProperty::updateImpl( const NifModel * nif, const QModelIndex & in
 	Property::updateImpl( nif, index );
 
 	if ( index == iBlock ) {
-		wire = nif->get<int>( iBlock, "Flags" ) != 0;
+		wire = block["Flags"].value<int>() != 0;
 	}
 }
 
@@ -701,15 +695,15 @@ void VertexColorProperty::updateImpl( const NifModel * nif, const QModelIndex & 
 
 	if ( index == iBlock ) {
 		if ( nif->checkVersion( 0, 0x14010001 ) ) {
-			vertexmode = nif->get<int>( iBlock, "Vertex Mode" );
+			vertexmode = block["Vertex Mode"].value<int>();
 			// 0 : source ignore
 			// 1 : source emissive
 			// 2 : source ambient + diffuse
-			lightmode = nif->get<int>( iBlock, "Lighting Mode" );
+			lightmode = block["Lighting Mode"].value<int>();
 			// 0 : emissive
 			// 1 : emissive + ambient + diffuse
 		} else {
-			auto flags = nif->get<quint16>( iBlock, "Flags" );
+			auto flags = block["Flags"].value<quint16>();
 			vertexmode = (flags & 0x0030) >> 4;
 			lightmode = (flags & 0x0008) >> 3;
 		}
@@ -762,30 +756,30 @@ void StencilProperty::updateImpl( const NifModel * nif, const QModelIndex & inde
 	Property::updateImpl( nif, index );
 
 	if ( index == iBlock ) {
-		static const GLenum funcMap[8] = {
+		static const GLenum funcMap[TEST_MAX] = {
 			GL_NEVER, GL_GEQUAL, GL_NOTEQUAL, GL_GREATER, GL_LEQUAL, GL_EQUAL, GL_LESS, GL_ALWAYS
 		};
 
-		static const GLenum opMap[6] = {
+		static const GLenum opMap[ACTION_MAX] = {
 			GL_KEEP, GL_ZERO, GL_REPLACE, GL_INCR, GL_DECR, GL_INVERT
 		};
 
 		int drawMode = 0;
 		if ( nif->checkVersion( 0, 0x14000005 ) ) {
-			drawMode = nif->get<int>( iBlock, "Draw Mode" );
-			func = funcMap[std::min(nif->get<quint32>( iBlock, "Stencil Function" ), (quint32)TEST_MAX - 1 )];
-			failop = opMap[std::min( nif->get<quint32>( iBlock, "Fail Action" ), (quint32)ACTION_MAX - 1 )];
-			zfailop = opMap[std::min( nif->get<quint32>( iBlock, "Z Fail Action" ), (quint32)ACTION_MAX - 1 )];
-			zpassop = opMap[std::min( nif->get<quint32>( iBlock, "Pass Action" ), (quint32)ACTION_MAX - 1 )];
-			stencil = (nif->get<quint8>( iBlock, "Stencil Enabled" ) & ENABLE_MASK);
+			drawMode = block["Draw Mode"].value<int>();
+			func     = funcMap[std::min( block["Stencil Function"].value<quint32>(), quint32(TEST_MAX) - 1 )];
+			failop   = opMap[std::min( block["Fail Action"].value<quint32>(), quint32(ACTION_MAX) - 1 )];
+			zfailop  = opMap[std::min( block["Z Fail Action"].value<quint32>(), quint32(ACTION_MAX) - 1 )];
+			zpassop  = opMap[std::min( block["Pass Action"].value<quint32>(), quint32(ACTION_MAX) - 1 )];
+			stencil  = ( block["Stencil Enabled"].value<quint8>() & ENABLE_MASK );
 		} else {
-			auto flags = nif->get<int>( iBlock, "Flags" );
+			auto flags = block["Flags"].value<int>();
 			drawMode = (flags & DRAW_MASK) >> DRAW_POS;
-			func = funcMap[(flags & TEST_MASK) >> TEST_POS];
-			failop = opMap[(flags & FAIL_MASK) >> FAIL_POS];
-			zfailop = opMap[(flags & ZFAIL_MASK) >> ZFAIL_POS];
-			zpassop = opMap[(flags & ZPASS_MASK) >> ZPASS_POS];
-			stencil = (flags & ENABLE_MASK);
+			func     = funcMap[(flags & TEST_MASK) >> TEST_POS];
+			failop   = opMap[(flags & FAIL_MASK) >> FAIL_POS];
+			zfailop  = opMap[(flags & ZFAIL_MASK) >> ZFAIL_POS];
+			zpassop  = opMap[(flags & ZPASS_MASK) >> ZPASS_POS];
+			stencil  = (flags & ENABLE_MASK);
 		}
 
 		switch ( drawMode ) {
@@ -804,8 +798,8 @@ void StencilProperty::updateImpl( const NifModel * nif, const QModelIndex & inde
 			break;
 		}
 
-		ref = nif->get<quint32>( iBlock, "Stencil Ref" );
-		mask = nif->get<quint32>( iBlock, "Stencil Mask" );
+		ref = block.child("Stencil Ref").value<quint32>();
+		mask = block.child("Stencil Mask").value<quint32>();
 	}
 }
 
@@ -834,35 +828,35 @@ void glProperty( StencilProperty * p )
 }
 
 /*
-    BSShaderLightingProperty
+    BSShaderProperty
 */
 
-BSShaderLightingProperty::~BSShaderLightingProperty()
+typedef uint64_t ShaderFlagsType;
+
+BSShaderProperty::~BSShaderProperty()
 {
 	if ( material )
 		delete material;
 }
 
-void BSShaderLightingProperty::updateImpl( const NifModel * nif, const QModelIndex & index )
+void BSShaderProperty::updateImpl( const NifModel * nif, const QModelIndex & index )
 {
 	Property::updateImpl( nif, index );
 
 	if ( index == iBlock ) {
-		iTextureSet = nif->getBlockIndex( nif->getLink( iBlock, "Texture Set" ), "BSShaderTextureSet" );
-		iWetMaterial = nif->getIndex( iBlock, "Root Material" );
+		textureBlock = block.child("Texture Set").linkBlock("BSShaderTextureSet");
+		iTextureSet = textureBlock.toIndex();
+		hasRootMaterial = block.child("Root Material").isValid();
 	}
 }
 
-void BSShaderLightingProperty::resetParams()
+void BSShaderProperty::resetParams()
 {
-	flags1 = ShaderFlags::SLSF1_ZBuffer_Test;
-	flags2 = ShaderFlags::SLSF2_ZBuffer_Write;
-
 	uvScale.reset();
 	uvOffset.reset();
-	clampMode = CLAMP_S_CLAMP_T;
+	clampMode = WRAP_S_WRAP_T;
 
-	hasVertexColors = false;
+	vertexColorMode = ShaderColorMode::FROM_DATA;
 	hasVertexAlpha = false;
 
 	depthTest = false;
@@ -871,21 +865,21 @@ void BSShaderLightingProperty::resetParams()
 	isVertexAlphaAnimation = false;
 }
 
-void glProperty( BSShaderLightingProperty * p )
+void glProperty( BSShaderProperty * p )
 {
 	if ( p && p->scene->hasOption(Scene::DoTexturing) && p->bind(0) ) {
 		glEnable( GL_TEXTURE_2D );
 	}
 }
 
-void BSShaderLightingProperty::clear()
+void BSShaderProperty::clear()
 {
 	Property::clear();
 
 	setMaterial(nullptr);
 }
 
-void BSShaderLightingProperty::setMaterial( Material * newMaterial )
+void BSShaderProperty::setMaterial( Material * newMaterial )
 {
 	if (newMaterial && !newMaterial->isValid()) {
 		delete newMaterial;
@@ -897,7 +891,7 @@ void BSShaderLightingProperty::setMaterial( Material * newMaterial )
 	material = newMaterial;
 }
 
-bool BSShaderLightingProperty::bind( int id, const QString & fname, TexClampMode mode )
+bool BSShaderProperty::bind( int id, const QString & fname, TexClampMode mode )
 {
 	GLuint mipmaps = 0;
 
@@ -945,7 +939,7 @@ bool BSShaderLightingProperty::bind( int id, const QString & fname, TexClampMode
 	return true;
 }
 
-bool BSShaderLightingProperty::bind( int id, const QVector<QVector<Vector2> > & texcoords )
+bool BSShaderProperty::bind( int id, const QVector<QVector<Vector2> > & texcoords )
 {
 	if ( checkSet( 0, texcoords ) && bind( id ) ) {
 		glEnable( GL_TEXTURE_2D );
@@ -958,7 +952,7 @@ bool BSShaderLightingProperty::bind( int id, const QVector<QVector<Vector2> > & 
 	return false;
 }
 
-bool BSShaderLightingProperty::bindCube( int id, const QString & fname )
+bool BSShaderProperty::bindCube( int id, const QString & fname )
 {
 	Q_UNUSED( id );
 
@@ -1001,13 +995,10 @@ enum
 	BGSM20_MAX = 10
 };
 
-QString BSShaderLightingProperty::fileName( int id ) const
+QString BSShaderProperty::fileName( int id ) const
 {
-	const NifModel * nif;
-
 	// Fallout 4
-	nif = NifModel::fromValidIndex(iWetMaterial);
-	if ( nif ) {
+	if ( hasRootMaterial ) {
 		// BSLSP
 		auto m = static_cast<ShaderMaterial *>(material);
 		if ( m && m->isValid() ) {
@@ -1064,15 +1055,9 @@ QString BSShaderLightingProperty::fileName( int id ) const
 		return QString();
 	}
 
-	// From iTextureSet
-	nif = NifModel::fromValidIndex(iTextureSet);
-	if ( nif ) {
-		if ( id >= 0 && id < nif->get<int>(iTextureSet, "Num Textures") ) {
-			QModelIndex iTextures = nif->getIndex(iTextureSet, "Textures");
-			return nif->get<QString>( iTextures.child(id, 0) );
-		}
-
-		return QString();
+	// From textureBlock
+	if ( textureBlock ) {
+		return textureBlock["Textures"].child( id ).value<QString>();
 	}
 
 	// From material
@@ -1087,78 +1072,178 @@ QString BSShaderLightingProperty::fileName( int id ) const
 	}
 
 	// Handle niobject name="BSEffectShaderProperty...
-	nif = NifModel::fromIndex( iBlock );
-	if ( nif ) {
-		switch ( id ) {
-		case 0:
-			return nif->get<QString>( iBlock, "Source Texture" );
-		case 1:
-			return nif->get<QString>( iBlock, "Greyscale Texture" );
-		case 2:
-			return nif->get<QString>( iBlock, "Env Map Texture" );
-		case 3:
-			return nif->get<QString>( iBlock, "Normal Texture" );
-		case 4:
-			return nif->get<QString>( iBlock, "Env Mask Texture" );
-		case 6:
-			return nif->get<QString>( iBlock, "Reflectance Texture" );
-		case 7:
-			return nif->get<QString>( iBlock, "Lighting Texture" );
-		}
+	switch ( id ) {
+	case 0:
+		return block.child("Source Texture").value<QString>();
+	case 1:
+		return block.child("Greyscale Texture").value<QString>();
+	case 2:
+		return block.child("Env Map Texture").value<QString>();
+	case 3:
+		return block.child("Normal Texture").value<QString>();
+	case 4:
+		return block.child("Env Mask Texture").value<QString>();
+	case 6:
+		return block.child("Reflectance Texture").value<QString>();
+	case 7:
+		return block.child("Lighting Texture").value<QString>();
 	}
 
 	return QString();
 }
 
-int BSShaderLightingProperty::getId( const QString & id )
+int BSShaderProperty::getId( const QString & id )
 {
 	const static QHash<QString, int> hash{
-		{ "base",   0 },
-		{ "dark",   1 },
-		{ "detail", 2 },
-		{ "gloss",  3 },
-		{ "glow",   4 },
-		{ "bumpmap", 5 },
-		{ "decal0", 6 },
-		{ "decal1", 7 }
+		{ QStringLiteral("base"),    0 },
+		{ QStringLiteral("dark"),    1 },
+		{ QStringLiteral("detail"),  2 },
+		{ QStringLiteral("gloss"),   3 },
+		{ QStringLiteral("glow"),    4 },
+		{ QStringLiteral("bumpmap"), 5 },
+		{ QStringLiteral("decal0"),  6 },
+		{ QStringLiteral("decal1"),  7 }
 	};
 
 	return hash.value( id, -1 );
 }
 
-void BSShaderLightingProperty::setFlags1( const NifModel * nif )
-{
-	if ( nif->getBSVersion() >= 151 ) {
-		auto sf1 = nif->getArray<quint32>( iBlock, "SF1" );
-		auto sf2 = nif->getArray<quint32>( iBlock, "SF2" );
-		sf1.append( sf2 );
 
-		uint64_t flags = 0;
-		for ( auto sf : sf1 ) {
-			flags |= ShaderFlags::CRC_TO_FLAG.value( sf, 0 );
-		}
-		flags1 = ShaderFlags::SF1( (uint32_t)flags );
-	} else {
-		flags1 = ShaderFlags::SF1( nif->get<unsigned int>(iBlock, "Shader Flags 1") );
+/*
+	BSShaderLightingProperty
+*/
+
+void BSShaderLightingProperty::updateImpl( const NifModel * nif, const QModelIndex & index )
+{
+	BSShaderProperty::updateImpl( nif, index );
+
+	if ( index == iBlock || index == iTextureSet ) {
+		updateParams(nif);
 	}
 }
 
-void BSShaderLightingProperty::setFlags2( const NifModel * nif )
+enum class Fallout3_ShaderFlags1 : ShaderFlagsType // BSShaderFlags in nif.xml
 {
-	if ( nif->getBSVersion() >= 151 ) {
-		auto sf1 = nif->getArray<quint32>( iBlock, "SF1" );
-		auto sf2 = nif->getArray<quint32>( iBlock, "SF2" );
-		sf1.append( sf2 );
+	SPECULAR = 1u << 0,
+	SKINNED = 1u << 1,
+	LOWDETAIL = 1u << 2,
+	VERTEX_ALPHA = 1u << 3,
+	UNKNOWN_1 = 1u << 4,
+	SINGLE_PASS = 1u << 5,
+	EMPTY = 1u << 6,
+	ENVMAP = 1u << 7,
+	ALPHA_TEXTURE = 1u << 8,
+	UNKNOWN_2 = 1u << 9,
+	FACEGEN = 1u << 10,
+	PARALLAX_15 = 1u << 11,
+	UNKNOWN_3 = 1u << 12,
+	NON_PROJECTIVE_SHADOWS = 1u << 13,
+	UNKNOWN_4 = 1u << 14,
+	REFRACTION = 1u << 15,
+	FIRE_REFRACTION = 1u << 16,
+	EYE_ENVMAP = 1u << 17,
+	HAIR = 1u << 18,
+	DYNAMIC_ALPHA = 1u << 19,
+	LOCALMAP_HIDE_SECRET = 1u << 20,
+	WINDOW_ENVMAP = 1u << 21,
+	TREE_BILLBOARD = 1u << 22,
+	SHADOW_FRUSTUM = 1u << 23,
+	MULTIPLE_TEXTURES = 1u << 24,
+	REMAPPABLE_TEXTURES = 1u << 25,
+	DECAL_SINGLE_PASS = 1u << 26,
+	DYNAMIC_DECAL_SINGLE_PASS = 1u << 27,
+	PARALLAX_OCC = 1u << 28,
+	EXTERNAL_EMITTANCE = 1u << 29,
+	SHADOW_MAP = 1u << 30,
+	ZBUFFER_TEST = 1u << 31,
+};
 
-		uint64_t flags = 0;
-		for ( auto sf : sf1 ) {
-			flags |= ShaderFlags::CRC_TO_FLAG.value( sf, 0 );
-		}
-		flags2 = ShaderFlags::SF2( (uint32_t)(flags >> 32) );
-	} else {
-		flags2 = ShaderFlags::SF2( nif->get<unsigned int>(iBlock, "Shader Flags 2") );
+enum class Fallout3_ShaderFlags2 : ShaderFlagsType // BSShaderFlags2 in nif.xml
+{
+	ZBUFFER_WRITE = 1u << 0,
+	LOD_LANDSCAPE = 1u << 1,
+	LOD_BUILDING = 1u << 2,
+	NO_FADE = 1u << 3,
+	REFRACTION_TINT = 1u << 4,
+	VERTEX_COLORS = 1u << 5,
+	UNKNOWN1 = 1u << 6,
+	FIRST_LIGHT_IS_POINT_LIGHT = 1u << 7,
+	SECOND_LIGHT = 1u << 8,
+	THIRD_LIGHT = 1u << 9,
+	VERTEX_LIGHTING = 1u << 10,
+	UNIFORM_SCALE = 1u << 11,
+	FIT_SLOPE = 1u << 12,
+	BILLBOARD_AND_ENVMAP_LIGHT_FADE = 1u << 13,
+	NO_LOD_LAND_BLEND = 1u << 14,
+	ENVMAP_LIGHT_FADE = 1u << 15,
+	WIREFRAME = 1u << 16,
+	VATS_SELECTION = 1u << 17,
+	SHOW_IN_LOCAL_MAP = 1u << 18,
+	PREMULT_ALPHA = 1u << 19,
+	SKIP_NORMAL_MAPS = 1u << 20,
+	ALPHA_DECAL = 1u << 21,
+	NO_TRANSPARENCY_MULTISAMPLING = 1u << 22,
+	UNKNOWN2 = 1u << 23,
+	UNKNOWN3 = 1u << 24,
+	UNKNOWN4 = 1u << 25,
+	UNKNOWN5 = 1u << 26,
+	UNKNOWN6 = 1u << 27,
+	UNKNOWN7 = 1u << 28,
+	UNKNOWN8 = 1u << 29,
+	UNKNOWN9 = 1u << 30,
+	UNKNOWN10 = 1u << 31,
+};
+
+class Fallout3_ShaderFlags
+{
+public:
+	ShaderFlagsType flags1 = 0x82000000;
+	ShaderFlagsType flags2 = 0x1;
+
+private:
+	bool has( Fallout3_ShaderFlags1 f ) const { return flags1 & ShaderFlagsType(f); }
+	bool has( Fallout3_ShaderFlags2 f ) const { return flags2 & ShaderFlagsType(f); }
+public:
+	bool vertexColors() const { return has( Fallout3_ShaderFlags2::VERTEX_COLORS ); }
+	bool vertexAlpha() const { return has( Fallout3_ShaderFlags1::VERTEX_ALPHA ); }
+	bool depthTest() const { return has( Fallout3_ShaderFlags1::ZBUFFER_TEST ); }
+	bool depthWrite() const { return has( Fallout3_ShaderFlags2::ZBUFFER_WRITE ); }
+};
+
+void BSShaderLightingProperty::updateParams( const NifModel * nif )
+{
+	resetParams();
+
+	Fallout3_ShaderFlags flags;
+	NifFieldConst flagField;
+
+	flagField = block["Shader Flags"];
+	if ( flagField.hasStrType("BSShaderFlags") ) {
+		flags.flags1 = flagField.value<uint>();
+	} else if ( flagField ) {
+		flagField.reportError( tr("Unsupported value type '%1'.").arg( flagField.strType() ) );
 	}
+
+	flagField = block["Shader Flags 2"];
+	if ( flagField.hasStrType("BSShaderFlags2") ) {
+		flags.flags2 = flagField.value<uint>();
+	} else if ( flagField ) {
+		flagField.reportError( tr("Unsupported value type '%1'.").arg( flagField.strType() ) );
+	}
+
+	// Gavrant: judging by the amount of vanilla FO3 shapes with colors in the data and w/o SF2_FO3_VERTEX_COLORS in the shader flags,
+	// vertex colors are applied in the game even if SF2_FO3_VERTEX_COLORS is not set.
+	vertexColorMode = flags.vertexColors() ? ShaderColorMode::YES : ShaderColorMode::FROM_DATA;
+	hasVertexAlpha  = flags.vertexAlpha();
+
+	depthTest  = flags.depthTest();
+	depthWrite = flags.depthWrite();
+
+	auto clampField = block["Texture Clamp Mode"];
+	if ( clampField )
+		clampMode = TexClampMode( clampField.value<uint>() );
 }
+
 
 /*
 	BSLightingShaderProperty
@@ -1166,7 +1251,7 @@ void BSShaderLightingProperty::setFlags2( const NifModel * nif )
 
 void BSLightingShaderProperty::updateImpl( const NifModel * nif, const QModelIndex & index )
 {
-	BSShaderLightingProperty::updateImpl( nif, index );
+	BSShaderProperty::updateImpl( nif, index );
 
 	if ( index == iBlock ) {
 		setMaterial(name.endsWith(".bgsm", Qt::CaseInsensitive) ? new ShaderMaterial(name, scene->getGame()) : nullptr);
@@ -1179,7 +1264,7 @@ void BSLightingShaderProperty::updateImpl( const NifModel * nif, const QModelInd
 
 void BSLightingShaderProperty::resetParams()
 {
-	BSShaderLightingProperty::resetParams();
+	BSShaderProperty::resetParams();
 
 	hasGlowMap = false;
 	hasEmittance = false;
@@ -1225,23 +1310,342 @@ void BSLightingShaderProperty::resetParams()
 	backlightPower = 0.0;
 }
 
+enum class Skyrim_ShaderFlags1 : ShaderFlagsType // SkyrimShaderPropertyFlags1 in nif.xml
+{
+	SPECULAR = 1u << 0,
+	SKINNED = 1u << 1,
+	TEMP_REFRACTION = 1u << 2,
+	VERTEX_ALPHA = 1u << 3,
+	GREYSCALE_TO_PALETTE_COLOR = 1u << 4,
+	GREYSCALE_TO_PALETTE_ALPHA = 1u << 5,
+	USE_FALLOFF = 1u << 6,
+	ENVMAP = 1u << 7,
+	RECIEVE_SHADOWS = 1u << 8,
+	CAST_SHADOWS = 1u << 9,
+	FACEGEN_DETAIL_MAP = 1u << 10,
+	PARALLAX = 1u << 11,
+	MODEL_SPACE_NORMALS = 1u << 12,
+	NON_PROJECTIVE_SHADOWS = 1u << 13,
+	LANDSCAPE = 1u << 14,
+	REFRACTION = 1u << 15,
+	FIRE_REFRACTION = 1u << 16,
+	EYE_ENVMAP = 1u << 17,
+	HAIR_SOFT_LIGHTING = 1u << 18,
+	SCREENDOOR_ALPHA_FADE = 1u << 19,
+	LOCALMAP_HIDE_SECRET = 1u << 20,
+	FACEGEN_RGB_TINT = 1u << 21,
+	OWN_EMIT = 1u << 22,
+	PROJECTED_UV = 1u << 23,
+	MULTIPLE_TEXTURES = 1u << 24,
+	REMAPPABLE_TEXTURES = 1u << 25,
+	DECAL = 1u << 26,
+	DYNAMIC_DECAL = 1u << 27,
+	PARALLAX_OCCLUSION = 1u << 28,
+	EXTERNAL_EMITTANCE = 1u << 29,
+	SOFT_EFFECT = 1u << 30,
+	ZBUFFER_TEST = 1u << 31,
+};
+
+enum class Skyrim_ShaderFlags2 : ShaderFlagsType // SkyrimShaderPropertyFlags2 in nif.xml
+{
+	ZBUFFER_WRITE = 1u << 0,
+	LOD_LANDSCAPE = 1u << 1,
+	LOD_OBJECTS = 1u << 2,
+	NO_FADE = 1u << 3,
+	DOUBLE_SIDED = 1u << 4,
+	VERTEX_COLORS = 1u << 5,
+	GLOW_MAP = 1u << 6,
+	ASSUME_SHADOWMASK = 1u << 7,
+	PACKED_TANGENT = 1u << 8,
+	MULTI_INDEX_SNOW = 1u << 9,
+	VERTEX_LIGHTING = 1u << 10,
+	UNIFORM_SCALE = 1u << 11,
+	FIT_SLOPE = 1u << 12,
+	BILLBOARD = 1u << 13,
+	NO_LOD_LAND_BLEND = 1u << 14,
+	ENVMAP_LIGHT_FADE = 1u << 15,
+	WIREFRAME = 1u << 16,
+	WEAPON_BLOOD = 1u << 17,
+	HIDE_ON_LOCAL_MAP = 1u << 18,
+	PREMULT_ALPHA = 1u << 19,
+	CLOUD_LOD = 1u << 20,
+	ANISOTROPIC_LIGHTING = 1u << 21,
+	NO_TRANSPARENCY_MULTISAMPLING = 1u << 22,
+	UNUSED01 = 1u << 23,
+	MULTI_LAYER_PARALLAX = 1u << 24,
+	SOFT_LIGHTING = 1u << 25,
+	RIM_LIGHTING = 1u << 26,
+	BACK_LIGHTING = 1u << 27,
+	UNUSED02 = 1u << 28,
+	TREE_ANIM = 1u << 29,
+	EFFECT_LIGHTING = 1u << 30,
+	HD_LOD_OBJECTS = 1u << 31,
+};
+
+enum class Fallout4_ShaderFlags1 : ShaderFlagsType // Fallout4ShaderPropertyFlags1 in nif.xml
+{
+	SPECULAR = 1u << 0,
+	SKINNED = 1u << 1,
+	TEMP_REFRACTION = 1u << 2,
+	VERTEX_ALPHA = 1u << 3,
+	GREYSCALE_TO_PALETTE_COLOR = 1u << 4,
+	GREYSCALE_TO_PALETTE_ALPHA = 1u << 5,
+	USE_FALLOFF = 1u << 6,
+	ENVMAP = 1u << 7,
+	RGB_FALLOFF = 1u << 8,
+	CAST_SHADOWS = 1u << 9,
+	FACE = 1u << 10,
+	UI_MASK_RECTS = 1u << 11,
+	MODEL_SPACE_NORMALS = 1u << 12,
+	NON_PROJECTIVE_SHADOWS = 1u << 13,
+	LANDSCAPE = 1u << 14,
+	REFRACTION = 1u << 15,
+	FIRE_REFRACTION = 1u << 16,
+	EYE_ENVMAP = 1u << 17,
+	HAIR = 1u << 18,
+	SCREENDOOR_ALPHA_FADE = 1u << 19,
+	LOCALMAP_HIDE_SECRET = 1u << 20,
+	SKIN_TINT = 1u << 21,
+	OWN_EMIT = 1u << 22,
+	PROJECTED_UV = 1u << 23,
+	MULTIPLE_TEXTURES = 1u << 24,
+	TESSELLATE = 1u << 25,
+	DECAL = 1u << 26,
+	DYNAMIC_DECAL = 1u << 27,
+	CHARACTER_LIGHTING = 1u << 28,
+	EXTERNAL_EMITTANCE = 1u << 29,
+	SOFT_EFFECT = 1u << 30,
+	ZBUFFER_TEST = 1u << 31,
+};
+
+enum class Fallout4_ShaderFlags2 : ShaderFlagsType // Fallout4ShaderPropertyFlags2 in nif.xml
+{
+	ZBUFFER_WRITE = 1u << 0,
+	LOD_LANDSCAPE = 1u << 1,
+	LOD_OBJECTS = 1u << 2,
+	NO_FADE = 1u << 3,
+	DOUBLE_SIDED = 1u << 4,
+	VERTEX_COLORS = 1u << 5,
+	GLOW_MAP = 1u << 6,
+	TRANSFORM_CHANGED = 1u << 7,
+	DISMEMBERMENT_MEATCUFF = 1u << 8,
+	TINT = 1u << 9,
+	GRASS_VERTEX_LIGHTING = 1u << 10,
+	GRASS_UNIFORM_SCALE = 1u << 11,
+	GRASS_FIT_SLOPE = 1u << 12,
+	GRASS_BILLBOARD = 1u << 13,
+	NO_LOD_LAND_BLEND = 1u << 14,
+	DISMEMBERMENT = 1u << 15,
+	WIREFRAME = 1u << 16,
+	WEAPON_BLOOD = 1u << 17,
+	HIDE_ON_LOCAL_MAP = 1u << 18,
+	PREMULT_ALPHA = 1u << 19,
+	VATS_TARGET = 1u << 20,
+	ANISOTROPIC_LIGHTING = 1u << 21,
+	SKEW_SPECULAR_ALPHA = 1u << 22,
+	MENU_SCREEN = 1u << 23,
+	MULTI_LAYER_PARALLAX = 1u << 24,
+	ALPHA_TEST = 1u << 25,
+	GRADIENT_REMAP = 1u << 26,
+	VATS_TARGET_DRAW_ALL = 1u << 27,
+	PIPBOY_SCREEN = 1u << 28,
+	TREE_ANIM = 1u << 29,
+	EFFECT_LIGHTING = 1u << 30,
+	REFRACTION_WRITES_DEPTH = 1u << 31,
+};
+
+class NewShaderFlags
+{
+public:
+	bool isFO4 = false;
+	ShaderFlagsType flags1 = 0;
+	ShaderFlagsType flags2 = 0;
+
+	void setVersion( bool _isFO4, bool isEffectsShader );
+
+private:
+	bool has( Skyrim_ShaderFlags1 f ) const { return ( flags1 & ShaderFlagsType(f) ); }
+	bool has( Skyrim_ShaderFlags2 f ) const { return ( flags2 & ShaderFlagsType(f) ); }
+	bool has( Fallout4_ShaderFlags1 f ) const { return ( flags1 & ShaderFlagsType(f) ); }
+	bool has( Fallout4_ShaderFlags2 f ) const { return ( flags2 & ShaderFlagsType(f) ); }
+
+	bool has( Skyrim_ShaderFlags1 f_sky, Fallout4_ShaderFlags1 f_fo4) const { return isFO4 ? has(f_fo4) : has(f_sky); }
+	bool has( Skyrim_ShaderFlags2 f_sky, Fallout4_ShaderFlags2 f_fo4) const { return isFO4 ? has(f_fo4) : has(f_sky); }
+
+public:
+	bool vertexColors() const { return has( Skyrim_ShaderFlags2::VERTEX_COLORS, Fallout4_ShaderFlags2::VERTEX_COLORS ); }
+	bool vertexAlpha() const { return has( Skyrim_ShaderFlags1::VERTEX_ALPHA, Fallout4_ShaderFlags1::VERTEX_ALPHA ); }
+	bool treeAnim() const { return has( Skyrim_ShaderFlags2::TREE_ANIM, Fallout4_ShaderFlags2::TREE_ANIM ); }
+	bool doubleSided() const { return has( Skyrim_ShaderFlags2::DOUBLE_SIDED, Fallout4_ShaderFlags2::DOUBLE_SIDED ); }
+	bool depthTest() const { return has( Skyrim_ShaderFlags1::ZBUFFER_TEST, Fallout4_ShaderFlags1::ZBUFFER_TEST ); }
+	bool depthWrite() const { return has( Skyrim_ShaderFlags2::ZBUFFER_WRITE, Fallout4_ShaderFlags2::ZBUFFER_WRITE ); }
+	bool specular() const { return has( Skyrim_ShaderFlags1::SPECULAR, Fallout4_ShaderFlags1::SPECULAR ); }
+	bool ownEmit() const { return has( Skyrim_ShaderFlags1::OWN_EMIT, Fallout4_ShaderFlags1::OWN_EMIT ); }
+	bool envMap() const { return has( Skyrim_ShaderFlags1::ENVMAP, Fallout4_ShaderFlags1::ENVMAP ); }
+	bool eyeEnvMap() const { return has( Skyrim_ShaderFlags1::EYE_ENVMAP, Fallout4_ShaderFlags1::EYE_ENVMAP ); }
+	bool glowMap() const { return has( Skyrim_ShaderFlags2::GLOW_MAP, Fallout4_ShaderFlags2::GLOW_MAP ); }
+	bool skyrimParallax() const { return ( !isFO4 && has( Skyrim_ShaderFlags1::PARALLAX ) ); }
+	bool skyrimBackLighting() const { return ( !isFO4 && has( Skyrim_ShaderFlags2::BACK_LIGHTING ) ); }
+	bool skyrimRimLighting() const { return ( !isFO4 && has( Skyrim_ShaderFlags2::RIM_LIGHTING ) ); }
+	bool skyrimSoftLighting() const { return ( !isFO4 && has( Skyrim_ShaderFlags2::SOFT_LIGHTING ) ); }
+	bool skyrimMultiLayerParalax() const { return ( !isFO4 && has( Skyrim_ShaderFlags2::MULTI_LAYER_PARALLAX ) ); }
+	bool refraction() const { return has( Skyrim_ShaderFlags1::REFRACTION, Fallout4_ShaderFlags1::REFRACTION ); }
+	bool greyscaleToPaletteColor() const { return has( Skyrim_ShaderFlags1::GREYSCALE_TO_PALETTE_COLOR, Fallout4_ShaderFlags1::GREYSCALE_TO_PALETTE_COLOR ); }
+	bool greyscaleToPaletteAlpha() const { return has( Skyrim_ShaderFlags1::GREYSCALE_TO_PALETTE_ALPHA, Fallout4_ShaderFlags1::GREYSCALE_TO_PALETTE_ALPHA); }
+	bool useFalloff() const { return has( Skyrim_ShaderFlags1::USE_FALLOFF, Fallout4_ShaderFlags1::USE_FALLOFF ); }
+	bool rgbFalloff() const { return ( isFO4 && has( Fallout4_ShaderFlags1::RGB_FALLOFF ) ); }
+	bool weaponBlood() const { return has( Skyrim_ShaderFlags2::WEAPON_BLOOD, Fallout4_ShaderFlags2::WEAPON_BLOOD ); }
+	bool effectLighting() const { return has( Skyrim_ShaderFlags2::EFFECT_LIGHTING, Fallout4_ShaderFlags2::EFFECT_LIGHTING ); }
+};
+
+void NewShaderFlags::setVersion( bool _isFO4, bool isEffectsShader )
+{
+	isFO4 = _isFO4;
+	if ( isEffectsShader ) {
+		flags1 = 0x80000000; 
+		flags2 = 0x20;
+	} else if ( isFO4 ) {
+		flags1 = 0x80400201;
+		flags2 = 1;
+	} else {
+		flags1 = 0x82400301;
+		flags2 = 0x8021;
+	}
+}
+
+static const QMap<quint32, quint64> Fallout4_CRCFlagMap = {
+	// SF1
+	{ 1563274220u, quint64(Fallout4_ShaderFlags1::CAST_SHADOWS) },
+	{ 1740048692u, quint64(Fallout4_ShaderFlags1::ZBUFFER_TEST) },
+	{ 3744563888u, quint64(Fallout4_ShaderFlags1::SKINNED) },
+	{ 2893749418u, quint64(Fallout4_ShaderFlags1::ENVMAP) },
+	{ 2333069810u, quint64(Fallout4_ShaderFlags1::VERTEX_ALPHA) },
+	{ 314919375u,  quint64(Fallout4_ShaderFlags1::FACE) },
+	{ 442246519u,  quint64(Fallout4_ShaderFlags1::GREYSCALE_TO_PALETTE_COLOR) },
+	{ 2901038324u, quint64(Fallout4_ShaderFlags1::GREYSCALE_TO_PALETTE_ALPHA) },
+	{ 3849131744u, quint64(Fallout4_ShaderFlags1::DECAL) },
+	{ 1576614759u, quint64(Fallout4_ShaderFlags1::DYNAMIC_DECAL) },
+	{ 2262553490u, quint64(Fallout4_ShaderFlags1::OWN_EMIT) },
+	{ 1957349758u, quint64(Fallout4_ShaderFlags1::REFRACTION) },
+	{ 1483897208u, quint64(Fallout4_ShaderFlags1::SKIN_TINT) },
+	{ 3448946507u, quint64(Fallout4_ShaderFlags1::RGB_FALLOFF) },
+	{ 2150459555u, quint64(Fallout4_ShaderFlags1::EXTERNAL_EMITTANCE) },
+	{ 2548465567u, quint64(Fallout4_ShaderFlags1::MODEL_SPACE_NORMALS) },
+	{ 3980660124u, quint64(Fallout4_ShaderFlags1::USE_FALLOFF) },
+	{ 3503164976u, quint64(Fallout4_ShaderFlags1::SOFT_EFFECT) },
+
+	// SF2
+	{ 3166356979u, quint64(Fallout4_ShaderFlags2::ZBUFFER_WRITE) << 32 },
+	{ 2399422528u, quint64(Fallout4_ShaderFlags2::GLOW_MAP) << 32 },
+	{ 759557230u,  quint64(Fallout4_ShaderFlags2::DOUBLE_SIDED) << 32 },
+	{ 348504749u,  quint64(Fallout4_ShaderFlags2::VERTEX_COLORS) << 32 },
+	{ 2994043788u, quint64(Fallout4_ShaderFlags2::NO_FADE) << 32 },
+	{ 2078326675u, quint64(Fallout4_ShaderFlags2::WEAPON_BLOOD) << 32 },
+	{ 3196772338u, quint64(Fallout4_ShaderFlags2::TRANSFORM_CHANGED) << 32 },
+	{ 3473438218u, quint64(Fallout4_ShaderFlags2::EFFECT_LIGHTING) << 32 },
+	{ 2896726515u, quint64(Fallout4_ShaderFlags2::LOD_OBJECTS) << 32 },
+
+	// TODO
+	{ 731263983u, 0 }, // PBR
+	{ 902349195u, 0 }, // REFRACTION FALLOFF
+	{ 3030867718u, 0 }, // INVERTED_FADE_PATTERN
+	{ 1264105798u, 0 }, // HAIRTINT
+	{ 3707406987u, 0 }, //  NO_EXPOSURE
+};
+
+void readNewShaderFlags( NewShaderFlags & flags, BSShaderProperty * prop, bool isEffectsShader, NifFieldConst shaderBlock, const NifModel * nif )
+{
+	// Read flags fields
+	if ( nif->getBSVersion() >= 151 ) {
+		flags.isFO4 = true;
+
+		auto sfs = shaderBlock["SF1"].array<quint32>() + shaderBlock["SF2"].array<quint32>();
+		quint64 allFlags = 0;
+		for ( auto sf : sfs )
+			allFlags |= Fallout4_CRCFlagMap.value( sf, 0 );
+		flags.flags1 = allFlags & quint64(MAXUINT32);
+		flags.flags2 = allFlags >> 32;
+	} else {
+		auto flagField1 = shaderBlock["Shader Flags 1"];
+		auto flagField2 = shaderBlock["Shader Flags 2"];
+
+		if ( flagField1.hasStrType("SkyrimShaderPropertyFlags1") ) {
+			flags.setVersion( false, isEffectsShader );
+			flags.flags1 = flagField1.value<uint>();
+		} else if ( flagField1.hasStrType("Fallout4ShaderPropertyFlags1") ) {
+			flags.setVersion( true, isEffectsShader );
+			flags.flags1 = flagField1.value<uint>();
+		} else {
+			if ( flagField1 )
+				flagField1.reportError( QString("Unsupported value type '%1'.").arg( flagField1.strType() ) );
+			// Fallback setVersion
+			flags.setVersion( !flagField1 && flagField2.hasStrType("Fallout4ShaderPropertyFlags2"), isEffectsShader );
+		}
+
+		if ( flagField2.hasStrType("SkyrimShaderPropertyFlags2") ) {
+			if ( flags.isFO4 ) {
+				flagField2.reportError( QString("Unexpected value type '%1'.").arg( flagField2.strType() ) );
+			} else {
+				flags.flags2 = flagField2.value<uint>();
+			}
+		} else if ( flagField2.hasStrType("Fallout4ShaderPropertyFlags2") ) {
+			if ( flags.isFO4 ) {
+				flags.flags2 = flagField2.value<uint>();
+			} else {
+				flagField2.reportError( QString("Unexpected value type '%1'.").arg( flagField2.strType() ) );
+			}
+		} else if ( flagField2 ) {
+			flagField2.reportError( QString("Unsupported value type '%1'.").arg( flagField2.strType() ) );
+		}
+	}
+
+	// Set common vertex flags in the property
+	if ( nif->getBSVersion() >= 130 ) {
+		//  Always do vertex colors, incl. alphas, for FO4 and newer if colors present
+		prop->vertexColorMode = ShaderColorMode::FROM_DATA;
+		prop->hasVertexAlpha = true;
+	} else {
+		prop->vertexColorMode = flags.vertexColors() ? ShaderColorMode::YES : ShaderColorMode::NO;
+		prop->hasVertexAlpha = flags.vertexAlpha();
+	}
+	prop->isVertexAlphaAnimation = flags.treeAnim();
+}
+
+
+enum Skyrim_ShaderType : unsigned int // BSLightingShaderType in nif.xml
+{
+	SKY_SHADER_DEFAULT,
+	SKY_SHADER_ENVMAP,
+	SKY_SHADER_GLOW,
+	SKY_SHADER_HEIGHTMAP,
+	SKY_SHADER_FACE_TINT,
+	SKY_SHADER_SKIN_TINT,
+	SKY_SHADER_HAIR_TINT,
+	SKY_SHADER_PARALLAX_OCC_MAT,
+	SKY_SHADER_WORLD_MULTITEXTURE,
+	SKY_SHADER_WORLDMAP1,
+	SKY_SHADER_SNOW,
+	SKY_SHADER_MULTILAYER_PARALLAX,
+	SKY_SHADER_TREE_ANIM,
+	SKY_SHADER_WORLDMAP2,
+	SKY_SHADER_SPARKLE_SNOW,
+	SKY_SHADER_WORLDMAP3,
+	SKY_SHADER_EYE_ENVMAP,
+	SKY_SHADER_CLOUD,
+	SKY_SHADER_WORLDMAP4,
+	SKY_SHADER_WORLD_LOD_MULTITEXTURE,
+	SKY_SHADER_DISMEMBERMENT, // FO4?
+
+	SKY_SHADER_END
+};
+
+
 void BSLightingShaderProperty::updateParams( const NifModel * nif )
 {
 	resetParams();
 
-	setFlags1( nif );
-	setFlags2( nif );
-
-	if ( nif->getBSVersion() >= 151 ) {
-		shaderType = ShaderFlags::ShaderType::ST_EnvironmentMap;
-		hasVertexAlpha = true;
-		hasVertexColors = true;
-	} else {
-		shaderType = ShaderFlags::ShaderType( nif->get<unsigned int>(iBlock, "Shader Type") );
-		hasVertexAlpha = hasSF1(ShaderFlags::SLSF1_Vertex_Alpha);
-		hasVertexColors = hasSF2(ShaderFlags::SLSF2_Vertex_Colors);
-	}
-	isVertexAlphaAnimation = hasSF2(ShaderFlags::SLSF2_Tree_Anim);
+	NewShaderFlags flags;
+	readNewShaderFlags( flags, this, false, block, nif );
 
 	ShaderMaterial * m = ( material && material->isValid() ) ? static_cast<ShaderMaterial*>(material) : nullptr;
 	if ( m ) {
@@ -1292,80 +1696,101 @@ void BSLightingShaderProperty::updateParams( const NifModel * nif )
 
 	} else { // m == nullptr
 
-		auto textures = nif->getArray<QString>(iTextureSet, "Textures");
+		Skyrim_ShaderType shaderType;
+		if ( nif->getBSVersion() >= 151 ) {
+			shaderType = SKY_SHADER_ENVMAP;
+		} else {
+			shaderType = SKY_SHADER_DEFAULT;
+			auto typeField = block["Shader Type"];
+			if ( typeField.hasStrType("BSLightingShaderType") ) { // Skyrim or newer shader type
+				auto v = typeField.value<uint>();
+				if ( v < SKY_SHADER_END )
+					shaderType = Skyrim_ShaderType( v );
+				else {
+					typeField.reportError( tr("Unsupported value %1").arg( v ) );
+				}
+			} else if ( typeField ) {
+				typeField.reportError( tr("Unsupported value type '%1'.").arg( typeField.strType() ) );
+			}
+		}
 
-		isDoubleSided = hasSF2( ShaderFlags::SLSF2_Double_Sided );
-		depthTest = hasSF1( ShaderFlags::SLSF1_ZBuffer_Test );
-		depthWrite = hasSF2( ShaderFlags::SLSF2_ZBuffer_Write );
+		auto textures = textureBlock["Textures"].array<QString>();
+		
+		isDoubleSided = flags.doubleSided();
+		depthTest = flags.depthTest();
+		depthWrite = flags.depthWrite();
 
-		alpha = nif->get<float>( iBlock, "Alpha" );
+		alpha = block["Alpha"].value<float>();
 
-		uvScale.set( nif->get<Vector2>(iBlock, "UV Scale") );
-		uvOffset.set( nif->get<Vector2>(iBlock, "UV Offset") );
-		clampMode = TexClampMode( nif->get<uint>( iBlock, "Texture Clamp Mode" ) );
+		uvScale.set( block["UV Scale"].value<Vector2>() );
+		uvOffset.set( block["UV Offset"].value<Vector2>() );
+		clampMode = TexClampMode( block["Texture Clamp Mode"].value<uint>() );
 
 		// Specular
-		if ( hasSF1( ShaderFlags::SLSF1_Specular ) ) {
-			specularColor = nif->get<Color3>(iBlock, "Specular Color");
-			specularGloss = nif->get<float>( iBlock, "Glossiness" );
+		if ( flags.specular() ) {
+			specularColor = block["Specular Color"].value<Color3>();
+			specularGloss = block.child("Glossiness").value<float>();
 			if ( specularGloss == 0.0f ) // FO4
-				specularGloss = nif->get<float>( iBlock, "Smoothness" );
-			specularStrength = nif->get<float>(iBlock, "Specular Strength");
+				specularGloss = block.child("Smoothness").value<float>();
+			specularStrength = block["Specular Strength"].value<float>();
 		}
 
 		// Emissive
-		emissiveColor = nif->get<Color3>( iBlock, "Emissive Color" );
-		emissiveMult = nif->get<float>( iBlock, "Emissive Multiple" );
+		emissiveColor = block["Emissive Color"].value<Color3>();
+		emissiveMult = block["Emissive Multiple"].value<float>();
 
-		hasEmittance = hasSF1( ShaderFlags::SLSF1_Own_Emit );
-		hasGlowMap = isST(ShaderFlags::ST_GlowShader) && hasSF2( ShaderFlags::SLSF2_Glow_Map ) && !textures.value( 2, "" ).isEmpty();
+		hasEmittance = flags.ownEmit();
+		hasGlowMap = ( shaderType == SKY_SHADER_GLOW ) && flags.glowMap() && !textures.value( 2, "" ).isEmpty();
 
 		// Version Dependent settings
 		if ( nif->getBSVersion() < 130 ) {
-			lightingEffect1 = nif->get<float>( iBlock, "Lighting Effect 1" );
-			lightingEffect2 = nif->get<float>( iBlock, "Lighting Effect 2" );
+			lightingEffect1 = block["Lighting Effect 1"].value<float>();
+			lightingEffect2 = block["Lighting Effect 2"].value<float>();
 
-			innerThickness = nif->get<float>( iBlock, "Parallax Inner Layer Thickness" );
-			outerRefractionStrength = nif->get<float>( iBlock, "Parallax Refraction Scale" );
-			outerReflectionStrength = nif->get<float>( iBlock, "Parallax Envmap Strength" );
-			innerTextureScale.set( nif->get<Vector2>(iBlock, "Parallax Inner Layer Texture Scale") );
+			innerThickness = block.child("Parallax Inner Layer Thickness").value<float>();
+			outerRefractionStrength = block.child("Parallax Refraction Scale").value<float>();
+			outerReflectionStrength = block.child("Parallax Envmap Strength").value<float>();
+			innerTextureScale.set( block.child("Parallax Inner Layer Texture Scale").value<Vector2>() );
 
-			hasSpecularMap = hasSF1( ShaderFlags::SLSF1_Specular ) && !textures.value( 7, "" ).isEmpty();
-			hasHeightMap = isST( ShaderFlags::ST_Heightmap ) && hasSF1( ShaderFlags::SLSF1_Parallax ) && !textures.value( 3, "" ).isEmpty();
-			hasBacklight = hasSF2( ShaderFlags::SLSF2_Back_Lighting );
-			hasRimlight = hasSF2( ShaderFlags::SLSF2_Rim_Lighting );
-			hasSoftlight = hasSF2( ShaderFlags::SLSF2_Soft_Lighting );
-			hasMultiLayerParallax = hasSF2( ShaderFlags::SLSF2_Multi_Layer_Parallax );
-			hasRefraction = hasSF1( ShaderFlags::SLSF1_Refraction );
+			hasSpecularMap        = flags.specular() && !textures.value( 7, "" ).isEmpty();
+			hasHeightMap          = (shaderType == SKY_SHADER_HEIGHTMAP) && flags.skyrimParallax() && !textures.value( 3, "" ).isEmpty();
+			hasBacklight          = flags.skyrimBackLighting();
+			hasRimlight           = flags.skyrimRimLighting();
+			hasSoftlight          = flags.skyrimSoftLighting();
+			hasMultiLayerParallax = flags.skyrimMultiLayerParalax();
+			hasRefraction         = flags.refraction();
 
-			hasTintMask = isST( ShaderFlags::ST_FaceTint );
+			hasTintMask = (shaderType == SKY_SHADER_FACE_TINT);
 			hasDetailMask = hasTintMask;
 
-			if ( isST( ShaderFlags::ST_HairTint ) )
-				setTintColor( nif, "Hair Tint Color" );
-			else if ( isST( ShaderFlags::ST_SkinTint ) )
-				setTintColor( nif, "Skin Tint Color" );
+			if ( shaderType == SKY_SHADER_HAIR_TINT ) {
+				hasTintColor = true;
+				tintColor = block["Hair Tint Color"].value<Color3>();
+			} else if ( shaderType == SKY_SHADER_SKIN_TINT ) {
+				hasTintColor = true;
+				tintColor = block["Skin Tint Color"].value<Color3>();
+			}
 		} else {
-			hasSpecularMap = hasSF1( ShaderFlags::SLSF1_Specular );
-			greyscaleColor = hasSF1( ShaderFlags::SLSF1_Greyscale_To_PaletteColor );
-			paletteScale = nif->get<float>( iBlock, "Grayscale to Palette Scale" );
-			lightingEffect1 = nif->get<float>( iBlock, "Subsurface Rolloff" );
-			backlightPower = nif->get<float>( iBlock, "Backlight Power" );
-			fresnelPower = nif->get<float>( iBlock, "Fresnel Power" );
+			hasSpecularMap  = flags.specular();
+			greyscaleColor  = flags.greyscaleToPaletteColor();
+			paletteScale    = block["Grayscale to Palette Scale"].value<float>();
+			lightingEffect1 = block.child("Subsurface Rolloff").value<float>();
+			backlightPower  = block.child("Backlight Power").value<float>();
+			fresnelPower    = block["Fresnel Power"].value<float>();
 		}
 
 		// Environment Map, Mask and Reflection Scale
 		hasEnvironmentMap = 
-			( isST(ShaderFlags::ST_EnvironmentMap) && hasSF1(ShaderFlags::SLSF1_Environment_Mapping) )
-			|| ( isST(ShaderFlags::ST_EyeEnvmap) && hasSF1(ShaderFlags::SLSF1_Eye_Environment_Mapping) )
+			( ( shaderType == SKY_SHADER_ENVMAP ) && flags.envMap() )
+			|| ( ( shaderType == SKY_SHADER_EYE_ENVMAP ) && flags.eyeEnvMap() )
 			|| ( nif->getBSVersion() == 100 && hasMultiLayerParallax );
 		
 		useEnvironmentMask = hasEnvironmentMap && !textures.value( 5, "" ).isEmpty();
 
-		if ( isST( ShaderFlags::ST_EnvironmentMap ) )
-			environmentReflection = nif->get<float>( iBlock, "Environment Map Scale" );
-		else if ( isST( ShaderFlags::ST_EyeEnvmap ) )
-			environmentReflection = nif->get<float>( iBlock, "Eye Cubemap Scale" );
+		if ( shaderType == SKY_SHADER_ENVMAP )
+			environmentReflection = block.child("Environment Map Scale").value<float>();
+		else if ( shaderType == SKY_SHADER_EYE_ENVMAP )
+			environmentReflection = block["Eye Cubemap Scale"].value<float>();
 	}
 }
 
@@ -1381,19 +1806,13 @@ void BSLightingShaderProperty::setController( const NifModel * nif, const QModel
 	}
 }
 
-void BSLightingShaderProperty::setTintColor( const NifModel* nif, const QString & itemName )
-{
-	hasTintColor = true;
-	tintColor = nif->get<Color3>(iBlock, itemName);
-}
-
 /*
 	BSEffectShaderProperty
 */
 
 void BSEffectShaderProperty::updateImpl( const NifModel * nif, const QModelIndex & index )
 {
-	BSShaderLightingProperty::updateImpl( nif, index );
+	BSShaderProperty::updateImpl( nif, index );
 
 	if ( index == iBlock ) {
 		setMaterial(name.endsWith(".bgem", Qt::CaseInsensitive) ? new EffectMaterial(name, scene->getGame()) : nullptr);
@@ -1405,7 +1824,7 @@ void BSEffectShaderProperty::updateImpl( const NifModel * nif, const QModelIndex
 
 void BSEffectShaderProperty::resetParams() 
 {
-	BSShaderLightingProperty::resetParams();
+	BSShaderProperty::resetParams();
 
 	hasSourceTexture = false;
 	hasGreyscaleMap = false;
@@ -1439,12 +1858,8 @@ void BSEffectShaderProperty::updateParams( const NifModel * nif )
 {
 	resetParams();
 
-	setFlags1( nif );
-	setFlags2( nif );
-
-	hasVertexAlpha = hasSF1( ShaderFlags::SLSF1_Vertex_Alpha );
-	hasVertexColors = hasSF2( ShaderFlags::SLSF2_Vertex_Colors );
-	isVertexAlphaAnimation = hasSF2(ShaderFlags::SLSF2_Tree_Anim);
+	NewShaderFlags flags;
+	readNewShaderFlags( flags, this, true, block, nif );
 
 	EffectMaterial * m = ( material && material->isValid() ) ? static_cast<EffectMaterial*>(material) : nullptr;
 	if ( m ) {
@@ -1493,45 +1908,45 @@ void BSEffectShaderProperty::updateParams( const NifModel * nif )
 
 	} else { // m == nullptr
 		
-		hasSourceTexture = !nif->get<QString>( iBlock, "Source Texture" ).isEmpty();
-		hasGreyscaleMap = !nif->get<QString>( iBlock, "Greyscale Texture" ).isEmpty();
+		hasSourceTexture = !block["Source Texture"].value<QString>().isEmpty();
+		hasGreyscaleMap = !block["Greyscale Texture"].value<QString>().isEmpty();
 
-		greyscaleAlpha = hasSF1( ShaderFlags::SLSF1_Greyscale_To_PaletteAlpha );
-		greyscaleColor = hasSF1( ShaderFlags::SLSF1_Greyscale_To_PaletteColor );
-		useFalloff = hasSF1( ShaderFlags::SLSF1_Use_Falloff );
+		greyscaleAlpha = flags.greyscaleToPaletteAlpha();
+		greyscaleColor = flags.greyscaleToPaletteColor();
+		useFalloff = flags.useFalloff();
 
-		depthTest = hasSF1( ShaderFlags::SLSF1_ZBuffer_Test );
-		depthWrite = hasSF2( ShaderFlags::SLSF2_ZBuffer_Write );
-		isDoubleSided = hasSF2( ShaderFlags::SLSF2_Double_Sided );
+		depthTest = flags.depthTest();
+		depthWrite = flags.depthWrite();
+		isDoubleSided = flags.doubleSided();
 
 		if ( nif->getBSVersion() < 130 ) {
-			hasWeaponBlood = hasSF2( ShaderFlags::SLSF2_Weapon_Blood );
+			hasWeaponBlood = flags.weaponBlood();
 		} else {
-			hasEnvironmentMap = !nif->get<QString>( iBlock, "Env Map Texture" ).isEmpty();
-			hasEnvironmentMask = !nif->get<QString>(iBlock, "Env Mask Texture").isEmpty();
-			hasNormalMap = !nif->get<QString>( iBlock, "Normal Texture" ).isEmpty();
+			hasEnvironmentMap = !block["Env Map Texture"].value<QString>().isEmpty();
+			hasEnvironmentMask = !block["Env Mask Texture"].value<QString>().isEmpty();
+			hasNormalMap = !block["Normal Texture"].value<QString>().isEmpty();
 
-			environmentReflection = nif->get<float>( iBlock, "Environment Map Scale" );
+			environmentReflection = block["Environment Map Scale"].value<float>();
 
 			// Receive Shadows -> RGB Falloff for FO4
-			hasRGBFalloff = hasSF1( ShaderFlags::SF1( 1 << 8 ) );
+			hasRGBFalloff = flags.rgbFalloff();
 		}
 
-		uvScale.set( nif->get<Vector2>(iBlock, "UV Scale") );
-		uvOffset.set( nif->get<Vector2>(iBlock, "UV Offset") );
-		clampMode = TexClampMode( nif->get<quint8>( iBlock, "Texture Clamp Mode" ) );
+		uvScale.set( block["UV Scale"].value<Vector2>() );
+		uvOffset.set( block["UV Offset"].value<Vector2>() );
+		clampMode = TexClampMode( block["Texture Clamp Mode"].value<quint8>() );
 
-		emissiveColor = nif->get<Color4>(iBlock, "Base Color");
-		emissiveMult = nif->get<float>(iBlock, "Base Color Scale");
+		emissiveColor = block["Base Color"].value<Color4>();
+		emissiveMult = block["Base Color Scale"].value<float>();
 
-		if ( hasSF2( ShaderFlags::SLSF2_Effect_Lighting ) )
-			lightingInfluence = (float)nif->get<quint8>( iBlock, "Lighting Influence" ) / 255.0;
+		if ( flags.effectLighting() )
+			lightingInfluence = float( block["Lighting Influence"].value<quint8>() ) / 255.0;
 
-		falloff.startAngle = nif->get<float>( iBlock, "Falloff Start Angle" );
-		falloff.stopAngle = nif->get<float>( iBlock, "Falloff Stop Angle" );
-		falloff.startOpacity = nif->get<float>( iBlock, "Falloff Start Opacity" );
-		falloff.stopOpacity = nif->get<float>( iBlock, "Falloff Stop Opacity" );
-		falloff.softDepth = nif->get<float>( iBlock, "Soft Falloff Depth" );
+		falloff.startAngle = block["Falloff Start Angle"].value<float>();
+		falloff.stopAngle = block["Falloff Stop Angle"].value<float>();
+		falloff.startOpacity = block["Falloff Start Opacity"].value<float>();
+		falloff.stopOpacity = block["Falloff Stop Opacity"].value<float>();
+		falloff.softDepth = block["Soft Falloff Depth"].value<float>();
 	}
 }
 

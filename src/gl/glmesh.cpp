@@ -722,21 +722,9 @@ void Mesh::transformShapes()
 
 	sortedTriangles = triangles;
 
+	// Colors
 	MaterialProperty * matprop = findProperty<MaterialProperty>();
-	if ( matprop && matprop->alphaValue() != 1.0 ) {
-		float a = matprop->alphaValue();
-		int nColors = colors.count();
-		transColors.resize( nColors );
-		for ( int c = 0; c < nColors; c++ )
-			transColors[c] = colors[c].blend( a );
-	} else {
-		transColors = colors;
-		// TODO (Gavrant): suspicious code. Should the check be replaced with !bssp.hasVertexAlpha ?
-		if ( bslsp && !bslsp->hasSF1(ShaderFlags::SLSF1_Vertex_Alpha) ) {
-			for ( auto & c : transColors )
-				c.setAlpha(1.0f);
-		}
-	}
+	applyColorTransforms( matprop ? matprop->alphaValue() : 1.0f );
 }
 
 BoundSphere Mesh::bounds() const
@@ -813,20 +801,11 @@ void Mesh::drawShapes( NodeList * secondPass, bool presort )
 			glNormalPointer( GL_FLOAT, 0, transNorms.constData() );
 		}
 
-		// Do VCs if legacy or if either bslsp or bsesp is set
-		bool doVCs = ( !bssp || bssp->hasSF2(ShaderFlags::SLSF2_Vertex_Colors) );
-
-		if ( transColors.count() && scene->hasOption(Scene::DoVertexColors) && doVCs ) {
+		if ( transColors.count() ) {
 			glEnableClientState( GL_COLOR_ARRAY );
 			glColorPointer( 4, GL_FLOAT, 0, transColors.constData() );
 		} else {
-			if ( !hasVertexColors && (bslsp && bslsp->hasVertexColors) ) {
-				// Correctly blacken the mesh if SLSF2_Vertex_Colors is still on
-				//	yet "Has Vertex Colors" is not.
-				glColor( Color3( 0.0f, 0.0f, 0.0f ) );
-			} else {
-				glColor( Color3( 1.0f, 1.0f, 1.0f ) );
-			}
+			glColor( Color3( 1.0f, 1.0f, 1.0f ) );
 		}
 	}
 

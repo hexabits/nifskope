@@ -101,12 +101,6 @@ void Shape::updateData( const NifModel* nif )
 	normalizeVectorSize( tangents, numVerts, hasVertexTangents );
 	normalizeVectorSize( bitangents, numVerts, hasVertexBitangents );
 
-	normalizeVectorSize( colors, numVerts, hasVertexColors );
-	if ( isVertexAlphaAnimation ) {
-		for ( auto & c : colors )
-			c.setAlpha(1.0f);
-	}
-
 	for ( auto & uvset : coords )
 		normalizeVectorSize( uvset, numVerts, hasVertexUVs );
 
@@ -181,7 +175,7 @@ void Shape::updateImpl( const NifModel * nif, const QModelIndex & index )
 
 		bslsp = nullptr;
 		bsesp = nullptr;
-		bssp = properties.get<BSShaderLightingProperty>();
+		bssp = properties.get<BSShaderProperty>();
 		if ( bssp ) {
 			auto shaderType = bssp->typeId();
 			if ( shaderType == "BSLightingShaderProperty" )
@@ -320,6 +314,32 @@ void Shape::applyRigidTransforms()
 	transBitangents = bitangents;
 }
 
+void Shape::applyColorTransforms( float alphaBlend )
+{
+	auto shaderColorMode = bssp ? bssp->vertexColorMode : ShaderColorMode::FROM_DATA;
+	bool doVCs = ( shaderColorMode == ShaderColorMode::FROM_DATA ) ? hasVertexColors : ( shaderColorMode == ShaderColorMode::YES );
+
+	if ( doVCs && numVerts > 0 ) {
+		transColors = colors;
+		if ( alphaBlend != 1.0f ) {
+			for ( auto & c : transColors )
+				c.setAlpha( c.alpha() * alphaBlend );
+		} else if ( bssp && ( bssp->isVertexAlphaAnimation || !bssp->hasVertexAlpha ) ) {
+			for ( auto & c : transColors )
+				c.setAlpha( 1.0f );
+		}
+	} else {
+		transColors.clear();
+	}
+
+	// Cover any mismatches between shader and data flags or wrong color numbers in the data by appending "bad colors" until transColors.count() == numVerts.
+	if ( transColors.count() < numVerts && ( doVCs || hasVertexColors ) ) {
+		transColors.reserve( numVerts );
+		for ( int i = transColors.count(); i < numVerts; i++ )
+			transColors << Color4( 0, 0, 0, 1 );
+	}
+}
+
 void Shape::resetBlockData()
 {
 	// Vertex data
@@ -383,11 +403,9 @@ void Shape::updateShader()
 		depthTest = bssp->depthTest;
 		depthWrite = bssp->depthWrite;
 		isDoubleSided = bssp->isDoubleSided;
-		isVertexAlphaAnimation = bssp->isVertexAlphaAnimation;
 	} else {
 		depthTest = true;
 		depthWrite = true;
 		isDoubleSided = false;
-		isVertexAlphaAnimation = false;
 	}
 }

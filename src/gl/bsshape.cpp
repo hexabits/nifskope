@@ -228,11 +228,8 @@ void BSShape::transformShapes()
 		applyRigidTransforms();
 	}
 
-	transColors = colors;
-	if ( nif->getBSVersion() < 130 && bslsp && !bslsp->hasSF1(ShaderFlags::SLSF1_Vertex_Alpha) ) {
-		for ( auto & c : transColors )
-			c.setAlpha(1.0f);
-	}
+	// Colors
+	applyColorTransforms();
 }
 
 void BSShape::drawShapes( NodeList * secondPass, bool presort )
@@ -282,18 +279,9 @@ void BSShape::drawShapes( NodeList * secondPass, bool presort )
 		glEnableClientState( GL_NORMAL_ARRAY );
 		glNormalPointer( GL_FLOAT, 0, transNorms.constData() );
 
-		bool doVCs = ( bssp && bssp->hasSF2(ShaderFlags::SLSF2_Vertex_Colors) );
-		// Always do vertex colors for FO4 if colors present
-		if ( nif->getBSVersion() >= 130 && hasVertexColors && colors.count() )
-			doVCs = true;
-
-		if ( transColors.count() && scene->hasOption(Scene::DoVertexColors) && doVCs ) {
+		if ( transColors.count() > 0 ) {
 			glEnableClientState( GL_COLOR_ARRAY );
 			glColorPointer( 4, GL_FLOAT, 0, transColors.constData() );
-		} else if ( nif->getBSVersion() < 130 && !hasVertexColors && (bslsp && bslsp->hasVertexColors) ) {
-			// Correctly blacken the mesh if SLSF2_Vertex_Colors is still on
-			//	yet "Has Vertex Colors" is not.
-			glColor( Color3( 0.0f, 0.0f, 0.0f ) );
 		} else {
 			glColor( Color3( 1.0f, 1.0f, 1.0f ) );
 		}

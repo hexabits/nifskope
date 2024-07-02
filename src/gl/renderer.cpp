@@ -559,7 +559,7 @@ void Renderer::Program::uni4m( UniformType var, const Matrix4 & val )
 		f->glUniformMatrix4fv( uniformLocations[var], 1, 0, val.data() );
 }
 
-bool Renderer::Program::uniSampler( BSShaderLightingProperty * bsprop, UniformType var,
+bool Renderer::Program::uniSampler( BSShaderProperty * bsprop, UniformType var,
 									int textureSlot, int & texunit, const QString & alternate,
 									uint clamp, const QString & forced )
 {
@@ -624,18 +624,15 @@ bool Renderer::setupProgram( Program * prog, Shape * mesh, const PropertyList & 
 
 	auto nifVersion = nif->getBSVersion();
 	auto scene = mesh->scene;
+	auto bsprop = mesh->bssp;
 	auto lsp = mesh->bslsp;
 	auto esp = mesh->bsesp;
 
-	Material * mat = nullptr;
-	if ( lsp )
-		mat = lsp->getMaterial();
-	else if ( esp )
-		mat = esp->getMaterial();
+	Material * mat = bsprop ? bsprop->getMaterial() : nullptr;
 
 	QString default_n = (nifVersion >= 151) ? ::default_ns : ::default_n;
 
-	// TODO: Temp for pre CDB material reading
+	// TODO: Temp for pre CDB material reading (Starfield)
 	if ( !mat && nifVersion >= 172 ) {
 		if ( lsp ) {
 			mesh->depthWrite = true;
@@ -649,9 +646,8 @@ bool Renderer::setupProgram( Program * prog, Shape * mesh, const PropertyList & 
 	// texturing
 
 	TexturingProperty * texprop = props.get<TexturingProperty>();
-	BSShaderLightingProperty * bsprop = mesh->bssp;
-	// BSShaderLightingProperty * bsprop = props.get<BSShaderLightingProperty>();
-	// TODO: BSLSP has been split off from BSShaderLightingProperty so it needs
+	// BSShaderProperty * bsprop = props.get<BSShaderProperty>();
+	// TODO: BSLSP has been split off from BSShaderProperty so it needs
 	//	to be accessible from here
 
 	TexClampMode clamp = TexClampMode::WRAP_S_WRAP_T;
@@ -1308,7 +1304,7 @@ void Renderer::setupFixedFunction( Shape * mesh, const PropertyList & props )
 	} else if ( TextureProperty * texprop = props.get<TextureProperty>() ) {
 		// old single texture property
 		texprop->bind( mesh->coords );
-	} else if ( BSShaderLightingProperty * texprop = props.get<BSShaderLightingProperty>() ) {
+	} else if ( BSShaderProperty * texprop = props.get<BSShaderProperty>() ) {
 		// standard multi texturing property
 		int stage = 0;
 

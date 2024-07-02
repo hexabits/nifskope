@@ -891,7 +891,8 @@ void TexFlipController::updateTime( float time )
 	if ( target ) {
 		target->textures[flipSlot & 7].iSource = nif->getBlockIndex( nif->getLink( iSources.child( (int)r, 0 ) ), "NiSourceTexture" );
 	} else if ( oldTarget ) {
-		oldTarget->iImage = nif->getBlockIndex( nif->getLink( iSources.child( (int)r, 0 ) ), "NiImage" );
+		auto iImage = nif->getBlockIndex( nif->getLink( iSources.child( (int)r, 0 ) ), "NiImage" );
+		oldTarget->imageBlock = nif->field( iImage ); 
 	}
 }
 

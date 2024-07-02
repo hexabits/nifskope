@@ -128,7 +128,7 @@ class ShaderMaterial : public Material
 	Q_OBJECT
 
 	friend class Renderer;
-	friend class BSShaderLightingProperty;
+	friend class BSShaderProperty;
 	friend class BSLightingShaderProperty;
 
 public:
@@ -211,7 +211,7 @@ class EffectMaterial : public Material
 	Q_OBJECT
 
 	friend class Renderer;
-	friend class BSShaderLightingProperty;
+	friend class BSShaderProperty;
 	friend class BSEffectShaderProperty;
 
 public:

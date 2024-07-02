@@ -161,7 +161,7 @@ void Particles::drawShapes( NodeList * secondPass, bool presort )
 
 	// setup texturing
 
-	glProperty( findProperty<BSShaderLightingProperty>() );
+	glProperty( findProperty<BSShaderProperty>() );
 
 	// setup z buffer
 

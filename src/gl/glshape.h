@@ -168,13 +168,15 @@ protected:
 	void applySkinningTransforms( const Transform & baseTransform );
 	void applyRigidTransforms();
 
+	void applyColorTransforms( float alphaBlend = 1.0f );
+
 	void resetBlockData();
 
 	//! Holds the name of the shader, or "" if no shader
 	QString shader = "";
 
 	//! Shader property
-	BSShaderLightingProperty * bssp = nullptr;
+	BSShaderProperty * bssp = nullptr;
 	//! Skyrim shader property
 	BSLightingShaderProperty * bslsp = nullptr;
 	//! Skyrim effect shader property
@@ -184,8 +186,6 @@ protected:
 
 	//! Is shader set to double sided?
 	bool isDoubleSided = false;
-	//! Is shader set to animate using vertex alphas?
-	bool isVertexAlphaAnimation = false;
 
 	bool hasVertexNormals = false;
 	bool hasVertexTangents = false;

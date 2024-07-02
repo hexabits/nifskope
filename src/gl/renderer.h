@@ -354,7 +354,7 @@ public:
 		void uni1i( UniformType var, int val );
 		void uni3m( UniformType var, const Matrix & val );
 		void uni4m( UniformType var, const Matrix4 & val );
-		bool uniSampler( class BSShaderLightingProperty * bsprop, UniformType var, int textureSlot,
+		bool uniSampler( class BSShaderProperty * bsprop, UniformType var, int textureSlot,
 						 int & texunit, const QString & alternate, uint clamp, const QString & forced = {} );
 		bool uniSamplerBlank( UniformType var, int & texunit );
 	};
