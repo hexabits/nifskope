@@ -2891,12 +2891,12 @@ void NifModel::convertNiBlock( const QString & identifier, const QModelIndex & i
 	if ( !branch )
 		return;
 
-	const QString & btype = branch->name();
+	QString btype = branch->name();
 	if ( btype == identifier )
 		return;
 
 	if ( !inherits( btype, identifier ) && !inherits( identifier, btype ) ) {
-		logMessage(tr("Cannot convert NiBlock."), tr("Block type %1 and %2 are not related").arg(btype, identifier), QMessageBox::Critical);
+		logMessage(tr("Cannot convert NiBlock."), tr("Block types %1 and %2 are not related").arg(btype, identifier), QMessageBox::Critical);
 		return;
 	}
 
