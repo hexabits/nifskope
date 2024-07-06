@@ -2891,24 +2891,25 @@ void NifModel::convertNiBlock( const QString & identifier, const QModelIndex & i
 	if ( !branch )
 		return;
 
-	QString btype = branch->name();
-	if ( btype == identifier )
+	// oldType must be QString here, not const QString &, otherwise branch->setName( identifier ) below makes oldType == identifier.
+	QString oldType = branch->name();
+	if ( oldType == identifier )
 		return;
 
-	if ( !inherits( btype, identifier ) && !inherits( identifier, btype ) ) {
-		logMessage(tr("Cannot convert NiBlock."), tr("Block types %1 and %2 are not related").arg(btype, identifier), QMessageBox::Critical);
+	if ( !inherits( oldType, identifier ) && !inherits( identifier, oldType ) ) {
+		logMessage(tr("Cannot convert NiBlock."), tr("Block types %1 and %2 are not related").arg(oldType, identifier), QMessageBox::Critical);
 		return;
 	}
 
-	NifBlockPtr srcBlock = blocks.value( btype );
+	NifBlockPtr srcBlock = blocks.value( oldType );
 	NifBlockPtr dstBlock = blocks.value( identifier );
 
 	if ( srcBlock && dstBlock ) {
 		branch->setName( identifier );
 
-		if ( inherits( btype, identifier ) ) {
+		if ( inherits( oldType, identifier ) ) {
 			// Remove any level between the two types
-			for ( QString ancestor = btype; !ancestor.isNull() && ancestor != identifier; ) {
+			for ( QString ancestor = oldType; !ancestor.isNull() && ancestor != identifier; ) {
 				NifBlockPtr block = blocks.value( ancestor );
 
 				if ( !block )
@@ -2921,11 +2922,11 @@ void NifModel::convertNiBlock( const QString & identifier, const QModelIndex & i
 
 				ancestor = block->ancestor;
 			}
-		} else if ( inherits( identifier, btype ) ) {
+		} else if ( inherits( identifier, oldType ) ) {
 			// Add any level between the two types
 			QStringList types;
 
-			for ( QString ancestor = identifier; !ancestor.isNull() && ancestor != btype; ) {
+			for ( QString ancestor = identifier; !ancestor.isNull() && ancestor != oldType; ) {
 				NifBlockPtr block = blocks.value( ancestor );
 
 				if ( !block )
