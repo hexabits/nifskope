@@ -224,4 +224,6 @@ void Particles::drawShapes( NodeList * secondPass, bool presort )
 
 		p++;
 	}
+
+	glDisable( GL_TEXTURE_2D );
 }
