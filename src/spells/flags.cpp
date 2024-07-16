@@ -1,4 +1,6 @@
 #include "spellbook.h"
+#include "ui/UiUtils.h"
+#include "ui/ToolDialog.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -72,7 +74,7 @@ public:
 		return QModelIndex();
 	}
 
-	//! Determine the applicable flag editing dialog for a NIF block type
+	//! Determine the applicable flag editing dialog for a NIF editedBlock type
 	FlagType queryType( const NifModel * nif, const QModelIndex & index ) const
 	{
 		if ( nif->getValue( index ).isCount() ) {
@@ -971,15 +973,21 @@ public:
 
 	bool isApplicable( const NifModel * nif, const QModelIndex & index ) override final
 	{
-		return nif->blockInherits( index.parent(), "BSTriShape" ) && nif->itemName( index ) == "Vertex Desc";
+		auto field = nif->field( index );
+		if ( field.hasStrType("BSVertexDesc") ) {
+			auto block = field.block();
+			if ( block.inherits("NiSkinPartition") ) {
+				return ( field.parent() == block ); // Ignore Vert Desc fields in Partitions
+			} else {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	QModelIndex cast( NifModel * nif, const QModelIndex & index ) override final
 	{
-		auto desc = nif->get<BSVertexDesc>( index );
-		bool dynamic = nif->blockInherits( index.parent(), "BSDynamicTriShape" );
-
-		QStringList flagNames {
+		static const QStringList flagNames {
 			Spell::tr( "Vertex" ),	  // VA_POSITION = 0x0,
 			Spell::tr( "UVs" ),		  // VA_TEXCOORD0 = 0x1,
 			Spell::tr( "UVs 2" ),	  // VA_TEXCOORD1 = 0x2,
@@ -993,18 +1001,67 @@ public:
 			Spell::tr( "Full Precision" ) // 1 << 10
 		};
 
-		QDialog dlg;
+		auto editedField = nif->field( index );
+		auto flagVals = editedField.value<BSVertexDesc>();
+		auto editedBlock = editedField.block();
+
+		bool isDynamic = false;
+		bool lockSkinning = false;
+		NifField skinPartBlock;
+		QVector<NifField> shapeBlocks;
+		if ( editedField.hasName("Vertex Desc") && editedField.parent() == editedBlock ) {
+			auto getShapeSkinPartition = [nif]( NifField shape, bool shapeIsDynamic ) -> NifField {
+				if ( nif->getBSVersion() == 100 ) {
+					if ( shapeIsDynamic || shape.child("Vertex Desc").value<BSVertexDesc>().HasFlag(VertexAttribute::VA_SKINNING) ) {
+						return shape.child("Skin").linkBlock().child("Skin Partition").linkBlock("NiSkinPartition");
+					}
+				}
+
+				return NifField();
+			};
+
+			if ( editedBlock.inherits("BSTriShape") ) {
+				shapeBlocks << editedBlock;
+				isDynamic = editedBlock.inherits("BSDynamicTriShape");
+				skinPartBlock = getShapeSkinPartition( editedBlock, isDynamic );
+				if ( skinPartBlock || isDynamic )
+					lockSkinning = true;
+			} else if ( editedBlock.inherits("NiSkinPartition") ) {
+				skinPartBlock = editedBlock;
+				lockSkinning = true;
+				for ( auto b : nif->blockIter() ) {
+					if ( b.inherits("BSTriShape") ) {
+						bool blockIsDynamic = b.inherits("BSDynamicTriShape");
+						if ( getShapeSkinPartition( b, blockIsDynamic ) == editedBlock ) {
+							shapeBlocks << b;
+							if ( blockIsDynamic )
+								isDynamic = true;
+						}
+					}
+				}
+			}
+		}
+
+		QDialog dlg( qApp->activeWindow() );
+		ToolDialog::setDialogFlagsAndModality( &dlg, 0 );
+		UIUtils::setWindowTitle( &dlg, Spell::tr("Vertex Flags") );
 		QVBoxLayout * vbox = new QVBoxLayout;
 		dlg.setLayout( vbox );
 
 		QList<QCheckBox *> chkBoxes;
+		chkBoxes.reserve( flagNames.count() );
 		int x = 0;
-		for ( const QString& flagName : flagNames ) {
+		for ( const QString & flagName : flagNames ) {
 			chkBoxes << dlgCheck( vbox, flagName );
-			chkBoxes.last()->setChecked( desc.HasFlag( VertexAttribute(x) ) );
-			// Hide unused attributes
-			if ( x == 2 || x == 7 || x == 9 )
-				chkBoxes.last()->setHidden( true );
+			if ( x == 6 && lockSkinning ) {
+				chkBoxes.last()->setChecked( true );
+				chkBoxes.last()->setEnabled( false );
+			} else {
+				chkBoxes.last()->setChecked( flagVals.HasFlag( VertexAttribute(x) ) );
+				// Hide unused attributes
+				if ( x == 2 || x == 7 || x == 9 )
+					chkBoxes.last()->setHidden( true );
+			}
 			x++;
 		}
 
@@ -1014,30 +1071,51 @@ public:
 			x = 0;
 			for ( QCheckBox * chk : chkBoxes ) {
 				if ( chk->isChecked() )
-					desc.SetFlag( VertexAttribute(x) );
+					flagVals.SetFlag( VertexAttribute(x) );
 				else
-					desc.RemoveFlag( VertexAttribute(x) );
+					flagVals.RemoveFlag( VertexAttribute(x) );
 				x++;
 			}
 
 			// Make sure sizes and offsets in rest of vertexDesc are updated from flags
-			desc.ResetAttributeOffsets( nif->getBSVersion() );
-			if ( dynamic )
-				desc.MakeDynamic();
+			flagVals.ResetAttributeOffsets( nif->getBSVersion() );
+			if ( isDynamic )
+				flagVals.MakeDynamic();
 
-			if ( nif->set<BSVertexDesc>( index, desc ) ) {
-				auto iDataSize = nif->getIndex( index.parent(), "Data Size" );
-				auto numVerts = nif->get<uint>( index.parent(), "Num Vertices" );
-				auto numTris = nif->get<uint>( index.parent(), "Num Triangles" );
+			if ( editedField.setValue( flagVals ) ) {
+				uint vertexDataSize = flagVals.GetVertexSize();
 
-				if ( iDataSize.isValid() )
-					nif->set<uint>( iDataSize, desc.GetVertexSize() * numVerts + 6 * numTris );
+				for ( auto shape : shapeBlocks ) {
+					auto shapeFlagField = shape.child("Vertex Desc");
+					if ( shapeFlagField != editedField )
+						shapeFlagField.setValue( flagVals );
+					auto dataSizeField = shape.child("Data Size");
+					if ( dataSizeField ) {
+						uint dataSize;
+						if ( !skinPartBlock )
+							dataSize = vertexDataSize * shape["Num Vertices"].value<uint>() + sizeof(Triangle) * shape["Num Triangles"].value<uint>();
+						else
+							dataSize = 0;
+						dataSizeField.setValue( dataSize );
+					}
+					shape.child("Vertex Data").updateArraySize();
+				}
 
-				nif->updateArraySize( index.parent(), "Vertex Data" );
+				if ( skinPartBlock ) {
+					auto partFlagField = skinPartBlock.child("Vertex Desc");
+					if ( partFlagField != editedField )
+						partFlagField.setValue( flagVals );
+					auto vertexDataField = skinPartBlock.child("Vertex Data");
+					skinPartBlock["Vertex Size"].setValue( vertexDataSize );
+					skinPartBlock["Data Size"].setValue<uint>( vertexDataSize * vertexDataField.childCount() );
+					vertexDataField.updateArraySize();
+
+					for ( auto partEntry : skinPartBlock.child("Partitions").iter() )
+						partEntry["Vertex Desc"].setValue( flagVals );
+				}
 			}
-
 		}
-
+	
 		return index;
 	}
 
