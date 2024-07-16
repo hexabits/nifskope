@@ -987,7 +987,7 @@ public:
 
 	QModelIndex cast( NifModel * nif, const QModelIndex & index ) override final
 	{
-		static const QStringList flagNames {
+		QStringList flagNames {
 			Spell::tr( "Vertex" ),	  // VA_POSITION = 0x0,
 			Spell::tr( "UVs" ),		  // VA_TEXCOORD0 = 0x1,
 			Spell::tr( "UVs 2" ),	  // VA_TEXCOORD1 = 0x2,
@@ -1089,20 +1089,18 @@ public:
 					auto shapeFlagField = shape.child("Vertex Desc");
 					if ( shapeFlagField != editedField )
 						shapeFlagField.setValue( flagVals );
-					auto dataSizeField = shape.child("Data Size");
-					if ( dataSizeField ) {
-						uint dataSize;
-						if ( !skinPartBlock )
-							dataSize = vertexDataSize * shape["Num Vertices"].value<uint>() + sizeof(Triangle) * shape["Num Triangles"].value<uint>();
-						else
-							dataSize = 0;
-						dataSizeField.setValue( dataSize );
+					uint dataSize;
+					if ( !skinPartBlock ) {
+						dataSize = vertexDataSize * shape["Num Vertices"].value<uint>() + sizeof(Triangle) * shape["Num Triangles"].value<uint>();
+					} else {
+						dataSize = 0;
 					}
+					shape["Data Size"].setValue( dataSize );
 					shape.child("Vertex Data").updateArraySize();
 				}
 
 				if ( skinPartBlock ) {
-					auto partFlagField = skinPartBlock.child("Vertex Desc");
+					auto partFlagField = skinPartBlock["Vertex Desc"];
 					if ( partFlagField != editedField )
 						partFlagField.setValue( flagVals );
 					auto vertexDataField = skinPartBlock.child("Vertex Data");
