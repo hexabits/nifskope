@@ -74,7 +74,7 @@ public:
 		return QModelIndex();
 	}
 
-	//! Determine the applicable flag editing dialog for a NIF editedBlock type
+	//! Determine the applicable flag editing dialog for a NIF block type
 	FlagType queryType( const NifModel * nif, const QModelIndex & index ) const
 	{
 		if ( nif->getValue( index ).isCount() ) {

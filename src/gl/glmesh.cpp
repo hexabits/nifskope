@@ -792,8 +792,6 @@ void Mesh::transformShapes()
 		applyRigidTransforms();
 	}
 
-	sortedTriangles = triangles;
-
 	// Colors
 	MaterialProperty * matprop = findProperty<MaterialProperty>();
 	applyColorTransforms( matprop ? matprop->alphaValue() : 1.0f );

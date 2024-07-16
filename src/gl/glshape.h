@@ -303,7 +303,7 @@ protected:
 	//! Map of triangle indices in the shape data to their indices in the QVector
 	QVector<int> triangleMap;
 	//! Sorted triangles
-	QVector<Triangle> sortedTriangles;
+	QVector<Triangle> sortedTriangles; // TODO: get rid of it
 
 	TriangleRange * addTriangleRange( NifFieldConst rangeRoot, NifSkopeFlagsType rangeFlags, int iStart, int nTris );
 	TriangleRange * addTriangleRange( NifFieldConst rangeRoot, NifSkopeFlagsType rangeFlags, int iStart );

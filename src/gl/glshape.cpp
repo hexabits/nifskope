@@ -213,15 +213,17 @@ void Shape::drawSelection() const
 
 	auto selectedField = nif->field( scene->currentIndex );
 	auto selectedBlock = selectedField.block();
-	bool isMyDataBlockSelected;
+	bool dataSelected = false;
+	bool extraDataSelected = false;
 	if ( selectedBlock ) {
 		QModelIndex iSelBlock = selectedBlock.toIndex();
-		isMyDataBlockSelected = ( iSelBlock == iBlock || iSelBlock == iData || iSelBlock == iSkin || iSelBlock == iSkinData || iSelBlock == iSkinPart || iSelBlock == iExtraData );
-	} else {
-		isMyDataBlockSelected = false;
+		if ( iSelBlock == iBlock || iSelBlock == iData || iSelBlock == iSkin || iSelBlock == iSkinData || iSelBlock == iSkinPart )
+			dataSelected = true;
+		else if ( iSelBlock == iExtraData )
+			extraDataSelected = true;
 	}
 
-	if ( isMyDataBlockSelected && selectedField != selectedBlock ) {
+	if ( ( dataSelected || extraDataSelected ) && ( selectedField != selectedBlock ) ) {
 		int selectedLevel = selectedField.ancestorLevel( selectedBlock );
 
 		for ( auto pSelection : selections ) {
@@ -236,7 +238,7 @@ void Shape::drawSelection() const
 	// Fallback
 	if ( scene->isSelModeVertex() ) {
 		drawSelection_vertices( ShapeSelectionType::VERTICES );
-	} else if ( isMyDataBlockSelected && scene->isSelModeObject() && selectedField == selectedBlock ) {
+	} else if ( dataSelected && scene->isSelModeObject() && selectedField == selectedBlock ) {
 		drawSelection_triangles();
 	}
 }
