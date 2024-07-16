@@ -664,12 +664,7 @@ class spTextureTemplate final : public Spell
 		QModelIndex iPoints = nif->getIndex( iData, "Points" );
 
 		if ( iPoints.isValid() ) {
-			QVector<QVector<quint16> > strips;
-
-			for ( int r = 0; r < nif->rowCount( iPoints ); r++ )
-				strips.append( nif->getArray<quint16>( iPoints.child( r, 0 ) ) );
-
-			tri = triangulate( strips );
+			tri = triangulateStrips( nif, iPoints );
 		} else if ( nif->getBSVersion() < 100 ) {
 			tri = nif->getArray<Triangle>( nif->getIndex( getData( nif, index ), "Triangles" ) );
 		}

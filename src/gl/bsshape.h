@@ -4,12 +4,8 @@
 #include "gl/glshape.h"
 
 
-class NifModel;
-class NodeList;
-
 class BSShape : public Shape
 {
-
 public:
 	BSShape( Scene * s, const QModelIndex & b ) : Shape( s, b ) { }
 
@@ -17,20 +13,16 @@ public:
 
 	void transformShapes() override;
 
-	void drawShapes( NodeList * secondPass = nullptr, bool presort = false ) override;
-	void drawSelection() const override;
-
 	BoundSphere bounds() const override;
 
 	// end Node
 
 	// Shape
 
-	void drawVerts() const override;
 	QModelIndex vertexAt( int ) const override;
 
 protected:
-	BoundSphere dataBound;
+	BoundSphere dataBound; // TODO: move to Shape, replace with a pointer to BoundSphereSelection (togetger with bounds() )
 
 	bool isDynamic = false;
 

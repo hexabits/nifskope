@@ -66,13 +66,13 @@ class spStrippify final : public Spell
 		//qDebug() << "num triangles" << triangles.count() << "skipped" << skip;
 
 
-		QVector<QVector<quint16> > strips = stripify( triangles, true );
+		auto strips = stripifyTriangles( triangles, true );
 
 		if ( strips.count() <= 0 )
 			return idx;
 
 		uint numTriangles = 0;
-		for ( const QVector<quint16>& strip : strips ) {
+		for ( const auto & strip : strips ) {
 			numTriangles += strip.count() - 2;
 		}
 
@@ -251,24 +251,12 @@ class spTriangulate final : public Spell
 		if ( !iStripData.isValid() )
 			return idx;
 
-		QVector<QVector<quint16> > strips;
-
 		QModelIndex iPoints = nif->getIndex( iStripData, "Points" );
 
 		if ( !iPoints.isValid() )
 			return idx;
 
-		for ( int s = 0; s < nif->rowCount( iPoints ); s++ ) {
-			QVector<quint16> strip;
-			QModelIndex iStrip = iPoints.child( s, 0 );
-
-			for ( int p = 0; p < nif->rowCount( iStrip ); p++ )
-				strip.append( nif->get<int>( iStrip.child( p, 0 ) ) );
-
-			strips.append( strip );
-		}
-
-		QVector<Triangle> triangles = triangulate( strips );
+		QVector<Triangle> triangles = triangulateStrips( nif, iPoints );
 
 		nif->insertNiBlock( "NiTriShapeData", nif->getBlockNumber( idx ) + 1 );
 		QModelIndex iTriData = nif->getBlockIndex( nif->getBlockNumber( idx ) + 1, "NiTriShapeData" );

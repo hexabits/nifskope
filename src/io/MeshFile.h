@@ -1,7 +1,7 @@
 #pragma once
 
 #include "data/niftypes.h"
-#include "gl/gltools.h"
+#include "gl/BSMesh.h"
 
 #include <QByteArray>
 #include <QDataStream>

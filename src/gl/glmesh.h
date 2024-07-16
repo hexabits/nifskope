@@ -40,16 +40,12 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //! A mesh
 class Mesh : public Shape
 {
-
 public:
 	Mesh( Scene * s, const QModelIndex & b ) : Shape( s, b ) { }
 
 	// Node
 
 	void transformShapes() override;
-
-	void drawShapes( NodeList * secondPass = nullptr, bool presort = false ) override;
-	void drawSelection() const override;
 
 	BoundSphere bounds() const override;
 
@@ -59,13 +55,13 @@ public:
 
 	// Shape
 
-	void drawVerts() const override;
 	QModelIndex vertexAt( int ) const override;
 
 protected:
 	void updateImpl( const NifModel * nif, const QModelIndex & index ) override;
 	void updateDataImpl( const NifModel * nif ) override;
 
+private:
 	void updateData_NiMesh( const NifModel * nif );
 	void updateData_NiTriShape( const NifModel * nif );
 };

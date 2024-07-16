@@ -439,22 +439,7 @@ public:
 			if ( iShapeType == "NiTriShape" ) {
 				triangles = nif->getArray<Triangle>( iData, "Triangles" ).toList();
 			} else if ( iShapeType == "NiTriStrips" ) {
-				// triangulate first (code copied from strippify.cpp)
-				QVector<QVector<quint16> > strips;
-				QModelIndex iPoints = nif->getIndex( iData, "Points" );
-
-				for ( int s = 0; s < nif->rowCount( iPoints ); s++ ) {
-					QVector<quint16> strip;
-					QModelIndex iStrip = iPoints.child( s, 0 );
-
-					for ( int p = 0; p < nif->rowCount( iStrip ); p++ ) {
-						strip.append( nif->get<int>( iStrip.child( p, 0 ) ) );
-					}
-
-					strips.append( strip );
-				}
-
-				triangles = triangulate( strips ).toList();
+				triangles = triangulateStrips( nif, nif->getIndex( iData, "Points" ) ).toList();
 			}
 
 			QMap<Triangle, quint32> trimap;
@@ -499,23 +484,8 @@ public:
 
 					if ( hasFaces && numStrips == 0 ) {
 						partTriangles = nif->getArray<Triangle>( iPart, "Triangles" );
-					} else if ( numStrips != 0 ) {
-						// triangulate first (code copied from strippify.cpp)
-						QVector<QVector<quint16> > strips;
-						QModelIndex iPoints = nif->getIndex( iPart, "Strips" );
-
-						for ( int s = 0; s < nif->rowCount( iPoints ); s++ ) {
-							QVector<quint16> strip;
-							QModelIndex iStrip = iPoints.child( s, 0 );
-
-							for ( int p = 0; p < nif->rowCount( iStrip ); p++ ) {
-								strip.append( nif->get<int>( iStrip.child( p, 0 ) ) );
-							}
-
-							strips.append( strip );
-						}
-
-						partTriangles = triangulate( strips );
+					} else if ( numStrips > 0 ) {
+						partTriangles = triangulateStrips( nif, nif->getIndex( iPart, "Strips" ) );
 					}
 
 					for ( int j = 0; j < partTriangles.count(); ++j ) {
@@ -857,13 +827,13 @@ public:
 				}
 
 				// stripify the triangles
-				QVector<QVector<quint16> > strips;
+				QVector<TriStrip> strips;
 				int numTriangles = 0;
 
 				if ( make_strips == true ) {
-					strips = stripify( triangles );
+					strips = stripifyTriangles( triangles );
 
-					for ( const QVector<quint16>& strip : strips ) {
+					for ( const TriStrip & strip : strips ) {
 						numTriangles += strip.count() - 2;
 					}
 				} else {

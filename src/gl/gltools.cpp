@@ -47,15 +47,6 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 //! \file gltools.cpp GL helper functions
 
-BoneWeightsUNorm::BoneWeightsUNorm(QVector<QPair<quint16, quint16>> weights)
-{
-	weightsUNORM.resize(weights.size());
-	for ( int i = 0; i < weights.size(); i++ ) {
-		weightsUNORM[i] = BoneWeightUNORM16(weights[i].first, weights[i].second / 65535.0);
-	}
-}
-
-
 /*
  *  Bound Sphere
  */
@@ -461,11 +452,39 @@ void drawGrid( int s /* grid size */, int line /* line spacing */, int sub /* # 
 	glDisable( GL_BLEND );
 }
 
+const int CIRCLE_SEGMENTS = 120;
+
 void drawCircle( const Vector3 & c, const Vector3 & n, float r, int sd )
 {
 	Vector3 x = Vector3::crossproduct( n, Vector3( n[1], n[2], n[0] ) );
 	Vector3 y = Vector3::crossproduct( n, x );
 	drawArc( c, x * r, y * r, -PI, +PI, sd );
+}
+
+static float angleSection( double fullAngle, int nSection, int nTotalSections )
+{
+	if ( nSection == 0 )
+		return 0.0f;
+	if ( nSection == nTotalSections )
+		return fullAngle;
+	return fullAngle * double(nSection) / double(nTotalSections); 
+}
+
+static float angleSection( double angleStart, double angleEnd, int nSection, int nTotalSections )
+{
+	if ( nSection == 0 )
+		return angleStart;
+	if ( nSection == nTotalSections )
+		return angleEnd;
+	return ( (angleEnd - angleStart) * double(nSection) / double(nTotalSections) ) + angleStart;
+}
+
+void glVertexArc( const Vector3 & center, const Vector3 & arcv1, const Vector3 & arcv2, double angleStart, double angleEnd, int nSections )
+{
+	for ( int i = 0; i <= nSections; i++ ) {
+		float angle = angleSection( angleStart, angleEnd, i, nSections );
+		glVertex( center + arcv1 * sin( angle ) + arcv2 * cos( angle ) );
+	}
 }
 
 void drawArc( const Vector3 & c, const Vector3 & x, const Vector3 & y, float an, float ax, int sd )
@@ -705,6 +724,32 @@ void drawSphere( const Vector3 & c, float r, int sd )
 		for ( int i = 0; i <= sd * 2; i++ )
 			glVertex( Vector3( 0, sin( PI / sd * i ), cos( PI / sd * i ) ) * rj + cj );
 
+		glEnd();
+	}
+}
+
+void drawSphereNew( const Vector3 & center, float radius, int segments, const Transform & transform )
+{
+	Transform radTrans( transform );
+	radTrans.translation = Vector3();
+
+	Vector3 c = transform * center;
+
+	for ( int z = 1; z < segments; z++ ) {
+		float angle = angleSection( PI, z, segments );
+		Vector3 cz = c + radTrans *  Vector3( 0, 0, radius * cos(angle) );
+		float rz = radius * sin(angle);
+
+		glBegin( GL_LINE_STRIP );
+		glVertexArc( cz, radTrans * Vector3( rz, 0, 0 ), radTrans * Vector3( 0, rz, 0 ), -PI, PI, CIRCLE_SEGMENTS );
+		glEnd();
+	}
+
+	Vector3 vz = radTrans * Vector3( 0, 0, radius );
+	for ( int x = 0; x < segments; x++ ) {
+		float angle = angleSection( PI, x, segments );
+		glBegin(GL_LINE_STRIP);
+		glVertexArc( c, radTrans * Vector3( radius * cos(angle), radius * sin(angle), 0 ), vz, -PI, PI, CIRCLE_SEGMENTS );
 		glEnd();
 	}
 }

@@ -46,6 +46,8 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 //! @file niftypes.h Matrix, Matrix4, Triangle, Vector2, Vector3, Vector4, Color3, Color4, Quat
 
+using NifSkopeFlagsType = unsigned int;
+
 #ifndef PI
 #define PI M_PI
 #endif
@@ -249,6 +251,11 @@ inline QDataStream & operator>>( QDataStream & ds, Vector2 & v )
 	ds >> v.xy[0] >> v.xy[1];
 	return ds;
 }
+
+//! Texture coordinates (UV map)
+using TexCoords = QVector<Vector2>;
+Q_DECLARE_TYPEINFO(TexCoords, Q_MOVABLE_TYPE);
+
 
 //! A vector of 3 floats
 class Vector3
@@ -1138,10 +1145,9 @@ public:
 	QString toString() const;
 };
 
-//! A triangle
-
 typedef quint16 TriVertexIndex;
 
+//! A triangle
 class Triangle
 {
 public:
@@ -1223,6 +1229,12 @@ inline float clamp01( float a )
 
 	return a;
 }
+
+
+//! Triangle strip
+using TriStrip = QVector<TriVertexIndex>;
+Q_DECLARE_TYPEINFO(TriStrip, Q_MOVABLE_TYPE);
+
 
 //! A 3 value color (RGB)
 class Color3

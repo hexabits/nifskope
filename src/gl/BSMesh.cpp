@@ -5,11 +5,20 @@
 #include "gl/renderer.h"
 #include "io/material.h"
 #include "io/nifstream.h"
+#include "io/MeshFile.h"
 #include "model/nifmodel.h"
 
 #include <QDir>
 #include <QBuffer>
 
+
+BoneWeightsUNorm::BoneWeightsUNorm(QVector<QPair<quint16, quint16>> weights)
+{
+	weightsUNORM.resize(weights.size());
+	for ( int i = 0; i < weights.size(); i++ ) {
+		weightsUNORM[i] = BoneWeightUNORM16(weights[i].first, weights[i].second / 65535.0);
+	}
+}
 
 BSMesh::BSMesh(Scene* s, const QModelIndex& iBlock) : Shape(s, iBlock)
 {

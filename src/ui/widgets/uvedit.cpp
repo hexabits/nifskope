@@ -990,9 +990,7 @@ bool UVWidget::setTexCoords()
 		if ( !iPoints.isValid() )
 			return false;
 
-		for ( int r = 0; r < nif->rowCount( iPoints ); r++ ) {
-			tris += triangulate( nif->getArray<quint16>( iPoints.child( r, 0 ) ) );
-		}
+		tris = triangulateStrips( nif, iPoints );
 	} else if ( nif->blockInherits( iShape, "BSTriShape" ) ) {
 		if ( !isDataOnSkin ) {
 			tris = nif->getArray<Triangle>( iShape, "Triangles" );

@@ -96,12 +96,7 @@ static void writeData( const NifModel * nif, const QModelIndex & iData, QTextStr
 		QModelIndex iPoints = nif->getIndex( iData, "Points" );
 
 		if ( iPoints.isValid() ) {
-			QVector<QVector<quint16> > strips;
-
-			for ( int r = 0; r < nif->rowCount( iPoints ); r++ )
-				strips.append( nif->getArray<quint16>( iPoints.child( r, 0 ) ) );
-
-			tris = triangulate( strips );
+			tris = triangulateStrips( nif, iPoints );
 		} else {
 			tris = nif->getArray<Triangle>( iData, "Triangles" );
 		}
@@ -1061,7 +1056,8 @@ void importObjMain( NifModel * nif, const QModelIndex & index, bool collision )
 			nif->set<float>( iData, "Radius", radius );
 
 			// do not stitch, because it looks better in the cs
-			QVector<QVector<quint16> > strips = stripify( triangles );
+			// FIXME: "do not stitch" in the comment above contradicts the declaration of stripifyTriangles with its ", bool stitch = true".
+			auto strips = stripifyTriangles( triangles );
 
 			nif->set<int>( iData, "Num Strips", strips.count() );
 			nif->set<int>( iData, "Has Points", 1 );
@@ -1074,11 +1070,11 @@ void importObjMain( NifModel * nif, const QModelIndex & index, bool collision )
 				nif->updateArraySize( iPoints );
 				int x = 0;
 				int z = 0;
-				for ( const QVector<quint16> & strip : strips ) {
+				for ( const auto & strip : strips ) {
 					nif->set<int>( iLengths.child( x, 0 ), strip.count() );
 					QModelIndex iStrip = iPoints.child( x, 0 );
 					nif->updateArraySize( iStrip );
-					nif->setArray<quint16>( iStrip, strip );
+					nif->setArray<TriVertexIndex>( iStrip, strip );
 					x++;
 					z += strip.count() - 2;
 				}

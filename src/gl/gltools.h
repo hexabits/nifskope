@@ -42,13 +42,6 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 //! @file gltools.h BoundSphere, VertexWeight, BoneWeights, SkinPartition
 
-
-using TriStrip = QVector<TriVertexIndex>;
-Q_DECLARE_TYPEINFO(TriStrip, Q_MOVABLE_TYPE);
-using TexCoords = QVector<Vector2>;
-Q_DECLARE_TYPEINFO(TexCoords, Q_MOVABLE_TYPE);
-
-
 //! A bounding sphere for an object, typically a Mesh
 class BoundSphere final
 {
@@ -83,52 +76,12 @@ class VertexWeight final
 {
 public:
 	VertexWeight()
-	{ vertex = 0; weight = 0.0; }
+		: vertex( 0 ), weight( 0.0f ) {}
 	VertexWeight( int v, float w )
-	{ vertex = v; weight = w; }
+		: vertex( v ), weight( w ) {}
 
 	int vertex;
 	float weight;
-};
-
-//! A bone, weight pair
-class BoneWeightUNORM16 final
-{
-public:
-	BoneWeightUNORM16()
-	{
-		bone = 0; weight = 0.0;
-	}
-	BoneWeightUNORM16(quint16 b, float w)
-	{
-		bone = b; weight = w;
-	}
-
-	quint16 bone;
-	float weight;
-};
-
-//! A set of vertices weighted to a bone
-class SkinBone
-{
-public:
-	SkinBone() {}
-	SkinBone( NifFieldConst transformEntry, int nodeLink )
-		: baseTransform( transformEntry ), nodeLink( nodeLink ) {}
-
-	Transform baseTransform;
-	Transform transform;
-	int nodeLink = -1;
-	QVector<VertexWeight> vertexWeights;
-};
-
-class BoneWeightsUNorm : public SkinBone
-{
-public:
-	BoneWeightsUNorm() {}
-	BoneWeightsUNorm(QVector<QPair<quint16, quint16>> weights);
-
-	QVector<BoneWeightUNORM16> weightsUNORM;
 };
 
 float bhkScale( const NifModel * nif );
@@ -152,6 +105,7 @@ void drawSolidArc( const Vector3 & c, const Vector3 & n, const Vector3 & x, cons
 void drawCone( const Vector3 & c, Vector3 n, float a, int sd = 16 );
 void drawRagdollCone( const Vector3 & pivot, const Vector3 & twist, const Vector3 & plane, float coneAngle, float minPlaneAngle, float maxPlaneAngle, int sd = 16 );
 void drawSphereSimple( const Vector3 & c, float r, int sd = 36 );
+void drawSphereNew( const Vector3 & center, float radius, int segments, const Transform & transform );
 void drawSphere( const Vector3 & c, float r, int sd = 8 );
 void drawCapsule( const Vector3 & a, const Vector3 & b, float r, int sd = 5 );
 void drawDashLine( const Vector3 & a, const Vector3 & b, int sd = 15 );
@@ -184,6 +138,11 @@ inline void glVertex( const Vector3 & v )
 inline void glVertex( const Vector4 & v )
 {
 	glVertex3fv( v.data() );
+}
+
+inline void glVertex( const Vector3 * pv )
+{
+	glVertex3fv( pv->data() );
 }
 
 inline void glNormal( const Vector3 & v )
@@ -231,6 +190,16 @@ inline void glMultMatrix( const Transform & t )
 	glMultMatrix( t.toMatrix4() );
 }
 
+inline void glDrawTriangles( const QVector<Triangle> & tris, int iStartOffset, int nTris )
+{
+	if ( nTris > 0)
+		glDrawElements( GL_TRIANGLES, nTris * 3, GL_UNSIGNED_SHORT, tris.constData() + iStartOffset );
+}
+
+inline void glDrawTriangles( const QVector<Triangle> & tris )
+{
+	glDrawTriangles( tris, 0, tris.count() );
+}
 
 inline GLuint glClosestMatch( GLuint * buffer, GLint hits )
 {

@@ -39,6 +39,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "io/material.h"
 #include "io/nifstream.h"
 #include "model/nifmodel.h"
+#include "lib/nvtristripwrapper.h"
 
 #include <QBuffer>
 #include <QDebug>
@@ -46,15 +47,13 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <QOpenGLFunctions>
 
-
-
 //! @file glmesh.cpp Scene management for visible meshes such as NiTriShapes.
 
 void Mesh::updateImpl( const NifModel * nif, const QModelIndex & index )
 {
 	Shape::updateImpl(nif, index);
 
-	if ( index == iData || index == iTangentData )
+	if ( index == iData || index == iExtraData )
 		needUpdateData = true;
 }
 
@@ -441,70 +440,75 @@ void Mesh::updateData_NiTriShape( const NifModel * nif )
 	auto vertexDataRoot = dataBlock.child("Vertices");
 	verts = vertexDataRoot.array<Vector3>();
 	numVerts = verts.count();
+	addSelection( vertexDataRoot, ShapeSelectionType::VERTICES );
 
 	auto normalsField = dataBlock.child("Normals");
 	if ( normalsField ) {
+		reportCountMismatch( normalsField, vertexDataRoot, dataBlock );
 		hasVertexNormals = true;
 		norms = normalsField.array<Vector3>();
+		addSelection( normalsField, ShapeSelectionType::NORMALS );
 	}
 
-	auto tangentsField = dataBlock.child("Tangents");
-	if ( tangentsField ) {
-		hasVertexTangents = true;
-		tangents = tangentsField.array<Vector3>();
-	}
-
-	auto bitangentsField = dataBlock.child("Bitangents");
-	if ( bitangentsField ) {
-		hasVertexBitangents = true;
-		bitangents = bitangentsField.array<Vector3>();
-	}
-
+	NifFieldConst extraTangents;
 	for ( auto extraLink : block.child("Extra Data List").linkArray() ) {
-		auto extraBlock = nif->block(extraLink);
-		if ( extraBlock.inherits("NiBinaryExtraData") && extraBlock.child("Name").value<QString>() == QLatin1String("Tangent space (binormal & tangent vectors)") ) {
+		auto extraBlock = nif->block( extraLink );
+		if ( extraBlock.inherits("NiBinaryExtraData") && extraBlock.child("Name").value<QString>() == QStringLiteral("Tangent space (binormal & tangent vectors)") ) {
+			extraTangents = extraBlock;
+			break;
+		}
+	}
+	if ( extraTangents ) {
+		hasVertexTangents = true;
+		hasVertexBitangents = true;
+		iExtraData = extraTangents.toIndex(); // ???
+		auto extraDataRoot = extraTangents["Binary Data"];
+		QByteArray extraData = extraDataRoot.value<QByteArray>();
+		int nExtraCount = extraData.count() / ( sizeof(Vector3) * 2 );
+		reportCountMismatch( vertexDataRoot, numVerts, extraDataRoot, nExtraCount, block );
+		tangents.resize(nExtraCount);
+		bitangents.resize(nExtraCount);
+		Vector3 * t = (Vector3 *) extraData.data();
+		for ( int i = 0; i < nExtraCount; i++ )
+			tangents[i] = *t++;
+		for ( int i = 0; i < nExtraCount; i++ )
+			bitangents[i] = *t++;
+		addSelection( extraDataRoot, ShapeSelectionType::EXTRA_TANGENTS );
+	} else {
+		auto tangentsField = dataBlock.child("Tangents");
+		if ( tangentsField ) {
+			reportCountMismatch( tangentsField, vertexDataRoot, dataBlock );
 			hasVertexTangents = true;
+			tangents = tangentsField.array<Vector3>();
+			addSelection( tangentsField, ShapeSelectionType::TANGENTS );
+		}
+
+		auto bitangentsField = dataBlock.child("Bitangents");
+		if ( bitangentsField ) {
+			reportCountMismatch( tangentsField, vertexDataRoot, dataBlock );
 			hasVertexBitangents = true;
-			iTangentData = extraBlock.toIndex(); // ???
-			auto extraDataRoot = extraBlock.child("Binary Data");
-			QByteArray extraData = extraDataRoot.value<QByteArray>();
-			int nExtraCount = extraData.count() / ( sizeof(Vector3) * 2 );
-			reportCountMismatch( vertexDataRoot, numVerts, extraDataRoot, nExtraCount, block );
-			tangents.resize(nExtraCount);
-			bitangents.resize(nExtraCount);
-			Vector3 * t = (Vector3 *) extraData.data();
-			for ( int i = 0; i < nExtraCount; i++ )
-				tangents[i] = *t++;
-			for ( int i = 0; i < nExtraCount; i++ )
-				bitangents[i] = *t++;
+			bitangents = bitangentsField.array<Vector3>();
+			addSelection( bitangentsField, ShapeSelectionType::BITANGENTS );
 		}
 	}
 
-	auto uvSets = dataBlock.child("UV Sets");
-	if ( uvSets ) {
+	auto uvSetsRoot = dataBlock.child("UV Sets");
+	if ( uvSetsRoot ) {
 		hasVertexUVs = true;
-		for ( auto uvSet : uvSets.iter() )
-			coords.append( uvSet.array<Vector2>() );
+		for ( auto uvSetField : uvSetsRoot.iter() ) {
+			reportCountMismatch( uvSetField, vertexDataRoot, dataBlock );
+			coords.append( uvSetField.array<Vector2>() );
+			addSelection( uvSetField, ShapeSelectionType::VERTICES );
+		}
+		addSelection( uvSetsRoot, ShapeSelectionType::VERTEX_ROOT );
 	}
 
 	auto colorsField = dataBlock.child("Vertex Colors");
 	if ( colorsField ) {
+		reportCountMismatch( colorsField, vertexDataRoot, dataBlock );
 		hasVertexColors = true;
 		colors = colorsField.array<Color4>();
-	}
-
-	// LODs
-	if ( block.isBlockType( "BSLODTriShape" ) ) {
-		isLOD = true;
-
-		auto lod0 = block["LOD0 Size"].value<uint>();
-		auto lod1 = block["LOD1 Size"].value<uint>();
-		auto lod2 = block["LOD2 Size"].value<uint>();
-
-		lodRanges.resize( 3 );
-		lodRanges[0] = addTriangleRange( NifFieldConst(), 0, lod0 );
-		lodRanges[1] = addTriangleRange( NifFieldConst(), lod0, lod1 );
-		lodRanges[2] = addTriangleRange( NifFieldConst(), lod0 + lod1, lod2 );
+		addSelection( colorsField, ShapeSelectionType::VERTICES );
 	}
 
 	// Fill triangle/strips data
@@ -512,15 +516,9 @@ void Mesh::updateData_NiTriShape( const NifModel * nif )
 		if ( dataBlock.isBlockType("NiTriShapeData") ) {
 			addTriangles( dataBlock.child("Triangles") );
 		} else if ( dataBlock.isBlockType("NiTriStripsData") ) {
-			auto stripPoints = dataBlock.child("Points");
-			if ( stripPoints ) {
-				for ( auto ps : stripPoints.iter() )
-					tristrips.append( ps.array<quint16>() );
-			} else {
-				dataBlock.reportError( tr("Invalid 'Points' array") );
-			}
+			addStrips( dataBlock.child("Points"), 0 );
 		} else {
-			dataBlock.reportError( tr("Could not find triangles or strips") );
+			dataBlock.reportError( tr("Could not find triangles or strips in data block of type '%1'.").arg( dataBlock.name() ) );
 		}
 	}
 
@@ -537,18 +535,31 @@ void Mesh::updateData_NiTriShape( const NifModel * nif )
 
 		// Fill vertex weights, triangles, strips
 		if ( skinPartBlock ) {
+			auto partRoot = skinPartBlock.child("Partitions");
+			addSelection( partRoot, ShapeSelectionType::TRIANGLE_ROOT );
+			int nPartitions = partRoot.childCount();
+
+			QVector<TriangleRange *> blockTriRanges( nPartitions );
+			QVector<StripRange *> blockStripRanges( nPartitions );
+
 			QVector<bool> weightedVertices( numVerts );
-			for ( auto partEntry : skinPartBlock.child("Partitions").iter() ) {
+
+			for ( int iPart = 0; iPart < nPartitions; iPart++ ) {
+				auto partEntry = partRoot[iPart];
+
 				// Vertex map
 				auto vertexMapRoot = partEntry.child("Vertex Map");
-				int nPartMappedVertices = vertexMapRoot.childCount();
 				QVector<int> partVertexMap;
-				partVertexMap.reserve( nPartMappedVertices );
-				for ( auto mapEntry : vertexMapRoot.iter() ) {
-					int v = mapEntry.value<int>();
-					if ( v < 0 || v >= numVerts )
-						mapEntry.reportError( tr("Invalid vertex index %1").arg(v) );
-					partVertexMap << v;
+				int nPartMappedVertices = vertexMapRoot.childCount();
+				if ( nPartMappedVertices > 0 ) {
+					partVertexMap.reserve( nPartMappedVertices );
+					for ( auto mapEntry : vertexMapRoot.iter() ) {
+						int v = mapEntry.value<int>();
+						if ( v < 0 || v >= numVerts )
+							mapEntry.reportError( tr("Invalid vertex index %1").arg(v) );
+						partVertexMap << v;
+					}
+					addSelection( vertexMapRoot, ShapeSelectionType::VERTICES, vertexMapRoot );
 				}
 
 				// Bone map
@@ -573,9 +584,13 @@ void Mesh::updateData_NiTriShape( const NifModel * nif )
 					reportCountMismatch( boneIndicesRoot, vertexMapRoot, partEntry );
 					if ( nPartMappedVertices < nDataVerts )
 						nDataVerts = nPartMappedVertices;
+					addSelection( boneIndicesRoot, ShapeSelectionType::VERTICES, vertexMapRoot );
+					addSelection( weightsRoot, ShapeSelectionType::VERTICES, vertexMapRoot );
 				} else {
-					if ( numVerts < nDataVerts )
+					if ( nDataVerts > numVerts )
 						nDataVerts = numVerts;
+					addSelection( boneIndicesRoot, ShapeSelectionType::VERTICES );
+					addSelection( weightsRoot, ShapeSelectionType::VERTICES );
 				}
 				for ( int v = 0; v < nDataVerts; v++ ) {
 					int vind;
@@ -611,55 +626,104 @@ void Mesh::updateData_NiTriShape( const NifModel * nif )
 
 				// Triangles
 				auto partTrisRoot = partEntry.child("Triangles");
-				if ( nPartMappedVertices > 0 ) {
-					QVector<Triangle> tris;
-					tris.reserve( partTrisRoot.childCount() );
-					for ( auto triEntry : partTrisRoot.iter() ) {
-						Triangle t = triEntry.value<Triangle>();
-						bool success = true;
-						for ( TriVertexIndex & tv : t.v ) {
-							if ( tv < nPartMappedVertices ) {
-								tv = partVertexMap[tv];
-							} else {
-								triEntry.reportError( tr("Invalid vertex map index %1").arg(tv) );
-								success = false;
+				if ( partTrisRoot ) {
+					int iPartStart = triangles.count();
+
+					if ( nPartMappedVertices > 0 ) {
+						QVector<Triangle> tris;
+						tris.reserve( partTrisRoot.childCount() );
+						for ( auto triEntry : partTrisRoot.iter() ) {
+							Triangle t = triEntry.value<Triangle>();
+							bool success = true;
+							for ( TriVertexIndex & tv : t.v ) {
+								if ( tv < nPartMappedVertices ) {
+									tv = partVertexMap[tv];
+								} else {
+									triEntry.reportError( tr("Invalid vertex map index %1").arg(tv) );
+									success = false;
+								}
 							}
+							if ( !success ) {
+								// Intentionally break all vertices of the triangle if any of them failed mapping.
+								// Then it will be discarded on post-update triangles cleanup.
+								// Even in the worst case (the total number of vertices in the shape is (Triangle::MAX_VERTEX_INDEX + 1) or greater) 
+								// the triangle still won't be rendered.
+								t.set( Triangle::MAX_VERTEX_INDEX, Triangle::MAX_VERTEX_INDEX, Triangle::MAX_VERTEX_INDEX );
+							}
+							tris << t;
 						}
-						if ( !success ) {
-							// Intentionally break all vertices of the triangle if any of them failed mapping.
-							// Then it will be discarded on post-update triangles cleanup.
-							// In the worst case (the total number of vertices in the shape is (Triangle::MAX_VERTEX_INDEX + 1) or greater) it still won't be rendered.
-							t.set( Triangle::MAX_VERTEX_INDEX, Triangle::MAX_VERTEX_INDEX, Triangle::MAX_VERTEX_INDEX );
-						}
-						tris << t;
+						addTriangles( partTrisRoot, tris );
+					} else {
+						addTriangles( partTrisRoot);
 					}
-					addTriangles( partTrisRoot, tris );
-				} else {
-					addTriangles( partTrisRoot );
+
+					blockTriRanges[iPart] = addTriangleRange( partEntry, TriangleRange::FLAG_HIGHLIGHT, iPartStart );
 				}
 
 				// Strips
 				auto partStripsRoot = partEntry.child("Strips");
-				if ( nPartMappedVertices > 0 ) {
-					for ( auto stripEntry: partStripsRoot.iter() ) {
-						TriStrip stripPoints;
-						stripPoints.reserve( stripEntry.childCount() );
-						for ( auto pointEntry : stripEntry.iter() ) {
-							TriVertexIndex p = pointEntry.value<TriVertexIndex>();
-							if ( p < nPartMappedVertices ) {
-								p = partVertexMap[p];
-							} else {
-								pointEntry.reportError( tr("Invalid vertex map index %1").arg(p) );
-								p = Triangle::MAX_VERTEX_INDEX;
+				if ( partStripsRoot ) {
+					int iPartStart = stripTriangles.count();
+
+					if ( nPartMappedVertices > 0 ) {
+						for ( auto stripEntry: partStripsRoot.iter() ) {
+							TriStrip stripPoints;
+							stripPoints.reserve( stripEntry.childCount() );
+							for ( auto pointEntry : stripEntry.iter() ) {
+								TriVertexIndex p = pointEntry.value<TriVertexIndex>();
+								if ( p >= nPartMappedVertices ) {
+									pointEntry.reportError( tr("Invalid vertex map index %1").arg(p) );
+								}
+								stripPoints << p;
 							}
-							stripPoints << p;
+
+							QVector<Triangle> stripTris = triangulateStrip( stripPoints );
+							for ( auto & t : stripTris ) {
+								if ( t[0] >= nPartMappedVertices || t[1] >= nPartMappedVertices || t[2] >= nPartMappedVertices ) {
+									// Intentionally break all vertices of the triangle if any of them failed mapping.
+									// Then it will be discarded on post-update triangles cleanup.
+									// Even in the worst case (the total number of vertices in the shape is (Triangle::MAX_VERTEX_INDEX + 1) or greater) 
+									// the triangle still won't be rendered.
+									t.set( Triangle::MAX_VERTEX_INDEX, Triangle::MAX_VERTEX_INDEX, Triangle::MAX_VERTEX_INDEX );
+								}
+							}
+							addStrip( stripEntry, stripTris, vertexMapRoot );
 						}
-						tristrips << stripPoints;
+						addStripRange( partStripsRoot, TriangleRange::FLAG_HIGHLIGHT, iPartStart );
+					} else {
+						addStrips( partStripsRoot, TriangleRange::FLAG_HIGHLIGHT );
 					}
-				} else {
-					for ( auto stripEntry: partStripsRoot.iter() )
-						tristrips << stripEntry.array<TriVertexIndex>();
+
+					blockStripRanges[iPart] = addStripRange( partEntry, TriangleRange::FLAG_HIGHLIGHT, iPartStart );
 				}
+
+				// Add an empty selection range for partEntry if the partition has no triangles and strips at all.
+				TriangleRange * r = blockTriRanges[iPart];
+				if ( !r ) {
+					r = blockStripRanges[iPart];
+					if ( !r )
+						r = addTriangleRange( partEntry, TriangleRange::FLAG_HIGHLIGHT, 0, 0 );
+				}
+				addPartitionBoneSelection( boneMapRoot, r );
+			}
+
+			// Add selection ranges for Partitions in skinBlock
+			auto otherPartRoot = skinBlock.child("Partitions");
+			addSelection( otherPartRoot, ShapeSelectionType::TRIANGLE_ROOT );
+			for ( int iPart = 0, nOtherPartititions = otherPartRoot.childCount(); iPart < nOtherPartititions; iPart++ ) {
+				const NifSkopeFlagsType PART_RANGE_FLAGS = TriangleRange::FLAG_HIGHLIGHT | TriangleRange::FLAG_DEEP;
+
+				auto rangeTris = blockTriRanges.value( iPart, nullptr );
+				if ( rangeTris )
+					addTriangleRange( otherPartRoot[iPart], PART_RANGE_FLAGS, rangeTris->start, rangeTris->length );
+
+				auto rangeStrips = blockStripRanges.value( iPart, nullptr );
+				if ( rangeStrips )
+					addStripRange( otherPartRoot[iPart], PART_RANGE_FLAGS, rangeStrips->start, rangeStrips->length, NifFieldConst() );
+
+				// Fallback
+				if ( !rangeTris && !rangeStrips )
+					addTriangleRange( otherPartRoot[iPart], PART_RANGE_FLAGS, 0, 0 );
 			}
 
 		} else if ( skinDataBlock.child("Has Vertex Weights").value<unsigned char>() ) {
@@ -691,6 +755,14 @@ void Mesh::updateData_NiTriShape( const NifModel * nif )
 			}
 		}
 	}
+
+	// LODs
+	if ( block.isBlockType( "BSLODTriShape" ) ) {
+		initLodData( block );
+	}
+
+	// Bounding sphere
+	addBoundSphereSelection( dataBlock.child("Bounding Sphere") );
 }
 
 QModelIndex Mesh::vertexAt( int idx ) const
@@ -735,503 +807,6 @@ BoundSphere Mesh::bounds() const
 	}
 
 	return worldTrans() * boundSphere;
-}
-
-void Mesh::drawShapes( NodeList * secondPass, bool presort )
-{
-	if ( isHidden() )
-		return;
-
-	// TODO: Only run this if BSXFlags has "EditorMarkers present" flag
-	if ( !scene->hasOption(Scene::ShowMarkers) && name.startsWith( "EditorMarker" ) )
-		return;
-
-	// BSOrderedNode
-	presorted |= presort;
-
-	// Draw translucent meshes in second pass
-	if ( secondPass && drawInSecondPass ) {
-		secondPass->add( this );
-		return;
-	}
-
-	auto nif = NifModel::fromIndex( iBlock );
-	
-	if ( Node::SELECTING ) {
-		if ( scene->isSelModeObject() ) {
-			int s_nodeId = ID2COLORKEY( nodeId );
-			glColor4ubv( (GLubyte *)&s_nodeId );
-		} else {
-			glColor4f( 0, 0, 0, 1 );
-		}
-	}
-
-	// TODO: Option to hide Refraction and other post effects
-
-	// rigid mesh? then pass the transformation on to the gl layer
-
-	if ( transformRigid ) {
-		glPushMatrix();
-		glMultMatrix( viewTrans() );
-	}
-
-	//if ( !Node::SELECTING ) {
-	//	qDebug() << viewTrans().translation;
-		//qDebug() << Vector3( nif->get<Vector4>( iBlock, "Translation" ) );
-	//}
-
-	// Debug axes
-	//drawAxes(Vector3(), 35.0);
-
-	// setup array pointers
-
-	// Render polygon fill slightly behind alpha transparency and wireframe
-	glEnable( GL_POLYGON_OFFSET_FILL );
-	if ( drawInSecondPass )
-		glPolygonOffset( 0.5f, 1.0f );
-	else
-		glPolygonOffset( 1.0f, 2.0f );
-
-	glEnableClientState( GL_VERTEX_ARRAY );
-	glVertexPointer( 3, GL_FLOAT, 0, transVerts.constData() );
-
-	if ( !Node::SELECTING ) {
-		if ( transNorms.count() ) {
-			glEnableClientState( GL_NORMAL_ARRAY );
-			glNormalPointer( GL_FLOAT, 0, transNorms.constData() );
-		}
-
-		if ( transColors.count() ) {
-			glEnableClientState( GL_COLOR_ARRAY );
-			glColorPointer( 4, GL_FLOAT, 0, transColors.constData() );
-		} else {
-			glColor( Color3( 1.0f, 1.0f, 1.0f ) );
-		}
-	}
-
-	// TODO: Hotspot.  See about optimizing this.
-	if ( !Node::SELECTING )
-		shader = scene->renderer->setupProgram( this, shader );
-
-	if ( isDoubleSided ) {
-		glDisable( GL_CULL_FACE );
-	}
-
-	if ( isLOD && scene->lodLevel >= 0 && scene->lodLevel < lodRanges.count() ) {
-		for ( int lvl = scene->lodLevel; lvl >= 0; lvl-- )
-			drawTriangles( lodRanges[lvl] );
-	} else {
-		drawTriangles();
-	}
-
-	// render the tristrips
-	for ( auto & s : tristrips )
-		glDrawElements( GL_TRIANGLE_STRIP, s.count(), GL_UNSIGNED_SHORT, s.constData() );
-
-	if ( isDoubleSided ) {
-		glEnable( GL_CULL_FACE );
-	}
-
-	if ( !Node::SELECTING )
-		scene->renderer->stopProgram();
-
-	glDisableClientState( GL_VERTEX_ARRAY );
-	glDisableClientState( GL_NORMAL_ARRAY );
-	glDisableClientState( GL_COLOR_ARRAY );
-
-	glDisable( GL_POLYGON_OFFSET_FILL );
-
-	glPointSize( 8.5 );
-	if ( scene->isSelModeVertex() ) {
-		drawVerts();
-	}
-
-	if ( transformRigid )
-		glPopMatrix();
-}
-
-void Mesh::drawVerts() const
-{
-	glDisable( GL_LIGHTING );
-	glNormalColor();
-
-	glBegin( GL_POINTS );
-
-	for ( int i = 0; i < transVerts.count(); i++ ) {
-		if ( Node::SELECTING ) {
-			int id = ID2COLORKEY( (shapeNumber << 16) + i );
-			glColor4ubv( (GLubyte *)&id );
-		}
-		glVertex( transVerts.value( i ) );
-	}
-
-	// Highlight selected vertex
-	if ( !Node::SELECTING && iData == scene->currentBlock ) {
-		auto idx = scene->currentIndex;
-		if ( idx.data( Qt::DisplayRole ).toString() == "Vertices" ) {
-			glHighlightColor();
-			glVertex( transVerts.value( idx.row() ) );
-		}
-	}
-
-	glEnd();
-}
-
-void Mesh::drawSelection() const
-{
-	if ( scene->hasOption(Scene::ShowNodes) )
-		Node::drawSelection();
-
-	if ( isHidden() || !scene->isSelModeObject() )
-		return;
-
-	auto idx = scene->currentIndex;
-	auto blk = scene->currentBlock;
-
-	auto nif = NifModel::fromIndex( idx );
-	if ( !nif )
-		return;
-
-	if ( blk != iBlock && blk != iData && blk != iSkinPart && blk != iSkinData
-	     && ( !iTangentData.isValid() || blk != iTangentData ) )
-	{
-		return;
-	}
-
-	if ( transformRigid ) {
-		glPushMatrix();
-		glMultMatrix( viewTrans() );
-	}
-
-	glDisable( GL_LIGHTING );
-	glDisable( GL_COLOR_MATERIAL );
-	glDisable( GL_TEXTURE_2D );
-	glDisable( GL_NORMALIZE );
-	glEnable( GL_DEPTH_TEST );
-	glDepthMask( GL_FALSE );
-	glEnable( GL_BLEND );
-	glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
-	glDisable( GL_ALPHA_TEST );
-
-	glDisable( GL_CULL_FACE );
-
-	glEnable( GL_POLYGON_OFFSET_FILL );
-	glPolygonOffset( -1.0f, -2.0f );
-
-	glLineWidth( 1.0 );
-	glPointSize( 3.5 );
-
-	QString n;
-	int i = -1;
-
-	if ( blk == iBlock || idx == iData ) {
-		n = "Faces";
-	} else if ( blk == iData || blk == iSkinPart ) {
-		n = idx.data( NifSkopeDisplayRole ).toString();
-
-		QModelIndex iParent = idx.parent();
-		if ( iParent.isValid() && iParent != iData ) {
-			n = iParent.data( NifSkopeDisplayRole ).toString();
-			i = idx.row();
-		}
-	} else if ( blk == iTangentData ) {
-		n = "TSpace";
-	} else {
-		n = idx.data( NifSkopeDisplayRole ).toString();
-	}
-
-	glDepthFunc( GL_LEQUAL );
-	glNormalColor();
-
-	glPolygonMode( GL_FRONT_AND_BACK, GL_POINT );
-
-	if ( n == "Vertices" || n == "Normals" || n == "Vertex Colors"
-	     || n == "UV Sets" || n == "Tangents" || n == "Bitangents" )
-	{
-		glBegin( GL_POINTS );
-
-		for ( int j = 0; j < transVerts.count(); j++ )
-			glVertex( transVerts.value( j ) );
-
-		glEnd();
-
-		if ( i >= 0 ) {
-			glDepthFunc( GL_ALWAYS );
-			glHighlightColor();
-			glBegin( GL_POINTS );
-			glVertex( transVerts.value( i ) );
-			glEnd();
-		}
-	}
-
-	if ( n == "Points" ) {
-		glBegin( GL_POINTS );
-		auto nif = NifModel::fromIndex( iData );
-		QModelIndex points = nif->getIndex( iData, "Points" );
-
-		if ( points.isValid() ) {
-			for ( int j = 0; j < nif->rowCount( points ); j++ ) {
-				QModelIndex iPoints = points.child( j, 0 );
-
-				for ( int k = 0; k < nif->rowCount( iPoints ); k++ ) {
-					glVertex( transVerts.value( nif->get<quint16>( iPoints.child( k, 0 ) ) ) );
-				}
-			}
-		}
-
-		glEnd();
-
-		if ( i >= 0 ) {
-			glDepthFunc( GL_ALWAYS );
-			glHighlightColor();
-			glBegin( GL_POINTS );
-			QModelIndex iPoints = points.child( i, 0 );
-
-			if ( nif->isArray( idx ) ) {
-				for ( int j = 0; j < nif->rowCount( iPoints ); j++ ) {
-					glVertex( transVerts.value( nif->get<quint16>( iPoints.child( j, 0 ) ) ) );
-				}
-			} else {
-				iPoints = idx.parent();
-				glVertex( transVerts.value( nif->get<quint16>( iPoints.child( i, 0 ) ) ) );
-			}
-
-			glEnd();
-		}
-	}
-
-	glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
-
-	// TODO: Reenable as an alternative to MSAA when MSAA is not supported
-	//glEnable( GL_LINE_SMOOTH );
-	//glHint( GL_LINE_SMOOTH_HINT, GL_NICEST );
-
-	if ( n == "Normals" || n == "TSpace" ) {
-		float normalScale = bounds().radius / 20;
-
-		if ( normalScale < 0.1f )
-			normalScale = 0.1f;
-
-		glBegin( GL_LINES );
-
-		for ( int j = 0; j < transVerts.count() && j < transNorms.count(); j++ ) {
-			glVertex( transVerts.value( j ) );
-			glVertex( transVerts.value( j ) + transNorms.value( j ) * normalScale );
-		}
-
-		if ( n == "TSpace" ) {
-			for ( int j = 0; j < transVerts.count() && j < transTangents.count() && j < transBitangents.count(); j++ ) {
-				glVertex( transVerts.value( j ) );
-				glVertex( transVerts.value( j ) + transTangents.value( j ) * normalScale );
-				glVertex( transVerts.value( j ) );
-				glVertex( transVerts.value( j ) + transBitangents.value( j ) * normalScale );
-			}
-		}
-
-		glEnd();
-
-		if ( i >= 0 ) {
-			glDepthFunc( GL_ALWAYS );
-			glHighlightColor();
-			glBegin( GL_LINES );
-			glVertex( transVerts.value( i ) );
-			glVertex( transVerts.value( i ) + transNorms.value( i ) * normalScale );
-			glEnd();
-		}
-	}
-
-	if ( n == "Tangents" ) {
-		float normalScale = bounds().radius / 20;
-		normalScale /= 2.0f;
-
-		if ( normalScale < 0.1f )
-			normalScale = 0.1f;
-
-		glBegin( GL_LINES );
-
-		for ( int j = 0; j < transVerts.count() && j < transTangents.count(); j++ ) {
-			glVertex( transVerts.value( j ) );
-			glVertex( transVerts.value( j ) + transTangents.value( j ) * normalScale * 2 );
-			glVertex( transVerts.value( j ) );
-			glVertex( transVerts.value( j ) - transTangents.value( j ) * normalScale / 2 );
-		}
-
-		glEnd();
-
-		if ( i >= 0 ) {
-			glDepthFunc( GL_ALWAYS );
-			glHighlightColor();
-			glBegin( GL_LINES );
-			glVertex( transVerts.value( i ) );
-			glVertex( transVerts.value( i ) + transTangents.value( i ) * normalScale * 2 );
-			glVertex( transVerts.value( i ) );
-			glVertex( transVerts.value( i ) - transTangents.value( i ) * normalScale / 2 );
-			glEnd();
-		}
-	}
-
-	if ( n == "Bitangents" ) {
-		float normalScale = bounds().radius / 20;
-		normalScale /= 2.0f;
-
-		if ( normalScale < 0.1f )
-			normalScale = 0.1f;
-
-		glBegin( GL_LINES );
-
-		for ( int j = 0; j < transVerts.count() && j < transBitangents.count(); j++ ) {
-			glVertex( transVerts.value( j ) );
-			glVertex( transVerts.value( j ) + transBitangents.value( j ) * normalScale * 2 );
-			glVertex( transVerts.value( j ) );
-			glVertex( transVerts.value( j ) - transBitangents.value( j ) * normalScale / 2 );
-		}
-
-		glEnd();
-
-		if ( i >= 0 ) {
-			glDepthFunc( GL_ALWAYS );
-			glHighlightColor();
-			glBegin( GL_LINES );
-			glVertex( transVerts.value( i ) );
-			glVertex( transVerts.value( i ) + transBitangents.value( i ) * normalScale * 2 );
-			glVertex( transVerts.value( i ) );
-			glVertex( transVerts.value( i ) - transBitangents.value( i ) * normalScale / 2 );
-			glEnd();
-		}
-	}
-
-	if ( n == "Faces" || n == "Triangles" ) {
-		glLineWidth( 1.5f );
-
-		for ( const Triangle& tri : triangles ) {
-			glBegin( GL_TRIANGLES );
-			glVertex( transVerts.value( tri.v1() ) );
-			glVertex( transVerts.value( tri.v2() ) );
-			glVertex( transVerts.value( tri.v3() ) );
-			//glVertex( transVerts.value( tri.v1() ) );
-			glEnd();
-		}
-
-		if ( i >= 0 ) {
-			glPolygonMode( GL_FRONT_AND_BACK, GL_FILL );
-			glDepthFunc( GL_ALWAYS );
-			glHighlightColor();
-			Triangle tri = triangles.value( i );
-			glBegin( GL_TRIANGLES );
-			glVertex( transVerts.value( tri.v1() ) );
-			glVertex( transVerts.value( tri.v2() ) );
-			glVertex( transVerts.value( tri.v3() ) );
-			//glVertex( transVerts.value( tri.v1() ) );
-			glEnd();
-			glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
-		}
-	}
-
-	if ( n == "Faces" || n == "Strips" || n == "Strip Lengths" ) {
-		glLineWidth( 1.5f );
-
-		for ( const TriStrip& strip : tristrips ) {
-			quint16 a = strip.value( 0 );
-			quint16 b = strip.value( 1 );
-
-			for ( int v = 2; v < strip.count(); v++ ) {
-				quint16 c = strip[v];
-
-				if ( a != b && b != c && c != a ) {
-					glBegin( GL_LINE_STRIP );
-					glVertex( transVerts.value( a ) );
-					glVertex( transVerts.value( b ) );
-					glVertex( transVerts.value( c ) );
-					glVertex( transVerts.value( a ) );
-					glEnd();
-				}
-
-				a = b;
-				b = c;
-			}
-		}
-
-		if ( i >= 0 && !tristrips.isEmpty() ) {
-			TriStrip strip = tristrips[i];
-
-			quint16 a = strip.value( 0 );
-			quint16 b = strip.value( 1 );
-
-			for ( int v = 2; v < strip.count(); v++ ) {
-				quint16 c = strip[v];
-
-				if ( a != b && b != c && c != a ) {
-					glDepthFunc( GL_ALWAYS );
-					glHighlightColor();
-					glBegin( GL_LINE_STRIP );
-					glVertex( transVerts.value( a ) );
-					glVertex( transVerts.value( b ) );
-					glVertex( transVerts.value( c ) );
-					glVertex( transVerts.value( a ) );
-					glEnd();
-				}
-
-				a = b;
-				b = c;
-			}
-		}
-	}
-
-	/*
-	if ( n == "Partitions" ) {
-
-		for ( int c = 0; c < partitions.count(); c++ ) {
-			if ( c == i )
-				glHighlightColor();
-			else
-				glNormalColor();
-
-			QVector<int> vmap = partitions[c].vertexMap;
-
-			for ( const Triangle& tri : partitions[c].triangles ) {
-				glBegin( GL_LINE_STRIP );
-				glVertex( transVerts.value( vmap.value( tri.v1() ) ) );
-				glVertex( transVerts.value( vmap.value( tri.v2() ) ) );
-				glVertex( transVerts.value( vmap.value( tri.v3() ) ) );
-				glVertex( transVerts.value( vmap.value( tri.v1() ) ) );
-				glEnd();
-			}
-			for ( const TriStrip& strip : partitions[c].tristrips ) {
-				quint16 a = vmap.value( strip.value( 0 ) );
-				quint16 b = vmap.value( strip.value( 1 ) );
-
-				for ( int v = 2; v < strip.count(); v++ ) {
-					quint16 c = vmap.value( strip[v] );
-
-					if ( a != b && b != c && c != a ) {
-						glBegin( GL_LINE_STRIP );
-						glVertex( transVerts.value( a ) );
-						glVertex( transVerts.value( b ) );
-						glVertex( transVerts.value( c ) );
-						glVertex( transVerts.value( a ) );
-						glEnd();
-					}
-
-					a = b;
-					b = c;
-				}
-			}
-		}
-	}*/
-
-	if ( n == "Bone List" ) {
-		if ( nif->isArray( idx ) ) {
-			for ( int i = 0; i < nif->rowCount( idx ); i++ )
-				boneSphere( nif, idx.child( i, 0 ) );
-		} else {
-			boneSphere( nif, idx );
-		}
-	}
-
-	glDisable( GL_POLYGON_OFFSET_FILL );
-
-	if ( transformRigid )
-		glPopMatrix();
 }
 
 QString Mesh::textStats() const

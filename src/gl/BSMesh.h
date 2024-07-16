@@ -1,6 +1,6 @@
 #pragma once
 #include "glshape.h"
-#include "io/MeshFile.h"
+// #include "io/MeshFile.h"
 
 #include <memory>
 #include <functional>
@@ -9,10 +9,33 @@
 
 class QByteArray;
 class NifModel;
+class MeshFile;
 
 namespace tinygltf {
 	class Model;
 }
+
+//! A bone, weight pair
+class BoneWeightUNORM16 final
+{
+public:
+	BoneWeightUNORM16()
+		: bone( 0 ), weight( 0.0f ) {}
+	BoneWeightUNORM16(quint16 b, float w)
+		: bone( b ), weight( w ) {}
+
+	quint16 bone;
+	float weight;
+};
+
+class BoneWeightsUNorm : public SkinBone
+{
+public:
+	BoneWeightsUNorm() {}
+	BoneWeightsUNorm(QVector<QPair<quint16, quint16>> weights);
+
+	QVector<BoneWeightUNORM16> weightsUNORM;
+};
 
 class BSMesh : public Shape
 {

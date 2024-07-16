@@ -34,7 +34,9 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "gl/controllers.h"
 #include "gl/glscene.h"
+#include "gl/renderer.h"
 #include "io/material.h"
+#include "lib/nvtristripwrapper.h"
 
 Shape::Shape( Scene * s, const QModelIndex & b ) : Node( s, b )
 {
@@ -70,6 +72,175 @@ void Shape::transform()
 	Node::transform();
 }
 
+const GLfloat BIG_VERTEX_SIZE = 8.5f;
+const GLfloat SMALL_VERTEX_SIZE = 5.5f;
+const GLfloat WIREFRAME_LINE_WIDTH = 1.0f;
+const GLfloat VECTOR_LINE_WIDTH = 1.5f;
+const float VECTOR_SCALE_DIV = 20.0f;
+const float VECTOR_MIN_SCALE = 0.5f; // 1.0f;
+const float VECTOR_MAX_SCALE = 25.0f;
+const Color4 BOUND_SPHERE_COLOR( 1, 1, 1, 0.4f );
+const Color4 BOUND_SPHERE_CENTER_COLOR( 1, 1, 1, 1 );
+
+void Shape::drawShapes( NodeList * secondPass, bool presort )
+{
+	if ( numVerts <= 0 || isHidden() )
+		return;
+
+	// TODO: Only run this if BSXFlags has "EditorMarkers present" flag
+	if ( !scene->hasOption(Scene::ShowMarkers) && name.contains( QLatin1String("EditorMarker") ) )
+		return;
+
+	// BSOrderedNode
+	// TODO (Gavrant): I don't understand the purpose of this. Also, in the old code BSShape did not do this.
+	presorted |= presort;
+
+	// Draw translucent meshes in second pass
+	if ( secondPass && drawInSecondPass ) {
+		secondPass->add( this );
+		return;
+	}
+
+	// TODO: Option to hide Refraction and other post effects
+
+	// rigid mesh? then pass the transformation on to the gl layer
+	if ( transformRigid ) {
+		glPushMatrix();
+		glMultMatrix( viewTrans() );
+	}
+
+	// Render polygon fill slightly behind alpha transparency, and alpha transparency - behind wireframe
+	glEnable( GL_POLYGON_OFFSET_FILL );
+	if ( drawInSecondPass )
+		glPolygonOffset( 0.5f, 1.0f );
+	else
+		glPolygonOffset( 1.0f, 2.0f );
+
+	glEnableClientState( GL_VERTEX_ARRAY );
+	glVertexPointer( 3, GL_FLOAT, 0, transVerts.constData() );
+
+	if ( !Node::SELECTING) { // Normal rendering
+		if ( transNorms.count() > 0 ) {
+			glEnableClientState( GL_NORMAL_ARRAY );
+			glNormalPointer( GL_FLOAT, 0, transNorms.constData() );
+		}
+
+		if ( transColors.count() ) {
+			glEnableClientState( GL_COLOR_ARRAY );
+			glColorPointer( 4, GL_FLOAT, 0, transColors.constData() );
+		} else {
+			glColor( Color3( 1.0f, 1.0f, 1.0f ) );
+		}
+
+		if ( sRGB )
+			glEnable( GL_FRAMEBUFFER_SRGB );
+		else
+			glDisable( GL_FRAMEBUFFER_SRGB );
+
+		shader = scene->renderer->setupProgram( this, shader );
+	} else { // Selection rendering
+		if ( scene->isSelModeObject() ) {
+			int s_nodeId = ID2COLORKEY( nodeId );
+			glColor4ubv( (GLubyte *)&s_nodeId );
+		} else
+			glColor4f( 0, 0, 0, 1 );
+
+		glDisable( GL_LIGHTING );
+		glDisable( GL_FRAMEBUFFER_SRGB );
+	}
+
+	if ( isDoubleSided )
+		glDisable( GL_CULL_FACE );
+	else
+		glEnable( GL_CULL_FACE );
+
+	// Draw triangles and strips
+	int lodLevel = isLOD ? scene->lodLevel : -1;
+	if ( lodLevel >= 0 && lodLevel < lodLevels.count() ) {
+		glDrawTriangles( lodLevels[lodLevel] );
+	} else {
+		glDrawTriangles( triangles );
+	}
+
+	glDrawTriangles( stripTriangles );
+
+	// Post-drawing triangles and strips
+	if ( !Node::SELECTING )
+		scene->renderer->stopProgram();
+
+	glDisableClientState( GL_VERTEX_ARRAY );
+	glDisableClientState( GL_NORMAL_ARRAY );
+	glDisableClientState( GL_COLOR_ARRAY );
+
+	glDisable( GL_POLYGON_OFFSET_FILL );
+
+	if ( Node::SELECTING && scene->isSelModeVertex() ) {
+		// glDisable( GL_LIGHTING );
+		glPointSize( BIG_VERTEX_SIZE );
+
+		glBegin( GL_POINTS );
+
+		auto pVerts = transVerts.data();
+		for ( int i = 0; i < numVerts; i++, pVerts++ ) {
+			int id = ID2COLORKEY( (shapeNumber << 16) + i );
+			glColor4ubv( (GLubyte *) &id );
+			glVertex( pVerts );
+		}
+
+		glEnd();
+	}
+
+	if ( transformRigid )
+		glPopMatrix();
+}
+
+void Shape::drawSelection() const
+{
+	// TODO (Gavrant): move glDisable GL_FRAMEBUFFER_SRGB to drawShapes?
+	glDisable( GL_FRAMEBUFFER_SRGB );
+
+	if ( scene->hasOption(Scene::ShowNodes) )
+		Node::drawSelection();
+
+	if ( isHidden() )
+		return;
+
+	auto nif = NifModel::fromValidIndex( iBlock );
+	if ( !nif )
+		return;
+
+	drawSelectionMode = DrawSelectionMode::NO;
+
+	auto selectedField = nif->field( scene->currentIndex );
+	auto selectedBlock = selectedField.block();
+	bool isMyDataBlockSelected;
+	if ( selectedBlock ) {
+		QModelIndex iSelBlock = selectedBlock.toIndex();
+		isMyDataBlockSelected = ( iSelBlock == iBlock || iSelBlock == iData || iSelBlock == iSkin || iSelBlock == iSkinData || iSelBlock == iSkinPart || iSelBlock == iExtraData );
+	} else {
+		isMyDataBlockSelected = false;
+	}
+
+	if ( isMyDataBlockSelected && selectedField != selectedBlock ) {
+		int selectedLevel = selectedField.ancestorLevel( selectedBlock );
+
+		for ( auto pSelection : selections ) {
+			if ( pSelection->block != selectedBlock || pSelection->level > selectedLevel )
+				continue;
+			int iSubLevel = selectedField.ancestorLevel( pSelection->rootField );
+			if ( iSubLevel >= 0 && pSelection->process( selectedField, iSubLevel ) )
+				return;
+		}
+	}
+
+	// Fallback
+	if ( scene->isSelModeVertex() ) {
+		drawSelection_vertices( ShapeSelectionType::VERTICES );
+	} else if ( isMyDataBlockSelected && scene->isSelModeObject() && selectedField == selectedBlock ) {
+		drawSelection_triangles();
+	}
+}
+
 template <typename T> inline void normalizeVectorSize(QVector<T> & v, int nRequiredSize, bool hasVertexData)
 {
 	if ( hasVertexData ) {
@@ -77,6 +248,32 @@ template <typename T> inline void normalizeVectorSize(QVector<T> & v, int nRequi
 			v.resize( nRequiredSize );
 	} else {
 		v.clear();
+	}
+}
+
+void validateTriangles( QVector<Triangle> & tris, QVector<int> & triMap, int numVerts )
+{
+	// Validate triangle data
+	int nTotalTris = tris.count();
+	int nValidTris = 0;
+	if ( nTotalTris > 0 ) {
+		triMap.fill( -1, nTotalTris );
+		for ( int i = 0; i < nTotalTris; i++ ) {
+			const auto & t = tris[i];
+			if ( t[0] < numVerts && t[1] < numVerts && t[2] < numVerts )
+				triMap[i] = nValidTris++;
+		}
+
+		if ( nValidTris < nTotalTris ) {
+			if ( nValidTris > 0 ) {
+				for ( int i = nTotalTris - 1; i >= 0; i-- ) {
+					if ( triMap[i] < 0 )
+						tris.remove(i);
+				}
+			} else {
+				tris.clear();
+			}
+		}
 	}
 }
 
@@ -92,7 +289,7 @@ void Shape::updateData( const NifModel* nif )
 	needUpdateBounds = true; // Force update bounds
 	resetBlockData();
 
-	updateDataImpl(nif);
+	updateDataImpl( nif );
 
 	numVerts = verts.count();
 
@@ -104,49 +301,17 @@ void Shape::updateData( const NifModel* nif )
 	for ( auto & uvset : coords )
 		normalizeVectorSize( uvset, numVerts, hasVertexUVs );
 
-	// Validate triangle data
-	int nTotalTris = triangles.count();
-	int nValidTris = 0;
-	if ( nTotalTris > 0 ) {
-		triangleMap.fill( -1, nTotalTris );
-		for ( int i = 0; i < nTotalTris; i++ ) {
-			const auto & t = triangles[i];
-			if ( t[0] < numVerts && t[1] < numVerts && t[2] < numVerts )
-				triangleMap[i] = nValidTris++;
-		}
+	// Validate triangles
+	validateTriangles( triangles, triangleMap, numVerts );
+	validateTriangles( stripTriangles, stripMap, numVerts );
 
-		if (nValidTris < nTotalTris) {
-			if ( nValidTris > 0 ) {
-				for ( int i = nTotalTris - 1; i >= 0; i-- ) {
-					if ( triangleMap[i] < 0 )
-						triangles.remove(i);
-				}
-			} else {
-				triangles.clear();
-			}
-		}
-	}
+	// Update selections
+	for ( auto pSelection : selections )
+		pSelection->postUpdate();
 
-	// "Normalize" all triangleRanges so they would not point to invalid triangles.
-	for ( TriangleRange * r : triangleRanges ) {
-		int iFirst = std::max( r->start, 0 );
-		int iLast = ( nValidTris > 0 ) ? ( std::min( r->start + r->length, nTotalTris ) - 1 ) : -1;
-
-		if ( nValidTris < nTotalTris ) {
-			while ( iFirst <= iLast && triangleMap[iFirst] < 0 )
-				iFirst++;
-			while ( iLast >= iFirst && triangleMap[iLast] < 0 )
-				iLast--;
-		}
-
-		if ( iFirst <= iLast ) {
-			r->realStart  = triangleMap[iFirst];
-			r->realLength = triangleMap[iLast] - r->realStart + 1;
-		} else {
-			r->realStart  = 0; // Whatever...
-			r->realLength = 0;
-		}
-	}
+	// Sort selections from the highest level to the lowest, 
+	// so the deeper a selection is within its block, the closer to the start the selection would be.
+	std::sort( selections.begin(), selections.end(), []( ShapeSelectionBase * a, ShapeSelectionBase * b ) { return a->level > b->level; });
 
 	if ( isLOD )
 		emit nif->lodSliderChanged( true );
@@ -178,9 +343,9 @@ void Shape::updateImpl( const NifModel * nif, const QModelIndex & index )
 		bssp = properties.get<BSShaderProperty>();
 		if ( bssp ) {
 			auto shaderType = bssp->typeId();
-			if ( shaderType == "BSLightingShaderProperty" )
+			if ( shaderType == QStringLiteral("BSLightingShaderProperty") )
 				bslsp = bssp->cast<BSLightingShaderProperty>();
-			else if ( shaderType == "BSEffectShaderProperty" )
+			else if ( shaderType == QStringLiteral("BSEffectShaderProperty") )
 				bsesp = bssp->cast<BSEffectShaderProperty>();
 		}
 
@@ -196,25 +361,8 @@ void Shape::updateImpl( const NifModel * nif, const QModelIndex & index )
 		updateShader();
 	
 	}
-}
 
-void Shape::boneSphere( const NifModel * nif, const QModelIndex & index ) const
-{
-	Node * root = findParent( 0 );
-	Node * bone = root ? root->findChild( bones.value( index.row() ).nodeLink ) : 0;
-	if ( !bone )
-		return;
-
-	Transform boneT = Transform( nif, index );
-	Transform t = scene->hasOption(Scene::DoSkinning) ? viewTrans() : Transform();
-	t = t * skeletonTrans * bone->localTrans( 0 ) * boneT;
-
-	auto bSphere = BoundSphere( nif, index );
-	if ( bSphere.radius > 0.0 ) {
-		glColor4f( 1, 1, 1, 0.33f );
-		auto pos = boneT.rotation.inverted() * (bSphere.center - boneT.translation);
-		drawSphereSimple( t * pos, bSphere.radius, 36 );
-	}
+	// TODO: trigger update data if any of the shape's bones nodes are updated (or its sceleton root?)
 }
 
 void Shape::reportCountMismatch( NifFieldConst rootEntry1, int entryCount1, NifFieldConst rootEntry2, int entryCount2, NifFieldConst reportEntry ) const
@@ -230,28 +378,30 @@ void Shape::reportCountMismatch( NifFieldConst rootEntry1, int entryCount1, NifF
 	}
 }
 
-TriangleRange * Shape::addTriangleRange( NifFieldConst rangeRootField, int iStart, int nTris )
+TriangleRange * Shape::addTriangles( NifFieldConst rangeRoot, const QVector<Triangle> & tris )
 {
-	TriangleRange * r = new TriangleRange( rangeRootField, iStart, nTris );
-	triangleRanges.append( r );
-	return r;
+	int iStart = triangles.count();
+	triangles << tris;
+	return addTriangleRange( rangeRoot, TriangleRange::FLAG_ARRAY, iStart );
 }
 
-TriangleRange * Shape::addTriangles( NifFieldConst rangeRootField, const QVector<Triangle> & tris)
+StripRange * Shape::addStrip( NifFieldConst stripPointsRoot, const QVector<Triangle> & stripTris, NifFieldConst vertexMapField )
 {
-	if ( tris.count() > 0 ) {
-		int iStart = triangles.count();
-		triangles << tris;
-		return addTriangleRange( rangeRootField, iStart, triangles.count() - iStart );
+	int iStart = stripTriangles.count();
+	stripTriangles << stripTris;
+	return addStripRange( stripPointsRoot, TriangleRange::FLAG_ARRAY | TriangleRange::FLAG_HIGHLIGHT, iStart, vertexMapField );
+}
+
+StripRange * Shape::addStrips( NifFieldConst stripsRoot, NifSkopeFlagsType rangeFlags )
+{
+	if ( stripsRoot ) {
+		int iStart = stripTriangles.count();
+		for ( auto pointsRoot : stripsRoot.iter() )
+			addStrip( pointsRoot, triangulateStrip( pointsRoot.array<TriVertexIndex>() ), NifFieldConst() );
+		return addStripRange( stripsRoot, rangeFlags, iStart );
 	}
 
 	return nullptr;
-}
-
-void Shape::drawTriangles( int iStartOffset, int nTris ) const
-{
-	if ( nTris > 0)
-		glDrawElements( GL_TRIANGLES, nTris * 3, GL_UNSIGNED_SHORT, triangles.constData() + iStartOffset );
 }
 
 void Shape::initSkinBones( NifFieldConst nodeMapRoot, NifFieldConst nodeListRoot, NifFieldConst block )
@@ -259,11 +409,18 @@ void Shape::initSkinBones( NifFieldConst nodeMapRoot, NifFieldConst nodeListRoot
 	reportCountMismatch( nodeMapRoot, nodeListRoot, block );
 	int nTotalBones = std::max( nodeMapRoot.childCount(), nodeListRoot.childCount() );
 	bones.reserve( nTotalBones );
-	for ( int bind = 0; bind < nTotalBones; bind++ )
-		bones << SkinBone( nodeListRoot.child(bind), nodeMapRoot.child(bind).link() );
+	Node * root = findParent( skeletonRoot );
+	for ( int bind = 0; bind < nTotalBones; bind++ ) {
+		auto boneNodeLink = nodeMapRoot.child(bind).link();
+		const Node * boneNode = ( root && boneNodeLink >= 0 ) ? root->findChild( boneNodeLink ) : nullptr;
+		bones << SkinBone( nodeListRoot.child(bind), boneNode );
+	}
+
+	addBoneSelection( nodeMapRoot, nullptr );
+	addBoneSelection( nodeListRoot, nullptr );
 }
 
-void Shape::applySkinningTransforms( const Transform & baseTransform )
+void Shape::applySkinningTransforms( const Transform & skinTransform )
 {
 	transformRigid = false;
 
@@ -276,19 +433,17 @@ void Shape::applySkinningTransforms( const Transform & baseTransform )
 	transBitangents.resize( bitangents.count() );
 	transBitangents.fill( Vector3() );
 
-	Node * root = findParent( skeletonRoot );
 	for ( SkinBone & bone : bones ) {
-		Node * boneNode = root ? root->findChild( bone.nodeLink ) : nullptr;
-		bone.transform = boneNode ?  ( baseTransform * boneNode->localTrans( skeletonRoot ) * bone.baseTransform ) : baseTransform;
+		Transform t = bone.localTransform( skinTransform, skeletonRoot ) * bone.transform;
 
 		for ( const VertexWeight & vw : bone.vertexWeights ) {
-			transVerts[vw.vertex] += bone.transform * verts[vw.vertex] * vw.weight;
+			transVerts[vw.vertex] += t * verts[vw.vertex] * vw.weight;
 			if ( hasVertexNormals )
-				transNorms[vw.vertex] += bone.transform.rotation * norms[vw.vertex] * vw.weight;
+				transNorms[vw.vertex] += t.rotation * norms[vw.vertex] * vw.weight;
 			if ( hasVertexTangents )
-				transTangents[vw.vertex] += bone.transform.rotation * tangents[vw.vertex] * vw.weight;
+				transTangents[vw.vertex] += t.rotation * tangents[vw.vertex] * vw.weight;
 			if ( hasVertexBitangents )
-				transBitangents[vw.vertex] += bone.transform.rotation * bitangents[vw.vertex] * vw.weight;
+				transBitangents[vw.vertex] += t.rotation * bitangents[vw.vertex] * vw.weight;
 		}
 	}
 
@@ -345,28 +500,35 @@ void Shape::resetBlockData()
 	// Vertex data
 	numVerts = 0;
 
-	iData = iTangentData = QModelIndex();
+	iData = iExtraData = QModelIndex();
 
 	hasVertexNormals    = false;
 	hasVertexTangents   = false;
 	hasVertexBitangents = false;
 	hasVertexUVs        = false;
 	hasVertexColors     = false;
+
+	sRGB = false;
 	
 	isLOD = false;
+	lodLevels.clear(); // No need for qDeleteAll here, selections cleanup will take care of it
 
+	// Vertex data
 	verts.clear();
 	norms.clear();
 	colors.clear();
 	coords.clear();
 	tangents.clear();
 	bitangents.clear();
+
+
+	// Triangle data
 	triangles.clear();
 	triangleMap.clear();
-	lodRanges.clear();
-	qDeleteAll(triangleRanges);
-	triangleRanges.clear();
-	tristrips.clear();
+
+	// Strip data
+	stripTriangles.clear();
+	stripMap.clear();
 
 	// Skinning data
 	isSkinned = false;
@@ -377,6 +539,9 @@ void Shape::resetBlockData()
 	skeletonTrans = Transform();
 
 	bones.clear();
+
+	qDeleteAll( selections );
+	selections.clear();
 }
 
 void Shape::updateShader()
@@ -408,4 +573,627 @@ void Shape::updateShader()
 		depthWrite = true;
 		isDoubleSided = false;
 	}
+}
+
+void Shape::initLodData( NifFieldConst block )
+{
+	static constexpr int NUM_LODS = 3;
+	static const QString FIELD_NAMES[NUM_LODS] = {
+		QStringLiteral("LOD0 Size"),
+		QStringLiteral("LOD1 Size"),
+		QStringLiteral("LOD2 Size")
+	};
+
+	isLOD = true;
+
+	lodLevels.resize( NUM_LODS );
+	const NifSkopeFlagsType RANGE_FLAGS = TriangleRange::FLAG_HIGHLIGHT;
+	for ( int iLod = 0, iLodStart = 0; iLod < NUM_LODS; iLod++ ) {
+		auto lodField = block[FIELD_NAMES[iLod]];
+		auto nLodSize = lodField.value<uint>();
+		// TODO: report if iStart + nLodSize exceeds nTriangles
+		int iLodEnd = iLodStart + nLodSize;
+
+		if ( iLodStart != 0 ) {
+			// One range for rendering actual triangles...
+			lodLevels[iLod] = addTriangleRange( NifFieldConst(), RANGE_FLAGS, 0, iLodEnd ); 
+			// Another range for tracking selection...
+			addTriangleRange( lodField, RANGE_FLAGS, iLodStart, nLodSize );
+		} else {
+			// Micro-optimization: one single range both for rendering actual triangles and for tracking selection...
+			lodLevels[iLod] = addTriangleRange( lodField, RANGE_FLAGS, 0, iLodEnd ); 
+		}
+
+		iLodStart = iLodEnd;
+	}
+	// TODO: report if the lods do not cover all triangles
+}
+
+
+// Shape: drawSelection helpers
+
+void Shape::drawSelection_begin( DrawSelectionMode newMode ) const
+{
+	if ( newMode == drawSelectionMode )
+		return;
+
+	auto getUseViewTrans = [this]( DrawSelectionMode drawMode ) -> bool {
+		if ( drawMode == DrawSelectionMode::NO )
+			return false;
+		if ( drawMode == DrawSelectionMode::BOUND_SPHERE )
+			return true;
+		return transformRigid;
+		};
+
+	bool oldUseViewTrans = getUseViewTrans( drawSelectionMode );
+	bool newUseViewTrans = getUseViewTrans( newMode );
+	if ( oldUseViewTrans != newUseViewTrans ) {
+		if ( newUseViewTrans ) {
+			glPushMatrix();
+			glMultMatrix( viewTrans() );
+		} else {
+			glPopMatrix();
+		}
+	}
+
+	// Cleanup of the previous selection mode
+	switch( drawSelectionMode )
+	{
+	case DrawSelectionMode::NO: // First call of drawSelection_begin
+		glDisable( GL_LIGHTING );
+		glDisable( GL_COLOR_MATERIAL );
+		glDisable( GL_TEXTURE_2D );
+		glDisable( GL_NORMALIZE );
+		glEnable( GL_DEPTH_TEST );
+		glDepthFunc( GL_LEQUAL );
+		glDepthMask( GL_FALSE );
+		glEnable( GL_BLEND );
+		glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
+		glDisable( GL_ALPHA_TEST );
+		glDisable( GL_CULL_FACE );
+		break;
+	case DrawSelectionMode::WIREFRAME:
+		glDisableClientState( GL_VERTEX_ARRAY );
+		glDisable( GL_POLYGON_OFFSET_FILL );
+		break;
+	case DrawSelectionMode::VERTICES:
+		glDisableClientState( GL_VERTEX_ARRAY );
+		break;
+	}
+
+	// Init the new selection mode
+	switch ( newMode )
+	{
+	case DrawSelectionMode::VERTICES:
+		glPolygonMode( GL_FRONT_AND_BACK, GL_POINT ); // ???
+		glPointSize( scene->isSelModeVertex() ? BIG_VERTEX_SIZE : SMALL_VERTEX_SIZE );
+		glEnableClientState( GL_VERTEX_ARRAY );
+		glVertexPointer( 3, GL_FLOAT, 0, transVerts.constData() );
+		break;
+	case DrawSelectionMode::VECTORS:
+		glPolygonMode( GL_FRONT_AND_BACK, GL_LINE ); // ???
+		glLineWidth( VECTOR_LINE_WIDTH );
+		break;
+	case DrawSelectionMode::WIREFRAME:
+		glEnable( GL_POLYGON_OFFSET_FILL );
+		glPolygonOffset( 0.03f, 0.03f );
+		glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
+		glLineWidth( WIREFRAME_LINE_WIDTH );
+		glEnableClientState( GL_VERTEX_ARRAY );
+		glVertexPointer( 3, GL_FLOAT, 0, transVerts.constData() );
+		break;
+	case DrawSelectionMode::BOUND_SPHERE:
+		glPointSize( BIG_VERTEX_SIZE );
+		glPolygonMode( GL_FRONT_AND_BACK, GL_LINE ); // ???
+		glLineWidth( WIREFRAME_LINE_WIDTH );
+		break;
+	}
+
+	drawSelectionMode = newMode;
+}
+
+inline void drawSingleSelection_begin( const Color4 & color )
+{
+	// Semi-transparent highlight color + no depth test (always visible)
+	glColor4f( color.red(), color.green(), color.blue(), color.alpha() * 0.5f );
+	glDepthFunc( GL_ALWAYS );
+}
+
+inline void drawSingleSelection_end()
+{
+	glDepthFunc( GL_LEQUAL );
+}
+
+void Shape::drawSelection_triangles() const
+{
+	drawSelection_begin( DrawSelectionMode::WIREFRAME );
+
+	glNormalColor();
+	glDrawTriangles( triangles );
+	glDrawTriangles( stripTriangles );
+
+	drawSelection_end();
+}
+
+void Shape::drawSelection_triangles( const TriangleRange * range ) const
+{
+	if ( range->realLength > 0 ) {
+		drawSelection_begin( DrawSelectionMode::WIREFRAME );
+
+		glNormalColor();
+		glDrawTriangles( range );
+
+		drawSelection_end();
+	}
+}
+
+void Shape::drawSelection_trianglesHighlighted( const TriangleRange * range ) const
+{
+	if ( range->realLength > 0 ) {
+		drawSelection_begin( DrawSelectionMode::WIREFRAME );
+
+		glNormalColor();
+		const auto & rangeTris = range->triangles();
+		int iRangeEnd = range->realEnd();
+		const TriangleRange * pParent = range->parentRange;
+		if ( pParent ) {
+			glDrawTriangles( rangeTris, pParent->realStart, range->realStart - pParent->realStart );
+			glDrawTriangles( rangeTris, iRangeEnd, pParent->realEnd() - iRangeEnd );
+		} else {
+			glDrawTriangles( rangeTris, 0, range->realStart );
+			glDrawTriangles( rangeTris, iRangeEnd, rangeTris.count() - iRangeEnd );
+			glDrawTriangles( range->otherTriangles() );
+		}
+
+		glHighlightColor();
+		glDrawTriangles( range );
+
+		drawSelection_end();
+	}
+}
+
+void Shape::drawSelection_triangles( const TriangleRange * partition, int iSelectedTri ) const
+{
+	if ( partition->realLength > 0 ) {
+		drawSelection_begin( DrawSelectionMode::WIREFRAME );
+
+		glNormalColor();
+		glDrawTriangles( partition );
+
+		if ( iSelectedTri >= partition->realStart && iSelectedTri < partition->realEnd() ) {
+			glHighlightColor();
+			glPolygonMode( GL_FRONT_AND_BACK, GL_FILL );
+			// First pass: draw the triangle with the normal highlight color (and with cull face for single-sided shapes).
+			if ( !isDoubleSided ) {
+				glEnable( GL_CULL_FACE );
+				glDrawTriangles( partition->triangles(), iSelectedTri, 1 );
+				glDisable( GL_CULL_FACE );
+			} else {
+				glDrawTriangles( partition->triangles(), iSelectedTri, 1 );
+			}
+			// Second pass: draw the triangle with the semitransparent highlight color, w/o cull face and with no depth test.
+			// This makes the selected triangle noticeable even if it is facing away from the camera or is obstructed by other triangles.
+			drawSingleSelection_begin( Color4(cfg.highlight) );
+			glDrawTriangles( partition->triangles(), iSelectedTri, 1 );
+			drawSingleSelection_end();
+		}
+
+		drawSelection_end();
+	}
+}
+
+bool Shape::drawSelection_vectors_init( ShapeSelectionType type, DrawVectorsData & outData ) const
+{
+	if ( scene->isSelModeObject() ) {
+		outData.drawNormals    = ( type == ShapeSelectionType::NORMALS ) && hasVertexNormals;
+		outData.drawTangents   = ( type == ShapeSelectionType::TANGENTS || type == ShapeSelectionType::EXTRA_TANGENTS ) && hasVertexTangents;
+		outData.drawBitangents = ( type == ShapeSelectionType::BITANGENTS || type == ShapeSelectionType::EXTRA_TANGENTS ) && hasVertexBitangents;
+
+		if ( outData.drawNormals || outData.drawTangents || outData.drawBitangents ) {
+			outData.vectorScale = std::clamp( bounds().radius / VECTOR_SCALE_DIV, VECTOR_MIN_SCALE, VECTOR_MAX_SCALE );
+			return true;
+		}
+	}
+
+	return false;
+}
+
+void Shape::drawSelection_vectors( int iStart, int nLength, const DrawVectorsData & drawData ) const
+{
+	if ( nLength > 0 ) {
+		glBegin( GL_LINES );
+
+		auto drawVectors = [this, drawData, iStart, nLength]( const QVector<Vector3> & vectors ) {
+			auto pVertices = transVerts.constData() + iStart;
+			auto pVectors = vectors.constData() + iStart;
+			for ( int i = 0; i < nLength; i++, pVertices++, pVectors++ ) {
+				glVertex( pVertices );
+				glVertex( (*pVertices) + (*pVectors) * drawData.vectorScale );
+			}
+		};
+
+		if ( drawData.drawNormals )
+			drawVectors( transNorms );
+		if ( drawData.drawTangents )
+			drawVectors( transTangents );
+		if ( drawData.drawBitangents )
+			drawVectors( transBitangents );
+
+		glEnd();
+	}
+}
+
+void Shape::drawSelection_vertices( ShapeSelectionType type ) const
+{
+	if ( numVerts > 0 ) {
+		drawSelection_begin( DrawSelectionMode::VERTICES );
+
+		glNormalColor();
+		glDrawArrays( GL_POINTS, 0, numVerts );
+
+		DrawVectorsData drawData;
+		if ( drawSelection_vectors_init( type, drawData ) ) {
+			drawSelection_begin( DrawSelectionMode::VECTORS );
+			drawSelection_vectors( 0, numVerts, drawData );
+		}
+
+		drawSelection_end();
+	}
+}
+
+void Shape::drawSelection_vertices( ShapeSelectionType type, int iSelectedVertex ) const
+{
+	if ( iSelectedVertex >= 0 && iSelectedVertex < numVerts ) {
+		int iNextVertex = iSelectedVertex + 1;
+		DrawVectorsData drawData;
+		bool bDrawVectors = drawSelection_vectors_init( type, drawData );
+
+		drawSelection_begin( DrawSelectionMode::VERTICES );
+		glNormalColor();
+		if ( iSelectedVertex > 0 )
+			glDrawArrays( GL_POINTS, 0, iSelectedVertex );
+		if ( iNextVertex < numVerts )
+			glDrawArrays( GL_POINTS, iNextVertex, numVerts - iNextVertex );
+
+		if ( bDrawVectors ) {
+			drawSelection_begin( DrawSelectionMode::VECTORS );
+			drawSelection_vectors( 0, iSelectedVertex, drawData );
+			drawSelection_vectors( iNextVertex, numVerts - iNextVertex, drawData );
+		}
+
+		drawSelection_begin( DrawSelectionMode::VERTICES );
+		glHighlightColor();
+		glDrawArrays( GL_POINTS, iSelectedVertex, 1 );
+		drawSingleSelection_begin( Color4(cfg.highlight) );
+		glDrawArrays( GL_POINTS, iSelectedVertex, 1 );
+		drawSingleSelection_end();
+
+		if ( bDrawVectors ) {
+			drawSelection_begin( DrawSelectionMode::VECTORS );
+			glHighlightColor();
+			drawSelection_vectors( iSelectedVertex, 1, drawData );
+		}
+
+		drawSelection_end();
+	} else {
+		drawSelection_vertices( type );
+	}
+}
+
+void Shape::drawSelection_sphere( const BoundSphere & sphere, const Transform & transform, bool hightlightCenter ) const
+{
+	auto drawCenter = [sphere, transform]( const Color4 & color ) {
+		Vector3 vc = transform * sphere.center;
+		
+		glColor( color );
+		glBegin( GL_POINTS );
+		glVertex( vc );
+		glEnd();
+
+		drawSingleSelection_begin( color );
+		glBegin( GL_POINTS );
+		glVertex( vc );
+		glEnd();
+		drawSingleSelection_end();
+	};
+
+	if ( sphere.radius > 0.01f ) {
+		glColor( BOUND_SPHERE_COLOR );
+		drawSphereNew( sphere.center, sphere.radius, 12, transform );
+	} else if ( !hightlightCenter ) {
+		drawCenter( BOUND_SPHERE_CENTER_COLOR );
+	}
+
+	if ( hightlightCenter ) {
+		drawCenter( Color4(cfg.highlight) );
+	}
+}
+
+void Shape::drawSelection_boundSphere( const BoundSphereSelection * selSphere, bool hightlightCenter ) const
+{
+	drawSelection_begin( DrawSelectionMode::WIREFRAME );
+	glNormalColor();
+	glDrawTriangles( triangles );
+	glDrawTriangles( stripTriangles );
+
+	drawSelection_begin( DrawSelectionMode::BOUND_SPHERE );
+	if ( selSphere->absoluteTransform ) {
+		glPopMatrix();
+
+		glPushMatrix();
+		glMultMatrix( scene->view * selSphere->transform );
+		drawSelection_sphere( selSphere->sphere, Transform(), hightlightCenter );
+		// glPopMatrix(); // leave calling glPopMatrix to drawSelection_end()
+	} else {
+		drawSelection_sphere( selSphere->sphere, selSphere->transform, hightlightCenter );
+	}
+	drawSelection_end();
+}
+
+void Shape::drawSelection_bone( const BoneSelection * selection, int iSelectedBone, bool drawBoundSphere, bool hightlightSphereCenter ) const
+{
+	if ( iSelectedBone < 0 || iSelectedBone >= bones.count() )
+		return;
+	const SkinBone & bone = bones[iSelectedBone];
+
+	// Bones' triangles
+	const TriangleRange * range = selection->triRange;
+	int nTotalTris = range  ? range->realLength : ( triangles.count() + stripTriangles.count() );
+	if ( nTotalTris > 0 ) {
+		QVector<bool> boneVerticesMap( numVerts );
+		for ( const auto & vw : bone.vertexWeights) {
+			if ( vw.weight > 0.0f )
+				boneVerticesMap[vw.vertex] = true;
+		}
+
+		QVector<Triangle> boneTriangles;
+		boneTriangles.reserve( nTotalTris );
+		QVector<Triangle> otherTriangles;
+		otherTriangles.reserve( nTotalTris );
+
+		auto regTri = [boneVerticesMap, &boneTriangles, &otherTriangles]( const Triangle & t ) {
+			if ( boneVerticesMap[t.v1()] && boneVerticesMap[t.v2()] && boneVerticesMap[t.v3()] )
+				boneTriangles << t;
+			else
+				otherTriangles << t;
+			};
+		if ( range ) {
+			const auto & tris = range->triangles();
+			for ( int tind = range->realStart, iEnd = range->realEnd(); tind < iEnd; tind++ )
+				regTri( tris[tind] );
+		} else {
+			for ( const auto & t : triangles )
+				regTri( t );
+			for ( const auto & t : stripTriangles )
+				regTri( t );
+		}
+
+		drawSelection_begin( DrawSelectionMode::WIREFRAME );
+		glNormalColor();
+		glDrawTriangles( otherTriangles );
+		glHighlightColor();
+		glDrawTriangles( boneTriangles );
+	}
+
+	// Bound sphere
+	if ( drawBoundSphere ) {
+		Transform boneT = bone.localTransform( skeletonTrans, skeletonRoot ); // * bone.transform
+		drawSelection_begin( DrawSelectionMode::BOUND_SPHERE );
+		drawSelection_sphere( bone.boundSphere, boneT, hightlightSphereCenter );
+	}
+
+	drawSelection_end();
+}
+
+
+// ShapeSelectionBase class
+
+ShapeSelectionBase::ShapeSelectionBase( Shape * _shape, NifFieldConst _rootField, NifFieldConst _mapField )
+	: shape( _shape ), rootField( _rootField ), block( _rootField.block() ), mapField( _mapField )
+{
+	level = rootField.ancestorLevel( block );
+	_shape->selections.append( this );
+}
+
+int ShapeSelectionBase::remapIndex( int i ) const
+{
+	if ( !mapField )
+		return i;
+
+	auto mapEntry = mapField.child( i );
+	if ( mapEntry )
+		return mapEntry.value<int>();
+	return -1;
+}
+
+
+// ShapeSelection class
+
+bool ShapeSelection::process( NifFieldConst selectedField, int iSubLevel ) const
+{
+	switch( type )
+	{
+	case ShapeSelectionType::VERTICES:
+	case ShapeSelectionType::NORMALS:
+	case ShapeSelectionType::TANGENTS:
+	case ShapeSelectionType::BITANGENTS:
+	case ShapeSelectionType::BS_VERTEX_DATA:
+		if ( iSubLevel == 0 ) {
+			shape->drawSelection_vertices( type );
+			return true;
+		} else { // iSubLevel > 0
+			int iVertex = remapIndex( selectedField.ancestorAt( iSubLevel - 1 ).row() );
+			ShapeSelectionType drawType = type;
+
+			if ( type == ShapeSelectionType::BS_VERTEX_DATA && iSubLevel == 2 ) {
+				if ( selectedField.hasName("Normal") )
+					drawType = ShapeSelectionType::NORMALS;
+				else if ( selectedField.hasName("Tangent") )
+					drawType = ShapeSelectionType::TANGENTS;
+				else if ( selectedField.hasName("Bitangent X", "Bitangent Y", "Bitangent Z") )
+					drawType = ShapeSelectionType::BITANGENTS;
+			}
+
+			shape->drawSelection_vertices( drawType, iVertex );
+			return true;
+		}
+		break;
+	case ShapeSelectionType::EXTRA_TANGENTS:
+		shape->drawSelection_vertices( type );
+		return true;
+	case ShapeSelectionType::VERTEX_ROOT:
+		if ( iSubLevel == 0 ) {
+			shape->drawSelection_vertices( type );
+			return true;
+		}
+		break;
+	case ShapeSelectionType::TRIANGLE_ROOT:
+		if ( iSubLevel == 0 && shape->scene->isSelModeObject() ) {
+			shape->drawSelection_triangles();
+			return true;
+		}
+		break;
+	}
+
+	return false;
+}
+
+
+// TriangleRange class
+
+const QVector<Triangle> & TriangleRange::triangles() const
+{
+	return shape->triangles;
+}
+
+const QVector<int> & TriangleRange::triangleMap() const
+{
+	return shape->triangleMap;
+}
+
+const QVector<Triangle> & TriangleRange::otherTriangles() const
+{
+	return shape->stripTriangles;
+}
+
+void TriangleRange::postUpdate()
+{
+	const auto & triMap = triangleMap();
+
+	int nTotalTris = triMap.count();
+	int nValidTris = triangles().count();
+
+	int iFirst = std::max( start, 0 );
+	int iLast = ( nValidTris > 0 ) ? ( std::min( start + length, nTotalTris ) - 1 ) : -1;
+
+	if ( nValidTris < nTotalTris ) {
+		while ( iFirst <= iLast && triMap[iFirst] < 0 ) {
+			iFirst++;
+		}
+		while ( iLast >= iFirst && triMap[iLast] < 0 ) {
+			iLast--;
+		}
+	}
+
+	if ( iFirst <= iLast ) {
+		realStart  = triMap[iFirst];
+		realLength = triMap[iLast] - realStart + 1;
+	} else {
+		realStart  = 0; // Whatever...
+		realLength = 0;
+	}
+}
+
+bool TriangleRange::process( NifFieldConst selectedField, int iSubLevel ) const
+{
+	if ( shape->scene->isSelModeObject() ) {
+		if ( isArray() && iSubLevel == 1 ) {
+			int iSelectedTri = triangleMap().value( start + selectedField.row(), -1 );
+			shape->drawSelection_triangles( this, iSelectedTri );
+			return true;
+		} else if ( iSubLevel == 0 || isDeep() ) {
+			if ( isHighlight() )
+				shape->drawSelection_trianglesHighlighted( this );
+			else
+				shape->drawSelection_triangles( this );
+			return true;
+		}
+	}
+
+	return false;
+}
+
+
+// StripRange class
+
+const QVector<Triangle> & StripRange::triangles() const
+{
+	return shape->stripTriangles;
+}
+
+const QVector<int> & StripRange::triangleMap() const
+{
+	return shape->stripMap;
+}
+
+const QVector<Triangle> & StripRange::otherTriangles() const
+{
+	return shape->triangles;
+}
+
+bool StripRange::process( NifFieldConst selectedField, int iSubLevel ) const
+{
+	if ( isArray() && iSubLevel == 1 ) {
+		int iVertex = remapIndex( selectedField.value<int>() );
+		shape->drawSelection_vertices( ShapeSelectionType::VERTICES, iVertex );
+		return true;
+	} else if ( iSubLevel == 0 || isDeep() ) {
+		if ( shape->scene->isSelModeObject() ) {
+			if ( isHighlight() )
+				shape->drawSelection_trianglesHighlighted( this );
+			else
+				shape->drawSelection_triangles( this );
+			return true;
+		}
+	}
+
+	return false;
+}
+
+
+// BoundSphereSelection class
+
+bool BoundSphereSelection::process( NifFieldConst selectedField, int iSubLevel ) const
+{
+	if ( shape->scene->isSelModeObject() ) {
+		bool highlightCenter = ( iSubLevel == 1 ) && selectedField.hasName("Center");
+		shape->drawSelection_boundSphere( this, highlightCenter );
+		return true;
+	}
+
+	return false;
+}
+
+
+// BoneSelection class
+
+bool BoneSelection::process( NifFieldConst selectedField, int iSubLevel ) const
+{
+	if ( shape->scene->isSelModeObject() ) {
+		if ( iSubLevel == 0 ) {
+			if ( triRange )
+				shape->drawSelection_triangles( triRange );
+			else
+				shape->drawSelection_triangles();
+			return true;
+		} else { // iSubLevel > 0
+			int iBone = remapIndex( selectedField.ancestorAt( iSubLevel - 1 ).row() );
+			bool drawBoundSphere = ( iSubLevel >= 2 && selectedField.ancestorAt( iSubLevel - 2 ).hasName("Bounding Sphere") );
+			bool highlightSphereCenter = drawBoundSphere && ( iSubLevel == 3 ) && selectedField.hasName("Center");
+			shape->drawSelection_bone( this, iBone, drawBoundSphere, highlightSphereCenter );
+			return true;
+		}
+	}
+
+	return false;
 }
