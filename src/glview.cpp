@@ -413,8 +413,13 @@ void GLView::paintGL()
 
 		axis = (scene->bounds().radius <= 0) ? 1024.0 * scale() : scene->bounds().radius;
 
-		if ( doTimerReset )
+		if ( doLoadReset ) {
+			setViewMode( getDefaultViewMode() );
+			center(); // Force (re)center the view on the model because setViewMode not always does this.
+
 			time = tMin;
+		}
+
 		if ( tMin != tMax ) {
 			if ( time < tMin || time > tMax  )
 				time = tMin;
@@ -427,7 +432,7 @@ void GLView::paintGL()
 		}
 		emit sceneTimeChanged( time, tMin, tMax );
 		doCompile = false;
-		doTimerReset = false;
+		doLoadReset = false;
 	}
 
 	// Center the model
@@ -1079,6 +1084,57 @@ void GLView::resetViewMode()
 		setViewMode( ViewDefault );
 }
 
+GLView::ViewState GLView::getDefaultViewMode()
+{
+	const GLView::ViewState defaultMode = GLView::ViewFront;
+	GLView::ViewState resultMode = defaultMode;
+
+	if ( scene->shapes.count() > 0 ) {
+		double modeWeights[GLView::ViewLast + 1] = { 0.0 };
+		bool hasSkinnedShapes = false;
+
+		const int modeAxesX[] = {
+			GLView::ViewTop,   GLView::ViewBottom,
+			GLView::ViewLeft,  GLView::ViewRight, 
+			GLView::ViewFront, GLView::ViewBack,
+		};
+		const int modeAxesY[] = {
+			GLView::ViewFront, GLView::ViewBack,
+			GLView::ViewTop,   GLView::ViewBottom,
+			GLView::ViewLeft,  GLView::ViewRight, 
+		};
+		const int modeAxesZ[] = {
+			GLView::ViewLeft,  GLView::ViewRight, 
+			GLView::ViewFront, GLView::ViewBack,
+			GLView::ViewTop,   GLView::ViewBottom,
+		};
+
+		const int * modeAxes;
+		switch( cfg.upAxis ) {
+		case XAxis: modeAxes = modeAxesX; break;
+		case YAxis: modeAxes = modeAxesY; break;
+		default:    modeAxes = modeAxesZ; break;
+		}
+
+		for ( auto shape : scene->shapes )
+			shape->fillViewModeWeights( modeWeights, hasSkinnedShapes, modeAxes );
+
+		if ( !hasSkinnedShapes ) {
+			modeWeights[defaultMode] *= 8.0; // Give more weight to the default mode
+		
+			int maxIndex = defaultMode;
+			for ( int i = 0, n = sizeof(modeWeights) / sizeof(*modeWeights); i < n; i++ ) {
+				if ( modeWeights[i] > modeWeights[maxIndex] )
+					maxIndex = i;
+			}
+			if ( modeWeights[maxIndex] > 0.0 )
+				resultMode = GLView::ViewState(maxIndex);
+		}
+	}
+
+	return resultMode;
+}
+
 void GLView::flush()
 {
 	if ( textures )
@@ -1171,7 +1227,7 @@ void GLView::modelChanged()
 		return;
 
 	doCompile = true;
-	doTimerReset = true;
+	doLoadReset = true;
 	//doCenter  = true;
 	update();
 }

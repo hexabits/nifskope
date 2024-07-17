@@ -784,7 +784,7 @@ void Mesh::transformShapes()
 
 	Node::transformShapes();
 
-	if ( isSkinned && bones.count() && scene->hasOption(Scene::DoSkinning) ) {
+	if ( canDoSkinning() ) {
 		// TODO (Gavrant): I've no idea why it requires different transforms depending on whether it's partitioned or not.
 		Transform baseTrans = iSkinPart.isValid() ? scene->view : ( viewTrans() * skeletonTrans );
 		applySkinningTransforms( baseTrans );

@@ -278,7 +278,7 @@ void BSShape::transformShapes()
 
 	Node::transformShapes();
 
-	if ( isSkinned && bones.count() && scene->hasOption(Scene::DoSkinning) ) {
+	if ( canDoSkinning() ) {
 		applySkinningTransforms( scene->view );
 	} else {
 		applyRigidTransforms();

@@ -35,8 +35,10 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gl/controllers.h"
 #include "gl/glscene.h"
 #include "gl/renderer.h"
+#include "glview.h"
 #include "io/material.h"
 #include "lib/nvtristripwrapper.h"
+
 
 Shape::Shape( Scene * s, const QModelIndex & b ) : Node( s, b )
 {
@@ -72,6 +74,69 @@ void Shape::transform()
 	Node::transform();
 }
 
+bool Shape::isEditorMarker() const
+{
+	// TODO: replace it with a check if BSXFlags has "EditorMarkers present" flag?
+	return name.contains( QStringLiteral("EditorMarker") );
+}
+
+bool Shape::canDoSkinning() const
+{
+	return isSkinned && bones.count() && scene->hasOption(Scene::DoSkinning);
+}
+
+void Shape::fillViewModeWeights( double * outWeights, bool & outIsSkinned, const int * modeAxes )
+{
+	if ( isEditorMarker() )
+		return;
+
+	if ( needUpdateData )
+		updateData( NifModel::fromValidIndex( iBlock ) );
+
+	if ( canDoSkinning() && ( triangles.count() || stripTriangles.count() ) )
+		outIsSkinned = true;
+
+	Transform vertTransform = worldTrans();
+
+	auto processTri = [this, &outWeights, vertTransform]( const Triangle & t, const int * modeAxes ) {
+		// Skip triangles with bad vertex indices
+		if ( t[0] >= numVerts || t[1] >= numVerts || t[2] >= numVerts )
+			return;
+
+		auto p1 = vertTransform * verts[ t[0] ];
+		auto p2 = vertTransform * verts[ t[1] ];
+		auto p3 = vertTransform * verts[ t[2] ];
+
+		// resv = triangle normal vector * triangle area (to give bigger triangles more weight in the result)
+		// where:
+		//     cpv = Vector3::crossproduct( p2 - p1, p3 - p1 )
+		//     triangle normal vector = cpv.normalize (or cpv / cpv.length)
+		//     triangle area = cpv.length * 0.5
+		// So resv resolves to ( cpv / cpv.length * cpv.length * 0.5 ) -> ( cpv * 0.5 ).
+		// And since the 0.5 multiplier does not affect the ratio of the result weights, we can drop it too, simplifying all this to just ( cpv ).
+		auto resv = Vector3::crossproduct( p2 - p1, p3 - p1 );
+
+		for ( int i = 0; i < 3; i++, modeAxes += 2 ) {
+			auto axisv = resv[i];
+			if ( axisv > 0.0f ) {
+				outWeights[ modeAxes[0] ] += axisv;
+				if ( isDoubleSided )
+					outWeights[ modeAxes[1] ] += axisv;
+			} else if ( axisv < 0.0f ) {
+				outWeights[ modeAxes[1] ] -= axisv;
+				if ( isDoubleSided )
+					outWeights[ modeAxes[0] ] -= axisv;
+			}
+		}
+	};
+
+	for ( const Triangle & t : triangles )
+		processTri( t, modeAxes );
+	for ( const Triangle & t : stripTriangles )
+		processTri( t, modeAxes );
+}
+
+
 const GLfloat BIG_VERTEX_SIZE = 8.5f;
 const GLfloat SMALL_VERTEX_SIZE = 5.5f;
 const GLfloat WIREFRAME_LINE_WIDTH = 1.0f;
@@ -88,7 +153,7 @@ void Shape::drawShapes( NodeList * secondPass, bool presort )
 		return;
 
 	// TODO: Only run this if BSXFlags has "EditorMarkers present" flag
-	if ( !scene->hasOption(Scene::ShowMarkers) && name.contains( QLatin1String("EditorMarker") ) )
+	if ( !scene->hasOption(Scene::ShowMarkers) && isEditorMarker() )
 		return;
 
 	// BSOrderedNode

@@ -795,9 +795,6 @@ void NifSkope::onLoadComplete( bool success, QString & fname )
 	resetHeaderSelection();
 	kfmtree->setModel( kfm );
 
-	ogl->setViewMode( GLView::ViewFront );
-	ogl->center(); // Force (re)center the view on the model because ogl->setViewMode not always does this.
-
 	// Mark window as unmodified
 	setWindowModified( false );
 	nif->undoStack->clear();

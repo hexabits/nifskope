@@ -254,6 +254,11 @@ public:
 	virtual void drawVerts() const {};
 	virtual QModelIndex vertexAt( int ) const { return QModelIndex(); };
 
+	bool isEditorMarker() const;
+	bool canDoSkinning() const;
+
+	void fillViewModeWeights( double * outWeights, bool & outIsSkinned, const int * modeAxes );
+
 protected:
 	int shapeNumber;
 

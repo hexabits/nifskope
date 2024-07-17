@@ -105,7 +105,9 @@ public:
 		ViewFront,
 		ViewBack,
 		ViewWalk,
-		ViewUser
+		ViewUser,
+
+		ViewLast = ViewUser
 	};
 
 	enum DebugMode
@@ -144,6 +146,7 @@ public:
 
 	void setViewMode( GLView::ViewState state );
 	void flipView();
+	GLView::ViewState getDefaultViewMode();
 
 	void setDebugMode( DebugMode );
 
@@ -265,7 +268,7 @@ private:
 	QString fnDragTex, fnDragTexOrg;
 
 	bool doCompile;
-	bool doTimerReset;
+	bool doLoadReset;
 	bool doCenter;
 
 	QTimer * lightVisTimer;
