@@ -1120,7 +1120,7 @@ GLView::ViewState GLView::getDefaultViewMode()
 			shape->fillViewModeWeights( modeWeights, hasSkinnedShapes, modeAxes );
 
 		if ( !hasSkinnedShapes ) {
-			modeWeights[defaultMode] *= 8.0; // Give more weight to the default mode
+			modeWeights[defaultMode] *= 16.0; // Inflate the weight of the default mode
 		
 			int maxIndex = defaultMode;
 			for ( int i = 0, n = sizeof(modeWeights) / sizeof(*modeWeights); i < n; i++ ) {

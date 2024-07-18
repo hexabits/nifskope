@@ -35,9 +35,8 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "gl/glshape.h" // Inherited
 
-//! @file glmesh.h Mesh
 
-//! A mesh
+// Nodes of types NiMesh, NiTriShape, NiTriStrips, NiTriBasedGeom (pre-FO4/SKSE)
 class Mesh : public Shape
 {
 public:
@@ -52,10 +51,6 @@ public:
 	QString textStats() const override; // TODO (Gavrant): move to Shape
 
 	// end Node
-
-	// Shape
-
-	QModelIndex vertexAt( int ) const override;
 
 protected:
 	void updateImpl( const NifModel * nif, const QModelIndex & index ) override;

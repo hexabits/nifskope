@@ -32,20 +32,12 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "glmesh.h"
 
-#include "message.h"
-#include "gl/controllers.h"
 #include "gl/glscene.h"
-#include "gl/renderer.h"
-#include "io/material.h"
 #include "io/nifstream.h"
-#include "model/nifmodel.h"
 #include "lib/nvtristripwrapper.h"
 
 #include <QBuffer>
-#include <QDebug>
-#include <QSettings>
 
-#include <QOpenGLFunctions>
 
 //! @file glmesh.cpp Scene management for visible meshes such as NiTriShapes.
 
@@ -437,17 +429,17 @@ void Mesh::updateData_NiTriShape( const NifModel * nif )
 	}
 
 	// Fill vertex data
-	auto vertexDataRoot = dataBlock.child("Vertices");
-	verts = vertexDataRoot.array<Vector3>();
+	mainVertexRoot = dataBlock.child("Vertices");
+	verts = mainVertexRoot.array<Vector3>();
 	numVerts = verts.count();
-	addSelection( vertexDataRoot, ShapeSelectionType::VERTICES );
+	addVertexSelection( mainVertexRoot, VertexSelectionType::VERTICES );
 
 	auto normalsField = dataBlock.child("Normals");
 	if ( normalsField ) {
-		reportCountMismatch( normalsField, vertexDataRoot, dataBlock );
+		reportCountMismatch( normalsField, mainVertexRoot, dataBlock );
 		hasVertexNormals = true;
 		norms = normalsField.array<Vector3>();
-		addSelection( normalsField, ShapeSelectionType::NORMALS );
+		addVertexSelection( normalsField, VertexSelectionType::NORMALS );
 	}
 
 	NifFieldConst extraTangents;
@@ -465,7 +457,7 @@ void Mesh::updateData_NiTriShape( const NifModel * nif )
 		auto extraDataRoot = extraTangents["Binary Data"];
 		QByteArray extraData = extraDataRoot.value<QByteArray>();
 		int nExtraCount = extraData.count() / ( sizeof(Vector3) * 2 );
-		reportCountMismatch( vertexDataRoot, numVerts, extraDataRoot, nExtraCount, block );
+		reportCountMismatch(extraDataRoot, nExtraCount, mainVertexRoot, numVerts, block );
 		tangents.resize(nExtraCount);
 		bitangents.resize(nExtraCount);
 		Vector3 * t = (Vector3 *) extraData.data();
@@ -473,22 +465,22 @@ void Mesh::updateData_NiTriShape( const NifModel * nif )
 			tangents[i] = *t++;
 		for ( int i = 0; i < nExtraCount; i++ )
 			bitangents[i] = *t++;
-		addSelection( extraDataRoot, ShapeSelectionType::EXTRA_TANGENTS );
+		addVertexSelection( extraDataRoot, VertexSelectionType::EXTRA_TANGENTS );
 	} else {
 		auto tangentsField = dataBlock.child("Tangents");
 		if ( tangentsField ) {
-			reportCountMismatch( tangentsField, vertexDataRoot, dataBlock );
+			reportCountMismatch( tangentsField, mainVertexRoot, dataBlock );
 			hasVertexTangents = true;
 			tangents = tangentsField.array<Vector3>();
-			addSelection( tangentsField, ShapeSelectionType::TANGENTS );
+			addVertexSelection( tangentsField, VertexSelectionType::TANGENTS );
 		}
 
 		auto bitangentsField = dataBlock.child("Bitangents");
 		if ( bitangentsField ) {
-			reportCountMismatch( tangentsField, vertexDataRoot, dataBlock );
+			reportCountMismatch( tangentsField, mainVertexRoot, dataBlock );
 			hasVertexBitangents = true;
 			bitangents = bitangentsField.array<Vector3>();
-			addSelection( bitangentsField, ShapeSelectionType::BITANGENTS );
+			addVertexSelection( bitangentsField, VertexSelectionType::BITANGENTS );
 		}
 	}
 
@@ -496,19 +488,19 @@ void Mesh::updateData_NiTriShape( const NifModel * nif )
 	if ( uvSetsRoot ) {
 		hasVertexUVs = true;
 		for ( auto uvSetField : uvSetsRoot.iter() ) {
-			reportCountMismatch( uvSetField, vertexDataRoot, dataBlock );
+			reportCountMismatch( uvSetField, mainVertexRoot, dataBlock );
 			coords.append( uvSetField.array<Vector2>() );
-			addSelection( uvSetField, ShapeSelectionType::VERTICES );
+			addVertexSelection( uvSetField, VertexSelectionType::VERTICES );
 		}
-		addSelection( uvSetsRoot, ShapeSelectionType::VERTEX_ROOT );
+		addVertexSelection( uvSetsRoot, VertexSelectionType::VERTEX_ROOT );
 	}
 
 	auto colorsField = dataBlock.child("Vertex Colors");
 	if ( colorsField ) {
-		reportCountMismatch( colorsField, vertexDataRoot, dataBlock );
+		reportCountMismatch( colorsField, mainVertexRoot, dataBlock );
 		hasVertexColors = true;
 		colors = colorsField.array<Color4>();
-		addSelection( colorsField, ShapeSelectionType::VERTICES );
+		addVertexSelection( colorsField, VertexSelectionType::VERTICES );
 	}
 
 	// Fill triangle/strips data
@@ -536,7 +528,6 @@ void Mesh::updateData_NiTriShape( const NifModel * nif )
 		// Fill vertex weights, triangles, strips
 		if ( skinPartBlock ) {
 			auto partRoot = skinPartBlock.child("Partitions");
-			addSelection( partRoot, ShapeSelectionType::TRIANGLE_ROOT );
 			int nPartitions = partRoot.childCount();
 
 			QVector<TriangleRange *> blockTriRanges( nPartitions );
@@ -559,7 +550,7 @@ void Mesh::updateData_NiTriShape( const NifModel * nif )
 							mapEntry.reportError( tr("Invalid vertex index %1").arg(v) );
 						partVertexMap << v;
 					}
-					addSelection( vertexMapRoot, ShapeSelectionType::VERTICES, vertexMapRoot );
+					addVertexSelection( vertexMapRoot, VertexSelectionType::VERTICES, vertexMapRoot );
 				}
 
 				// Bone map
@@ -584,13 +575,13 @@ void Mesh::updateData_NiTriShape( const NifModel * nif )
 					reportCountMismatch( boneIndicesRoot, vertexMapRoot, partEntry );
 					if ( nPartMappedVertices < nDataVerts )
 						nDataVerts = nPartMappedVertices;
-					addSelection( boneIndicesRoot, ShapeSelectionType::VERTICES, vertexMapRoot );
-					addSelection( weightsRoot, ShapeSelectionType::VERTICES, vertexMapRoot );
+					addVertexSelection( boneIndicesRoot, VertexSelectionType::VERTICES, vertexMapRoot );
+					addVertexSelection( weightsRoot, VertexSelectionType::VERTICES, vertexMapRoot );
 				} else {
 					if ( nDataVerts > numVerts )
 						nDataVerts = numVerts;
-					addSelection( boneIndicesRoot, ShapeSelectionType::VERTICES );
-					addSelection( weightsRoot, ShapeSelectionType::VERTICES );
+					addVertexSelection( boneIndicesRoot, VertexSelectionType::VERTICES );
+					addVertexSelection( weightsRoot, VertexSelectionType::VERTICES );
 				}
 				for ( int v = 0; v < nDataVerts; v++ ) {
 					int vind;
@@ -709,7 +700,6 @@ void Mesh::updateData_NiTriShape( const NifModel * nif )
 
 			// Add selection ranges for Partitions in skinBlock
 			auto otherPartRoot = skinBlock.child("Partitions");
-			addSelection( otherPartRoot, ShapeSelectionType::TRIANGLE_ROOT );
 			for ( int iPart = 0, nOtherPartititions = otherPartRoot.childCount(); iPart < nOtherPartititions; iPart++ ) {
 				const NifSkopeFlagsType PART_RANGE_FLAGS = TriangleRange::FLAG_HIGHLIGHT | TriangleRange::FLAG_DEEP;
 
@@ -765,18 +755,6 @@ void Mesh::updateData_NiTriShape( const NifModel * nif )
 	addBoundSphereSelection( dataBlock.child("Bounding Sphere") );
 }
 
-QModelIndex Mesh::vertexAt( int idx ) const
-{
-	auto nif = NifModel::fromIndex( iBlock );
-	if ( !nif )
-		return QModelIndex();
-
-	auto iVertexData = nif->getIndex( iData, "Vertices" );
-	auto iVertex = iVertexData.child( idx, 0 );
-
-	return iVertex;
-}
-
 void Mesh::transformShapes()
 {
 	if ( isHidden() )
@@ -784,7 +762,7 @@ void Mesh::transformShapes()
 
 	Node::transformShapes();
 
-	if ( canDoSkinning() ) {
+	if ( doSkinning() ) {
 		// TODO (Gavrant): I've no idea why it requires different transforms depending on whether it's partitioned or not.
 		Transform baseTrans = iSkinPart.isValid() ? scene->view : ( viewTrans() * skeletonTrans );
 		applySkinningTransforms( baseTrans );

@@ -230,28 +230,6 @@ int BSMesh::meshCount()
 	return meshes.size();
 }
 
-void BSMesh::drawVerts() const
-{
-	return;
-	glDisable(GL_LIGHTING);
-	glNormalColor();
-
-	glBegin(GL_POINTS);
-	for ( int i = 0; i < transVerts.count(); i++ ) {
-		if ( Node::SELECTING ) {
-			int id = ID2COLORKEY((shapeNumber << 16) + i);
-			glColor4ubv((GLubyte*)&id);
-		}
-		glVertex(transVerts.value(i));
-	}
-	glEnd();
-}
-
-QModelIndex BSMesh::vertexAt(int) const
-{
-	return QModelIndex();
-}
-
 void BSMesh::updateImpl(const NifModel* nif, const QModelIndex& index)
 {
 	qDebug() << "updateImpl";

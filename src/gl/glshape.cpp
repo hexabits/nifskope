@@ -35,7 +35,6 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gl/controllers.h"
 #include "gl/glscene.h"
 #include "gl/renderer.h"
-#include "glview.h"
 #include "io/material.h"
 #include "lib/nvtristripwrapper.h"
 
@@ -80,29 +79,25 @@ bool Shape::isEditorMarker() const
 	return name.contains( QStringLiteral("EditorMarker") );
 }
 
-bool Shape::canDoSkinning() const
+bool Shape::doSkinning() const
 {
 	return isSkinned && bones.count() && scene->hasOption(Scene::DoSkinning);
 }
 
 void Shape::fillViewModeWeights( double * outWeights, bool & outIsSkinned, const int * modeAxes )
 {
-	if ( isEditorMarker() )
+	if ( isEditorMarker() || isHidden() )
 		return;
 
 	if ( needUpdateData )
 		updateData( NifModel::fromValidIndex( iBlock ) );
 
-	if ( canDoSkinning() && ( triangles.count() || stripTriangles.count() ) )
+	if ( doSkinning() && ( triangles.count() || stripTriangles.count() ) )
 		outIsSkinned = true;
 
 	Transform vertTransform = worldTrans();
 
 	auto processTri = [this, &outWeights, vertTransform]( const Triangle & t, const int * modeAxes ) {
-		// Skip triangles with bad vertex indices
-		if ( t[0] >= numVerts || t[1] >= numVerts || t[2] >= numVerts )
-			return;
-
 		auto p1 = vertTransform * verts[ t[0] ];
 		auto p2 = vertTransform * verts[ t[1] ];
 		auto p3 = vertTransform * verts[ t[2] ];
@@ -240,7 +235,6 @@ void Shape::drawShapes( NodeList * secondPass, bool presort )
 	glDisable( GL_POLYGON_OFFSET_FILL );
 
 	if ( Node::SELECTING && scene->isSelModeVertex() ) {
-		// glDisable( GL_LIGHTING );
 		glPointSize( BIG_VERTEX_SIZE );
 
 		glBegin( GL_POINTS );
@@ -278,17 +272,15 @@ void Shape::drawSelection() const
 
 	auto selectedField = nif->field( scene->currentIndex );
 	auto selectedBlock = selectedField.block();
-	bool dataSelected = false;
-	bool extraDataSelected = false;
+	bool dataSelected;
 	if ( selectedBlock ) {
 		QModelIndex iSelBlock = selectedBlock.toIndex();
-		if ( iSelBlock == iBlock || iSelBlock == iData || iSelBlock == iSkin || iSelBlock == iSkinData || iSelBlock == iSkinPart )
-			dataSelected = true;
-		else if ( iSelBlock == iExtraData )
-			extraDataSelected = true;
+		dataSelected = ( iSelBlock == iBlock || iSelBlock == iData || iSelBlock == iSkin || iSelBlock == iSkinData || iSelBlock == iSkinPart || iSelBlock == iExtraData );
+	} else {
+		dataSelected  = false;
 	}
 
-	if ( ( dataSelected || extraDataSelected ) && ( selectedField != selectedBlock ) ) {
+	if ( dataSelected && selectedField != selectedBlock ) {
 		int selectedLevel = selectedField.ancestorLevel( selectedBlock );
 
 		for ( auto pSelection : selections ) {
@@ -302,13 +294,29 @@ void Shape::drawSelection() const
 
 	// Fallback
 	if ( scene->isSelModeVertex() ) {
-		drawSelection_vertices( ShapeSelectionType::VERTICES );
-	} else if ( dataSelected && scene->isSelModeObject() && selectedField == selectedBlock ) {
+		drawSelection_vertices( VertexSelectionType::VERTICES );
+	} else if ( dataSelected && scene->isSelModeObject() ) {
 		drawSelection_triangles();
 	}
 }
 
-template <typename T> inline void normalizeVectorSize(QVector<T> & v, int nRequiredSize, bool hasVertexData)
+QModelIndex Shape::vertexAt( int vertexIndex ) const
+{
+	if ( mainVertexRoot ) {
+		auto resField = mainVertexRoot.child( vertexIndex );
+		if ( resField.hasStrType("BSVertexData", "BSVertexDataSSE") ) {
+			auto pointField = resField.child("Vertex");
+			if ( pointField )
+				resField = pointField;
+		}
+
+		return resField.toIndex();
+	}
+
+	return QModelIndex();
+}
+
+template <typename T> static inline void normalizeVectorSize(QVector<T> & v, int nRequiredSize, bool hasVertexData)
 {
 	if ( hasVertexData ) {
 		if ( v.count() < nRequiredSize )
@@ -318,7 +326,7 @@ template <typename T> inline void normalizeVectorSize(QVector<T> & v, int nRequi
 	}
 }
 
-void validateTriangles( QVector<Triangle> & tris, QVector<int> & triMap, int numVerts )
+static void validateTriangles( QVector<Triangle> & tris, QVector<int> & triMap, int numVerts )
 {
 	// Validate triangle data
 	int nTotalTris = tris.count();
@@ -344,7 +352,7 @@ void validateTriangles( QVector<Triangle> & tris, QVector<int> & triMap, int num
 	}
 }
 
-void Shape::updateData( const NifModel* nif )
+void Shape::updateData( const NifModel * nif )
 {
 	needUpdateData = false;
 
@@ -588,6 +596,7 @@ void Shape::resetBlockData()
 	tangents.clear();
 	bitangents.clear();
 
+	mainVertexRoot = NifFieldConst();
 
 	// Triangle data
 	triangles.clear();
@@ -759,14 +768,14 @@ void Shape::drawSelection_begin( DrawSelectionMode newMode ) const
 	drawSelectionMode = newMode;
 }
 
-inline void drawSingleSelection_begin( const Color4 & color )
+static inline void drawSingleSelection_begin( const Color4 & color )
 {
 	// Semi-transparent highlight color + no depth test (always visible)
 	glColor4f( color.red(), color.green(), color.blue(), color.alpha() * 0.5f );
 	glDepthFunc( GL_ALWAYS );
 }
 
-inline void drawSingleSelection_end()
+static inline void drawSingleSelection_end()
 {
 	glDepthFunc( GL_LEQUAL );
 }
@@ -849,12 +858,12 @@ void Shape::drawSelection_triangles( const TriangleRange * partition, int iSelec
 	}
 }
 
-bool Shape::drawSelection_vectors_init( ShapeSelectionType type, DrawVectorsData & outData ) const
+bool Shape::drawSelection_vectors_init( VertexSelectionType type, DrawVectorsData & outData ) const
 {
 	if ( scene->isSelModeObject() ) {
-		outData.drawNormals    = ( type == ShapeSelectionType::NORMALS ) && hasVertexNormals;
-		outData.drawTangents   = ( type == ShapeSelectionType::TANGENTS || type == ShapeSelectionType::EXTRA_TANGENTS ) && hasVertexTangents;
-		outData.drawBitangents = ( type == ShapeSelectionType::BITANGENTS || type == ShapeSelectionType::EXTRA_TANGENTS ) && hasVertexBitangents;
+		outData.drawNormals    = ( type == VertexSelectionType::NORMALS ) && hasVertexNormals;
+		outData.drawTangents   = ( type == VertexSelectionType::TANGENTS || type == VertexSelectionType::EXTRA_TANGENTS ) && hasVertexTangents;
+		outData.drawBitangents = ( type == VertexSelectionType::BITANGENTS || type == VertexSelectionType::EXTRA_TANGENTS ) && hasVertexBitangents;
 
 		if ( outData.drawNormals || outData.drawTangents || outData.drawBitangents ) {
 			outData.vectorScale = std::clamp( bounds().radius / VECTOR_SCALE_DIV, VECTOR_MIN_SCALE, VECTOR_MAX_SCALE );
@@ -890,7 +899,7 @@ void Shape::drawSelection_vectors( int iStart, int nLength, const DrawVectorsDat
 	}
 }
 
-void Shape::drawSelection_vertices( ShapeSelectionType type ) const
+void Shape::drawSelection_vertices( VertexSelectionType type ) const
 {
 	if ( numVerts > 0 ) {
 		drawSelection_begin( DrawSelectionMode::VERTICES );
@@ -908,7 +917,7 @@ void Shape::drawSelection_vertices( ShapeSelectionType type ) const
 	}
 }
 
-void Shape::drawSelection_vertices( ShapeSelectionType type, int iSelectedVertex ) const
+void Shape::drawSelection_vertices( VertexSelectionType type, int iSelectedVertex ) const
 {
 	if ( iSelectedVertex >= 0 && iSelectedVertex < numVerts ) {
 		int iNextVertex = iSelectedVertex + 1;
@@ -1074,49 +1083,43 @@ int ShapeSelectionBase::remapIndex( int i ) const
 }
 
 
-// ShapeSelection class
+// VertexSelection class
 
-bool ShapeSelection::process( NifFieldConst selectedField, int iSubLevel ) const
+bool VertexSelection::process( NifFieldConst selectedField, int iSubLevel ) const
 {
 	switch( type )
 	{
-	case ShapeSelectionType::VERTICES:
-	case ShapeSelectionType::NORMALS:
-	case ShapeSelectionType::TANGENTS:
-	case ShapeSelectionType::BITANGENTS:
-	case ShapeSelectionType::BS_VERTEX_DATA:
+	case VertexSelectionType::VERTICES:
+	case VertexSelectionType::NORMALS:
+	case VertexSelectionType::TANGENTS:
+	case VertexSelectionType::BITANGENTS:
+	case VertexSelectionType::BS_VERTEX_DATA:
 		if ( iSubLevel == 0 ) {
 			shape->drawSelection_vertices( type );
 			return true;
 		} else { // iSubLevel > 0
 			int iVertex = remapIndex( selectedField.ancestorAt( iSubLevel - 1 ).row() );
-			ShapeSelectionType drawType = type;
+			VertexSelectionType drawType = type;
 
-			if ( type == ShapeSelectionType::BS_VERTEX_DATA && iSubLevel == 2 ) {
+			if ( type == VertexSelectionType::BS_VERTEX_DATA && iSubLevel == 2 ) {
 				if ( selectedField.hasName("Normal") )
-					drawType = ShapeSelectionType::NORMALS;
+					drawType = VertexSelectionType::NORMALS;
 				else if ( selectedField.hasName("Tangent") )
-					drawType = ShapeSelectionType::TANGENTS;
+					drawType = VertexSelectionType::TANGENTS;
 				else if ( selectedField.hasName("Bitangent X", "Bitangent Y", "Bitangent Z") )
-					drawType = ShapeSelectionType::BITANGENTS;
+					drawType = VertexSelectionType::BITANGENTS;
 			}
 
 			shape->drawSelection_vertices( drawType, iVertex );
 			return true;
 		}
 		break;
-	case ShapeSelectionType::EXTRA_TANGENTS:
+	case VertexSelectionType::EXTRA_TANGENTS:
 		shape->drawSelection_vertices( type );
 		return true;
-	case ShapeSelectionType::VERTEX_ROOT:
+	case VertexSelectionType::VERTEX_ROOT:
 		if ( iSubLevel == 0 ) {
 			shape->drawSelection_vertices( type );
-			return true;
-		}
-		break;
-	case ShapeSelectionType::TRIANGLE_ROOT:
-		if ( iSubLevel == 0 && shape->scene->isSelModeObject() ) {
-			shape->drawSelection_triangles();
 			return true;
 		}
 		break;
@@ -1212,7 +1215,7 @@ bool StripRange::process( NifFieldConst selectedField, int iSubLevel ) const
 {
 	if ( isArray() && iSubLevel == 1 ) {
 		int iVertex = remapIndex( selectedField.value<int>() );
-		shape->drawSelection_vertices( ShapeSelectionType::VERTICES, iVertex );
+		shape->drawSelection_vertices( VertexSelectionType::VERTICES, iVertex );
 		return true;
 	} else if ( iSubLevel == 0 || isDeep() ) {
 		if ( shape->scene->isSelModeObject() ) {

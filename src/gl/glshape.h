@@ -36,9 +36,6 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gl/glnode.h" // Inherited
 #include "gl/gltools.h"
 
-#include <QPersistentModelIndex>
-#include <QVector>
-#include <QString>
 
 //! @file glshape.h Shape
 
@@ -84,7 +81,7 @@ protected:
 };
 
 
-enum class ShapeSelectionType
+enum class VertexSelectionType
 {
 	VERTICES,       // Array of shape's vertices, with each child of rootField representing a vertex
 	NORMALS,		// Same as VERTICES, but show also normals
@@ -93,21 +90,20 @@ enum class ShapeSelectionType
 	BS_VERTEX_DATA, // Array of SSE+ vertex data structures
 	EXTRA_TANGENTS, // Byte array from extra data block storing tangents and bitangents of the shape
 	VERTEX_ROOT,    // If rootField (not its children) is selected, then show all vertices of the shape
-	TRIANGLE_ROOT,  // If rootField (not its children) is selected, then show all triangles and strips of the shape
 };
 
 
-// A generic shape selection (primarily vertices)
-class ShapeSelection final : public ShapeSelectionBase
+// A vertex selection
+class VertexSelection final : public ShapeSelectionBase
 {
 	friend class Shape;
 
 public:
-	ShapeSelectionType type;
+	VertexSelectionType type;
 
-	ShapeSelection() = delete;
+	VertexSelection() = delete;
 private:
-	ShapeSelection( Shape * _shape, NifFieldConst _rootField, ShapeSelectionType _type, NifFieldConst _mapField )
+	VertexSelection( Shape * _shape, NifFieldConst _rootField, VertexSelectionType _type, NifFieldConst _mapField )
 		: ShapeSelectionBase( _shape, _rootField, _mapField ), type( _type ) {}
 
 protected:
@@ -232,7 +228,7 @@ class Shape : public Node
 	friend class UVController;
 	friend class Renderer;
 	friend class ShapeSelectionBase;
-	friend class ShapeSelection;
+	friend class VertexSelection;
 	friend class TriangleRange;
 	friend class StripRange;
 	friend class BoundSphereSelection;
@@ -251,11 +247,10 @@ public:
 	void drawShapes( NodeList * secondPass, bool presort ) override;
 	void drawSelection() const override;
 
-	virtual void drawVerts() const {};
-	virtual QModelIndex vertexAt( int ) const { return QModelIndex(); };
+	QModelIndex vertexAt( int vertexIndex ) const;
 
 	bool isEditorMarker() const;
-	bool canDoSkinning() const;
+	bool doSkinning() const;
 
 	void fillViewModeWeights( double * outWeights, bool & outIsSkinned, const int * modeAxes );
 
@@ -300,8 +295,9 @@ protected:
 	QVector<TexCoords> coords;
 
 	QVector<ShapeSelectionBase *> selections;
+	NifFieldConst mainVertexRoot;
 
-	ShapeSelection * addSelection( NifFieldConst rootField, ShapeSelectionType type, NifFieldConst mapField = NifFieldConst() );
+	VertexSelection * addVertexSelection( NifFieldConst rootField, VertexSelectionType type, NifFieldConst mapField = NifFieldConst() );
 
 	//! Triangles
 	QVector<Triangle> triangles;
@@ -429,11 +425,11 @@ private:
 		bool drawBitangents;
 		float vectorScale;
 	};
-	bool drawSelection_vectors_init( ShapeSelectionType type, DrawVectorsData & outData ) const;
+	bool drawSelection_vectors_init( VertexSelectionType type, DrawVectorsData & outData ) const;
 	void drawSelection_vectors( int iStart, int nLength, const DrawVectorsData & drawData ) const;
 
-	void drawSelection_vertices( ShapeSelectionType type ) const;
-	void drawSelection_vertices( ShapeSelectionType type, int iSelectedVertex ) const;
+	void drawSelection_vertices( VertexSelectionType type ) const;
+	void drawSelection_vertices( VertexSelectionType type, int iSelectedVertex ) const;
 
 	void drawSelection_sphere( const BoundSphere & sphere, const Transform & transform, bool hightlightCenter ) const;
 	void drawSelection_boundSphere( const BoundSphereSelection * selSphere, bool hightlightCenter ) const;
@@ -460,9 +456,9 @@ inline void Shape::drawSelection_end() const
 	drawSelection_begin( DrawSelectionMode::NO );
 }
 
-inline ShapeSelection * Shape::addSelection( NifFieldConst rootField, ShapeSelectionType type, NifFieldConst mapField )
+inline VertexSelection * Shape::addVertexSelection( NifFieldConst rootField, VertexSelectionType type, NifFieldConst mapField )
 {
-	return rootField ? new ShapeSelection( this, rootField, type, mapField ) : nullptr;
+	return rootField ? new VertexSelection( this, rootField, type, mapField ) : nullptr;
 }
 
 inline TriangleRange * Shape::addTriangleRange( NifFieldConst rangeRoot, NifSkopeFlagsType rangeFlags, int iStart, int nTris )

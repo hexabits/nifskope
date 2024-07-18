@@ -4,6 +4,7 @@
 #include "gl/glshape.h"
 
 
+// Nodes of type BSTriShape (FO4/SKSE+)
 class BSShape : public Shape
 {
 public:
@@ -17,12 +18,8 @@ public:
 
 	// end Node
 
-	// Shape
-
-	QModelIndex vertexAt( int ) const override;
-
 protected:
-	BoundSphere dataBound; // TODO: move to Shape, replace with a pointer to BoundSphereSelection (togetger with bounds() )
+	BoundSphere dataBound; // TODO: move to Shape, replace with a pointer to BoundSphereSelection?
 
 	bool isDynamic = false;
 

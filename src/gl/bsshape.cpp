@@ -1,11 +1,5 @@
 #include "bsshape.h"
-
-#include "gl/glnode.h"
 #include "gl/glscene.h"
-#include "gl/renderer.h"
-#include "io/material.h"
-#include "model/nifmodel.h"
-
 
 void BSShape::updateDataImpl( const NifModel * nif )
 {
@@ -56,18 +50,20 @@ void BSShape::updateDataImpl( const NifModel * nif )
 		numVerts = vertexData.childCount();
 	}
 	iData = vertexData.toIndex(); // ???
-	addSelection( vertexData, ShapeSelectionType::BS_VERTEX_DATA );
+	addVertexSelection( vertexData, VertexSelectionType::BS_VERTEX_DATA );
+	mainVertexRoot = vertexData;
 
 	TexCoords coordset; // For compatibility with coords list
 
 	QVector<Vector4> dynVerts;
 	if ( isDynamic ) {
 		auto dynVertsRoot = block["Vertices"];
-		addSelection( dynVertsRoot, ShapeSelectionType::VERTICES );
+		addVertexSelection( dynVertsRoot, VertexSelectionType::VERTICES );
 		reportCountMismatch( dynVertsRoot, dynVertsRoot.childCount(), vertexData, numVerts, block );
 		dynVerts = dynVertsRoot.array<Vector4>();
 		if ( dynVerts.count() < numVerts )
 			dynVerts.resize( numVerts );
+		mainVertexRoot = dynVertsRoot;
 	}
 
 	if ( numVerts > 0 ) {
@@ -132,18 +128,16 @@ void BSShape::updateDataImpl( const NifModel * nif )
 
 	// Fill triangle (and partition) data
 	if ( skinPartBlock ) {
-		auto partRoot = skinPartBlock.child("Partitions");
-		addSelection( partRoot, ShapeSelectionType::TRIANGLE_ROOT );
-		for ( auto partEntry : partRoot.iter() ) {
+		for ( auto partEntry : skinPartBlock.child("Partitions").iter() ) {
 			TriangleRange * partTriRange = addTriangles( partEntry.child("Triangles") );
 			addTriangleRange( partEntry, TriangleRange::FLAG_HIGHLIGHT, partTriRange->start, partTriRange->length );
 
 			auto vertexMapRoot = partEntry.child("Vertex Map");
 			if ( vertexMapRoot.childCount() == 0 )
 				vertexMapRoot = NifFieldConst();
-			addSelection( vertexMapRoot, ShapeSelectionType::VERTICES, vertexMapRoot );
-			addSelection( partEntry.child("Vertex Weights"), ShapeSelectionType::VERTICES, vertexMapRoot );
-			addSelection( partEntry.child("Bone Indices"), ShapeSelectionType::VERTICES, vertexMapRoot );
+			addVertexSelection( vertexMapRoot, VertexSelectionType::VERTICES, vertexMapRoot );
+			addVertexSelection( partEntry.child("Vertex Weights"), VertexSelectionType::VERTICES, vertexMapRoot );
+			addVertexSelection( partEntry.child("Bone Indices"), VertexSelectionType::VERTICES, vertexMapRoot );
 			addPartitionBoneSelection( partEntry.child("Bones"), partTriRange );
 		}
 	} else {
@@ -201,9 +195,7 @@ void BSShape::updateDataImpl( const NifModel * nif )
 	addBoundSphereSelection( block.child("Bounding Sphere") );
 
 	// Triangle segments (BSSegmentedTriShape, BSSubIndexTriShape)
-	auto segRoot = block.child("Segment");
-	addSelection( segRoot, ShapeSelectionType::TRIANGLE_ROOT );
-	for ( auto segEntry: segRoot.iter() ) {
+	for ( auto segEntry: block.child("Segment").iter() ) {
 		// TODO: validate ranges, with reportError
 
 		const TriangleRange * segRange = addTriangleRange(
@@ -247,24 +239,6 @@ void BSShape::updateDataImpl( const NifModel * nif )
 	}
 }
 
-QModelIndex BSShape::vertexAt( int idx ) const
-{
-	auto nif = NifModel::fromIndex( iBlock );
-	if ( !nif )
-		return QModelIndex();
-
-	// Vertices are on NiSkinPartition in version 100
-	auto blk = iBlock;
-	if ( iSkinPart.isValid() ) {
-		if ( isDynamic )
-			return nif->getIndex( blk, "Vertices" ).child( idx, 0 );
-
-		blk = iSkinPart;
-	}
-
-	return nif->getIndex( nif->getIndex( blk, "Vertex Data" ).child( idx, 0 ), "Vertex" );
-}
-
 void BSShape::transformShapes()
 {
 	if ( isHidden() )
@@ -278,7 +252,7 @@ void BSShape::transformShapes()
 
 	Node::transformShapes();
 
-	if ( canDoSkinning() ) {
+	if ( doSkinning() ) {
 		applySkinningTransforms( scene->view );
 	} else {
 		applyRigidTransforms();

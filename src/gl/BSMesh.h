@@ -59,11 +59,6 @@ public:
 
 	// end Node
 
-	// Shape
-
-	void drawVerts() const override;
-	QModelIndex vertexAt(int) const override;
-
 	QVector<std::shared_ptr<MeshFile>> meshes;
 
 	int materialID = 0;
