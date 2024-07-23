@@ -132,17 +132,12 @@ quint32 MeshFile::readMesh()
 
 		for ( int i = 0; i < coords[0].count(); i++ ) {
 			uint16_t u, v;
-			union { float f; uint32_t i; } uu, vu;
-
 			in >> u;
 			in >> v;
 
-			uu.i = half_to_float(u);
-			vu.i = half_to_float(v);
-
 			Vector2 coord;
-			coord[0] = uu.f;
-			coord[1] = vu.f;
+			coord[0] = halfToFloat( u );
+			coord[1] = halfToFloat( v );
 
 			coords[0][i] = coord;
 		}
@@ -154,16 +149,12 @@ quint32 MeshFile::readMesh()
 
 		for ( int i = 0; i < coords[1].count(); i++ ) {
 			uint16_t u, v;
-			union { float f; uint32_t i; } uu, vu;
-
 			in >> u;
 			in >> v;
-			uu.i = half_to_float(u);
-			vu.i = half_to_float(v);
 
 			Vector2 coord;
-			coord[0] = uu.f;
-			coord[1] = vu.f;
+			coord[0] = halfToFloat( u );
+			coord[1] = halfToFloat( v );
 			coords[1][i] = coord;
 		}
 

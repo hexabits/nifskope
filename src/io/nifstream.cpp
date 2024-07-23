@@ -43,6 +43,27 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 //! @file nifstream.cpp NIF file I/O
 
+constexpr int CHAR8_STRING_SIZE = 8;
+
+static inline void shortString_prepareForWrite( QByteArray & str )
+{
+	str.replace( "\\r", "\r" );
+	str.replace( "\\n", "\n" );
+
+	if ( str.size() > 254 )
+		str.resize( 254 );
+}
+
+static inline uint8_t floatToNormByte( float f )
+{
+	return round( ( (double(f) + 1.0) / 2.0 ) * 255.0 );
+}
+
+static inline float normByteToFloat( uint8_t u )
+{
+	return (double(u) / 255.0) * 2.0 - 1.0;
+}
+
 /*
 *  NifIStream
 */
@@ -61,23 +82,69 @@ void NifIStream::init()
 	maxLength = 0x8000;
 }
 
+bool NifIStream::readSizedString( NifValue & val )
+{
+	auto valString = static_cast<QString *>(val.val.data);
+	if ( !valString )
+		return false;
+
+	int32_t len;
+	*dataStream >> len;
+	if ( len > maxLength || len < 0 ) {
+		*valString = tr( "<string too long (0x%1)>" ).arg( len, 0, 16 );
+		return false;
+	}
+
+	QByteArray byteString = device->read( len );
+	if ( byteString.size() != len )
+		return false;
+	*valString = QString( byteString );
+	return true;
+}
+
+bool NifIStream::readLineString( QByteArray & outString, int maxLineLength )
+{
+	outString.reserve( maxLineLength );
+
+	for ( int counter = 0; ; counter++ ) {
+		char ch;
+		if ( !device->getChar( &ch ) )
+			return false;
+		if ( ch == '\n')
+			break;
+		if ( counter >= maxLineLength )
+			return false;
+		outString.append( ch );
+	}
+
+	return true;
+}
+
 bool NifIStream::read( NifValue & val )
 {
-	if ( val.isCount() )
-		val.val.u64 = 0;
+	#define _DEVICE_READ_DATA( data, dataSize ) ( device->read( (char *)(data), (dataSize) ) == (dataSize) )
+	#define _DEVICE_READ_ARRAY( arr ) ( device->read( (char *)(arr), sizeof(arr) ) == sizeof(arr) )
+	#define _DEVICE_READ_VALUE( val ) ( device->read( (char *)(&(val)), sizeof(val) ) == sizeof(val) )
+
+	// TODO (Gavrant):
+	// - What's the point of having 2 different ways of reading streams - dataStream and device?
+	// - tHeaderString and tLineString: why the max char number is capped at 79 and 254 respectively? If it has a point, then why those caps are not enforced in ::write() and ::size() below?
+	// - tShortString: Why ::write() converts "\\n" to "\n" and "\\r" to "\r", but ::read() doesn't do the opposite?
+	// - tBlob: it looks like it never should/could be read from a stream. Return false instead?
 
 	switch ( val.type() ) {
 	case NifValue::tBool:
 		{
+			val.val.u64 = 0;
 			if ( bool32bit )
 				*dataStream >> val.val.u32;
 			else
 				*dataStream >> val.val.u08;
-
 			return (dataStream->status() == QDataStream::Ok);
 		}
 	case NifValue::tByte:
 		{
+			val.val.u64 = 0;
 			*dataStream >> val.val.u08;
 			return (dataStream->status() == QDataStream::Ok);
 		}
@@ -86,6 +153,7 @@ bool NifIStream::read( NifValue & val )
 	case NifValue::tFlags:
 	case NifValue::tBlockTypeIndex:
 		{
+			val.val.u64 = 0;
 			*dataStream >> val.val.u16;
 			return (dataStream->status() == QDataStream::Ok);
 		}
@@ -93,19 +161,20 @@ bool NifIStream::read( NifValue & val )
 	case NifValue::tInt:
 	case NifValue::tUInt:
 		{
+			val.val.u64 = 0;
 			*dataStream >> val.val.u32;
 			return (dataStream->status() == QDataStream::Ok);
 		}
 	case NifValue::tULittle32:
 		{
-			if ( bigEndian )
+			val.val.u64 = 0;
+			if ( bigEndian ) {
 				dataStream->setByteOrder( QDataStream::LittleEndian );
-
-			*dataStream >> val.val.u32;
-
-			if ( bigEndian )
+				*dataStream >> val.val.u32;
 				dataStream->setByteOrder( QDataStream::BigEndian );
-
+			} else {
+				*dataStream >> val.val.u32;
+			}
 			return (dataStream->status() == QDataStream::Ok);
 		}
 	case NifValue::tInt64:
@@ -116,18 +185,20 @@ bool NifIStream::read( NifValue & val )
 		}
 	case NifValue::tStringIndex:
 		{
+			val.val.u64 = 0;
 			*dataStream >> val.val.u32;
 			return (dataStream->status() == QDataStream::Ok);
 		}
 	case NifValue::tLink:
 	case NifValue::tUpLink:
 		{
+			val.val.u64 = 0;
 			*dataStream >> val.val.i32;
-
+			if ( dataStream->status() != QDataStream::Ok )
+				return false;
 			if ( linkAdjust )
 				val.val.i32--;
-
-			return (dataStream->status() == QDataStream::Ok);
+			return true;
 		}
 	case NifValue::tFloat:
 		{
@@ -137,393 +208,335 @@ bool NifIStream::read( NifValue & val )
 		}
 	case NifValue::tHfloat:
 		{
-			val.val.u64 = 0;
 			uint16_t half;
 			*dataStream >> half;
-			val.val.u32 = half_to_float( half );
-			return (dataStream->status() == QDataStream::Ok);
+			if ( dataStream->status() != QDataStream::Ok )
+				return false;
+			val.val.u64 = 0;
+			val.val.f32 = halfToFloat( half );
+			return true;
 		}
 	case NifValue::tNormbyte:
-	{
-		quint8 v;
-		float fv;
-		*dataStream >> v;
-		fv = (double(v) / 255.0) * 2.0 - 1.0;
-		val.val.u64 = 0;
-		val.val.f32 = fv;
-
-		return (dataStream->status() == QDataStream::Ok);
-	}
+		{
+			uint8_t v;
+			*dataStream >> v;
+			if ( dataStream->status() != QDataStream::Ok )
+				return false;
+			val.val.u64 = 0;
+			val.val.f32 = normByteToFloat( v );
+			return true;
+		}
 	case NifValue::tByteVector3:
 		{
-			quint8 x, y, z;
-			float xf, yf, zf;
+			auto vec = static_cast<Vector3 *>(val.val.data);
+			if ( !vec )
+				return false;
 
-			*dataStream >> x;
-			*dataStream >> y;
-			*dataStream >> z;
-
-			xf = (double( x ) / 255.0) * 2.0 - 1.0;
-			yf = (double( y ) / 255.0) * 2.0 - 1.0;
-			zf = (double( z ) / 255.0) * 2.0 - 1.0;
-
-			Vector3 * v = static_cast<Vector3 *>(val.val.data);
-			v->xyz[0] = xf; v->xyz[1] = yf; v->xyz[2] = zf;
-
+			for ( int i = 0; i < 3; i++ ) {
+				uint8_t v;
+				*dataStream >> v;
+				vec->xyz[i] = normByteToFloat( v );
+			}
 			return (dataStream->status() == QDataStream::Ok);
 		}
 	case NifValue::tUshortVector3:
 		{
-			uint16_t x, y, z;
-			float xf, yf, zf;
+			auto vec = static_cast<Vector3 *>(val.val.data);
+			if ( !vec )
+				return false;
 
-			*dataStream >> x;
-			*dataStream >> y;
-			*dataStream >> z;
-
-			xf = (float) x;
-			yf = (float) y;
-			zf = (float) z;
-
-			Vector3 * v = static_cast<Vector3 *>(val.val.data);
-			v->xyz[0] = xf; v->xyz[1] = yf; v->xyz[2] = zf;
-
+			for ( int i = 0; i < 3; i++ ) {
+				uint16_t v;
+				*dataStream >> v;
+				vec->xyz[i] = float( v );
+			}
 			return (dataStream->status() == QDataStream::Ok);
 		}
 	case NifValue::tHalfVector3:
 		{
-			uint16_t x, y, z;
-			union { float f; uint32_t i; } xu, yu, zu;
+			auto vec = static_cast<Vector3 *>(val.val.data);
+			if ( !vec )
+				return false;
 
-			*dataStream >> x;
-			*dataStream >> y;
-			*dataStream >> z;
-
-			xu.i = half_to_float( x );
-			yu.i = half_to_float( y );
-			zu.i = half_to_float( z );
-
-			Vector3 * v = static_cast<Vector3 *>(val.val.data);
-			v->xyz[0] = xu.f; v->xyz[1] = yu.f; v->xyz[2] = zu.f;
-
+			for ( int i = 0; i < 3; i++ ) {
+				uint16_t v;
+				*dataStream >> v;
+				vec->xyz[i] = halfToFloat( v );
+			}
 			return (dataStream->status() == QDataStream::Ok);
 		}
 	case NifValue::tHalfVector2:
 		{
-			uint16_t x, y;
-			union { float f; uint32_t i; } xu, yu;
+			auto vec = static_cast<Vector2 *>(val.val.data);
+			if ( !vec )
+				return false;
 
-			*dataStream >> x;
-			*dataStream >> y;
+			for ( int i = 0; i < 2; i++ ) {
+				uint16_t v;
+				*dataStream >> v;
+				vec->xy[i] = halfToFloat( v );
+			}
+			return (dataStream->status() == QDataStream::Ok);
+		}
+	case NifValue::tVector2:
+		{
+			auto vec = static_cast<Vector2 *>(val.val.data);
+			if ( !vec )
+				return false;
 
-			xu.i = half_to_float( x );
-			yu.i = half_to_float( y );
-
-			Vector2 * v = static_cast<Vector2 *>(val.val.data);
-			v->xy[0] = xu.f; v->xy[1] = yu.f;
-
+			*dataStream >> *vec;
 			return (dataStream->status() == QDataStream::Ok);
 		}
 	case NifValue::tVector3:
 		{
-			Vector3 * v = static_cast<Vector3 *>(val.val.data);
-			*dataStream >> *v;
+			auto vec = static_cast<Vector3 *>(val.val.data);
+			if ( !vec )
+				return false;
+
+			*dataStream >> *vec;
 			return (dataStream->status() == QDataStream::Ok);
 		}
 	case NifValue::tVector4:
 		{
-			Vector4 * v = static_cast<Vector4 *>(val.val.data);
-			*dataStream >> *v;
+			auto vec = static_cast<Vector4 *>(val.val.data);
+			if ( !vec )
+				return false;
+
+			*dataStream >> *vec;
 			return (dataStream->status() == QDataStream::Ok);
 		}
 	case NifValue::tTriangle:
 		{
-			Triangle * t = static_cast<Triangle *>(val.val.data);
-			*dataStream >> *t;
+			auto tri = static_cast<Triangle *>(val.val.data);
+			if ( !tri )
+				return false;
+
+			*dataStream >> *tri;
 			return (dataStream->status() == QDataStream::Ok);
 		}
 	case NifValue::tQuat:
 		{
-			Quat * q = static_cast<Quat *>(val.val.data);
-			*dataStream >> *q;
+			auto quat = static_cast<Quat *>(val.val.data);
+			if ( !quat )
+				return false;
+
+			*dataStream >> *quat;
 			return (dataStream->status() == QDataStream::Ok);
 		}
 	case NifValue::tQuatXYZW:
 		{
-			Quat * q = static_cast<Quat *>(val.val.data);
-			return device->read( (char *)&q->wxyz[1], 12 ) == 12 && device->read( (char *)q->wxyz, 4 ) == 4;
+			auto quat = static_cast<Quat *>(val.val.data);
+			return quat && _DEVICE_READ_DATA( quat->wxyz + 1, sizeof(float) * 3 ) && _DEVICE_READ_DATA( quat->wxyz, sizeof(float) * 1 );
 		}
 	case NifValue::tMatrix:
-		return device->read( (char *)static_cast<Matrix *>(val.val.data)->m, 36 ) == 36;
-	case NifValue::tMatrix4:
-		return device->read( (char *)static_cast<Matrix4 *>(val.val.data)->m, 64 ) == 64;
-	case NifValue::tVector2:
 		{
-			Vector2 * v = static_cast<Vector2 *>(val.val.data);
-			*dataStream >> *v;
-			return (dataStream->status() == QDataStream::Ok);
+			auto matrix = static_cast<Matrix *>(val.val.data);
+			return matrix && _DEVICE_READ_ARRAY( matrix->m );
+		}
+	case NifValue::tMatrix4:
+		{
+			auto matrix = static_cast<Matrix4 *>(val.val.data);
+			return matrix && _DEVICE_READ_ARRAY( matrix->m );
 		}
 	case NifValue::tColor3:
-		return device->read( (char *)static_cast<Color3 *>(val.val.data)->rgb, 12 ) == 12;
+		{
+			auto color = static_cast<Color3 *>(val.val.data);
+			return color && _DEVICE_READ_ARRAY( color->rgb );
+		}
 	case NifValue::tByteColor4:
 		{
-			quint8 r, g, b, a;
-			*dataStream >> r;
-			*dataStream >> g;
-			*dataStream >> b;
-			*dataStream >> a;
+			auto color = static_cast<Color4 *>(val.val.data);
+			if ( !color )
+				return false;
 
-			Color4 * c = static_cast<Color4 *>(val.val.data);
-			c->setRGBA( (float)r / 255.0, (float)g / 255.0, (float)b / 255.0, (float)a / 255.0 );
-
+			for ( int i = 0; i < 4; i++ ) {
+				uint8_t v;
+				*dataStream >> v;
+				color->rgba[i] = float( double(v) / 255.0 );
+			}
 			return (dataStream->status() == QDataStream::Ok);
 		}
 	case NifValue::tColor4:
 		{
-			Color4 * c = static_cast<Color4 *>(val.val.data);
-			*dataStream >> *c;
+			auto color = static_cast<Color4 *>(val.val.data);
+			if ( !color )
+				return false;
+
+			*dataStream >> *color;
 			return (dataStream->status() == QDataStream::Ok);
 		}
 	case NifValue::tSizedString:
-		{
-			int len;
-			//device->read( (char *) &len, 4 );
-			*dataStream >> len;
-
-			if ( len > maxLength || len < 0 ) {
-				*static_cast<QString *>(val.val.data) = tr( "<string too long (0x%1)>" ).arg( len, 0, 16 ); return false;
-			}
-
-			QByteArray string = device->read( len );
-
-			if ( string.size() != len )
-				return false;
-
-			//string.replace( "\r", "\\r" );
-			//string.replace( "\n", "\\n" );
-			*static_cast<QString *>(val.val.data) = QString( string );
-		}
-		return true;
+	case NifValue::tText:
+		return readSizedString( val );
 	case NifValue::tShortString:
 		{
-			unsigned char len;
-			device->read( (char *)&len, 1 );
-			QByteArray string = device->read( len );
-
-			if ( string.size() != len )
+			auto valString = static_cast<QString *>(val.val.data);
+			if ( !valString )
 				return false;
 
-			//string.replace( "\r", "\\r" );
-			//string.replace( "\n", "\\n" );
-			*static_cast<QString *>(val.val.data) = QString::fromLocal8Bit( string );
-		}
-		return true;
-	case NifValue::tText:
-		{
-			int len;
-			device->read( (char *)&len, 4 );
-
-			if ( len > maxLength || len < 0 ) {
-				*static_cast<QString *>(val.val.data) = tr( "<string too long>" ); return false;
-			}
-
-			QByteArray string = device->read( len );
-
-			if ( string.size() != len )
+			uint8_t len;
+			if ( !_DEVICE_READ_VALUE( len ) )
 				return false;
 
-			*static_cast<QString *>(val.val.data) = QString( string );
+			QByteArray byteString = device->read( len );
+			if ( byteString.size() != len )
+				return false;
+
+			*valString = QString::fromLocal8Bit( byteString );
+			return true;
 		}
-		return true;
 	case NifValue::tByteArray:
 		{
-			int len;
-			device->read( (char *)&len, 4 );
+			auto array = static_cast<QByteArray *>(val.val.data);
+			if ( !array )
+				return false;
 
+			int32_t len;
+			if ( !_DEVICE_READ_VALUE( len ) )
+				return false;
 			if ( len < 0 )
 				return false;
 
-			*static_cast<QByteArray *>(val.val.data) = device->read( len );
-			return static_cast<QByteArray *>(val.val.data)->count() == len;
+			*array = device->read( len );
+			return array->count() == len;
 		}
 	case NifValue::tStringPalette:
 		{
-			int len;
-			device->read( (char *)&len, 4 );
+			auto array = static_cast<QByteArray *>(val.val.data);
+			if ( !array )
+				return false;
 
+			int32_t len;
+			if ( !_DEVICE_READ_VALUE( len ) )
+				return false;
 			if ( len > 0xffff || len < 0 )
 				return false;
 
-			*static_cast<QByteArray *>(val.val.data) = device->read( len );
-			device->read( (char *)&len, 4 );
-			return true;
+			*array = device->read( len );
+			return _DEVICE_READ_VALUE( len );
 		}
 	case NifValue::tByteMatrix:
 		{
-			int len1, len2;
-			device->read( (char *)&len1, 4 );
-			device->read( (char *)&len2, 4 );
-
-			if ( len1 < 0 || len2 < 0 )
+			auto valMatrix = static_cast<ByteMatrix *>(val.val.data);
+			if ( !valMatrix )
 				return false;
 
-			int len = len1 * len2;
-			ByteMatrix tmp( len1, len2 );
-			qint64 rlen = device->read( tmp.data(), len );
-			tmp.swap( *static_cast<ByteMatrix *>(val.val.data) );
-			return (rlen == len);
+			int32_t size1, size2;
+			if ( !_DEVICE_READ_VALUE( size1 ) || !_DEVICE_READ_VALUE( size2 ) )
+				return false;
+			if ( size1 < 0 || size2 < 0 )
+				return false;
+
+			ByteMatrix tmp( size1, size2 );
+			int64_t totalSize = int64_t(size1) * int64_t(size2);
+			if ( !_DEVICE_READ_DATA( tmp.data(), totalSize ) )
+				return false;
+			tmp.swap( *valMatrix );
+			return true;
 		}
 	case NifValue::tHeaderString:
 		{
-			QByteArray string;
-			int c = 0;
-			char chr = 0;
-
-			while ( c++ < 80 && device->getChar( &chr ) && chr != '\n' )
-				string.append( chr );
-
-			if ( c >= 80 )
+			auto valString = static_cast<QString *>(val.val.data);
+			if ( !valString )
 				return false;
 
-			quint32 version = 0;
+			QByteArray byteString;
+			if ( !readLineString( byteString, 79 ) )
+				return false;
+
+			uint32_t numVersion = 0;
 			// Support NIF versions without "Version" in header string
 			// Do for all files for now
 			//if ( c == GAMEBRYO_FF || c == NETIMMERSE_FF || c == NEOSTEAM_FF ) {
-			device->peek((char *)&version, 4);
+			device->peek( (char *)&numVersion, 4 );
 			// NeoSteam Hack
-			if (version == 0x08F35232)
-				version = 0x0A010000;
+			if (numVersion == 0x08F35232)
+				numVersion = 0x0A010000;
 			// Version didn't exist until NetImmerse 4.0
-			else if (version < 0x04000000)
-				version = 0;
+			else if (numVersion < 0x04000000)
+				numVersion = 0;
 			//}
 
-			*static_cast<QString *>(val.val.data) = QString( string );
-			bool x = model->setHeaderString( QString( string ), version );
-
+			*valString = QString( byteString );
+			bool result = model->setHeaderString( *valString, numVersion );
 			init();
-			return x;
+			return result;
 		}
 	case NifValue::tLineString:
 		{
-			QByteArray string;
-			int c = 0;
-			char chr = 0;
-
-			while ( c++ < 255 && device->getChar( &chr ) && chr != '\n' )
-				string.append( chr );
-
-			if ( c >= 255 )
+			auto valString = static_cast<QString *>(val.val.data);
+			if ( !valString )
 				return false;
 
-			*static_cast<QString *>(val.val.data) = QString( string );
+			QByteArray byteString;
+			if ( !readLineString( byteString, 254 ) )
+				return false;
+
+			*valString = QString( byteString );
 			return true;
 		}
 	case NifValue::tChar8String:
 		{
-			QByteArray string;
-			int c = 0;
-			char chr = 0;
-
-			while ( c++ < 8 && device->getChar( &chr ) )
-				string.append( chr );
-
-			if ( c > 9 )
+			auto valString = static_cast<QString *>(val.val.data);
+			if ( !valString )
 				return false;
 
-			*static_cast<QString *>(val.val.data) = QString( string );
+			char buffer[CHAR8_STRING_SIZE + 1];
+			if ( !_DEVICE_READ_DATA( buffer, CHAR8_STRING_SIZE ) )
+				return false;
+			buffer[CHAR8_STRING_SIZE] = 0;
+
+			*valString = QString( buffer );
 			return true;
 		}
 	case NifValue::tFileVersion:
 		{
-			if ( device->read( (char *)&val.val.u32, 4 ) != 4 )
+			val.val.u64 = 0;
+			if ( !_DEVICE_READ_VALUE( val.val.u32 ) )
 				return false;
 
-			//bool x = model->setVersion( val.val.u32 );
-			//init();
 			if ( model->inherits( "NifModel" ) && model->getVersionNumber() >= 0x14000004 ) {
 				bool littleEndian;
 				device->peek( (char *)&littleEndian, 1 );
 				bigEndian = !littleEndian;
-
-				if ( bigEndian ) {
+				if ( bigEndian )
 					dataStream->setByteOrder( QDataStream::BigEndian );
-				}
 			}
 
 			// hack for neosteam
-			if ( val.val.u32 == 0x08F35232 ) {
+			if ( val.val.u32 == 0x08F35232 )
 				val.val.u32 = 0x0a010000;
-			}
 
 			return true;
 		}
 	case NifValue::tString:
-		{
-			if ( stringAdjust ) {
-				val.changeType( NifValue::tStringIndex );
-				return device->read( (char *)&val.val.i32, 4 ) == 4;
-			} else {
-				val.changeType( NifValue::tSizedString );
-
-				int len;
-				device->read( (char *)&len, 4 );
-
-				if ( len > maxLength || len < 0 ) {
-					*static_cast<QString *>(val.val.data) = tr( "<string too long>" ); return false;
-				}
-
-				QByteArray string = device->read( len );
-
-				if ( string.size() != len )
-					return false;
-
-				//string.replace( "\r", "\\r" );
-				//string.replace( "\n", "\\n" );
-				*static_cast<QString *>(val.val.data) = QString( string );
-				return true;
-			}
-		}
 	case NifValue::tFilePath:
-		{
-			if ( stringAdjust ) {
-				val.changeType( NifValue::tStringIndex );
-				return device->read( (char *)&val.val.i32, 4 ) == 4;
-			} else {
-				val.changeType( NifValue::tSizedString );
-
-				int len;
-				device->read( (char *)&len, 4 );
-
-				if ( len > maxLength || len < 0 ) {
-					*static_cast<QString *>(val.val.data) = tr( "<string too long>" ); return false;
-				}
-
-				QByteArray string = device->read( len );
-
-				if ( string.size() != len )
-					return false;
-
-				*static_cast<QString *>(val.val.data) = QString( string );
-				return true;
-			}
+		if ( stringAdjust ) {
+			val.changeType( NifValue::tStringIndex );
+			// val.val.u64 = 0; // val.changeType() above takes care of clearing u64
+			return _DEVICE_READ_VALUE( val.val.i32 );
+		} else {
+			val.changeType( NifValue::tSizedString );
+			return readSizedString( val );
 		}
 	case NifValue::tBSVertexDesc:
 		{
-			*dataStream >> *static_cast<BSVertexDesc *>(val.val.data);
+			auto d = static_cast<BSVertexDesc *>(val.val.data);
+			if ( !d )
+				return false;
+
+			*dataStream >> *d;
 			return (dataStream->status() == QDataStream::Ok);
 		}
 	case NifValue::tBlob:
 		{
-			if ( val.val.data ) {
-				QByteArray * array = static_cast<QByteArray *>(val.val.data);
-				return device->read( array->data(), array->size() ) == array->size();
-			}
-
-			return false;
+			auto blob = static_cast<QByteArray *>(val.val.data);
+			return blob && _DEVICE_READ_DATA( blob->data(), blob->size() );
 		}
 	case NifValue::tNone:
 		return true;
+	default:
+		Q_ASSERT( 0 );
 	}
 
 	return false;
@@ -548,319 +561,284 @@ void NifOStream::init()
 
 bool NifOStream::write( const NifValue & val )
 {
+	#define _DEVICE_WRITE_DATA( data, dataSize ) ( device->write( (const char *)(data), (dataSize) ) == (dataSize) )
+	#define _DEVICE_WRITE_ARRAY( arr ) ( device->write( (const char *)(arr), sizeof(arr) ) == sizeof(arr) )
+	#define _DEVICE_WRITE_VALUE( val ) ( device->write( (const char *)(&(val)), sizeof(val) ) == sizeof(val) )
+
 	switch ( val.type() ) {
 	case NifValue::tBool:
-
-		if ( bool32bit )
-			return device->write( (char *)&val.val.u32, 4 ) == 4;
-		else
-			return device->write( (char *)&val.val.u08, 1 ) == 1;
-
+		return bool32bit ? _DEVICE_WRITE_VALUE( val.val.u32 ) : _DEVICE_WRITE_VALUE( val.val.u08 );
 	case NifValue::tByte:
-		return device->write( (char *)&val.val.u08, 1 ) == 1;
+		return _DEVICE_WRITE_VALUE( val.val.u08 );
 	case NifValue::tWord:
 	case NifValue::tShort:
 	case NifValue::tFlags:
 	case NifValue::tBlockTypeIndex:
-		return device->write( (char *)&val.val.u16, 2 ) == 2;
+		return _DEVICE_WRITE_VALUE( val.val.u16 );
 	case NifValue::tStringOffset:
 	case NifValue::tInt:
 	case NifValue::tUInt:
 	case NifValue::tULittle32:
 	case NifValue::tStringIndex:
-		return device->write( (char *)&val.val.u32, 4 ) == 4;
+		return _DEVICE_WRITE_VALUE( val.val.u32 );
 	case NifValue::tInt64:
 	case NifValue::tUInt64:
-		return device->write( (char *)&val.val.u64, 8 ) == 8;
+		return _DEVICE_WRITE_VALUE( val.val.u64 );
 	case NifValue::tFileVersion:
 		{
-			if ( NifModel * mdl = static_cast<NifModel *>(const_cast<BaseModel *>(model)) ) {
-				QString headerString = mdl->getItem( mdl->getHeaderItem(), "Header String" )->value().toString();
-				quint32 version;
+			uint32_t version = val.val.u32;
 
-				// hack for neosteam
-				if ( headerString.startsWith( "NS" ) ) {
+			// hack for neosteam
+			auto nif = static_cast<const NifModel *>(model);
+			if ( nif ) {
+				QString headerString = nif->header().child("Header String").value<QString>();
+				if ( headerString.startsWith( QStringLiteral("NS") ) )
 					version = 0x08F35232;
-				} else {
-					version = val.val.u32;
-				}
-
-				return device->write( (char *)&version, 4 ) == 4;
-			} else {
-				return device->write( (char *)&val.val.u32, 4 ) == 4;
 			}
+			
+			return _DEVICE_WRITE_VALUE( version );
 		}
 	case NifValue::tLink:
 	case NifValue::tUpLink:
-
-		if ( !linkAdjust ) {
-			return device->write( (char *)&val.val.i32, 4 ) == 4;
+		if ( linkAdjust ) {
+			int32_t v = val.val.i32 + 1;
+			return _DEVICE_WRITE_VALUE( v );
 		} else {
-			qint32 l = val.val.i32 + 1;
-			return device->write( (char *)&l, 4 ) == 4;
+			return _DEVICE_WRITE_VALUE( val.val.i32 );
 		}
-
 	case NifValue::tFloat:
-		return device->write( (char *)&val.val.f32, 4 ) == 4;
+		return _DEVICE_WRITE_VALUE( val.val.f32 );
 	case NifValue::tHfloat:
 		{
-			uint16_t half = half_from_float( val.val.u32 );
-			return device->write( (char *)&half, 2 ) == 2;
+			uint16_t half = floatToHalf( val.val.f32 );
+			return _DEVICE_WRITE_VALUE( half );
 		}
 	case NifValue::tNormbyte:
 		{
-			uint8_t v = round( ((val.val.f32 + 1.0) / 2.0) * 255.0 );
-
-			return device->write( (char*)&v, 1 ) == 1;
+			uint8_t v = floatToNormByte( val.val.f32 );
+			return _DEVICE_WRITE_VALUE( v );
 		}
 	case NifValue::tByteVector3:
 		{
-			Vector3 * vec = static_cast<Vector3 *>(val.val.data);
+			auto vec = static_cast<Vector3 *>(val.val.data);
 			if ( !vec )
 				return false;
 
 			uint8_t v[3];
-			v[0] = round( ((vec->xyz[0] + 1.0) / 2.0) * 255.0 );
-			v[1] = round( ((vec->xyz[1] + 1.0) / 2.0) * 255.0 );
-			v[2] = round( ((vec->xyz[2] + 1.0) / 2.0) * 255.0 );
-
-			return device->write( (char*)v, 3 ) == 3;
+			for ( int i = 0; i < 3; i++ )
+				v[i] = floatToNormByte( vec->xyz[i] );
+			return _DEVICE_WRITE_ARRAY( v );
 		}
 	case NifValue::tUshortVector3:
 		{
-			Vector3 * vec = static_cast<Vector3 *>(val.val.data);
+			auto vec = static_cast<Vector3 *>(val.val.data);
 			if ( !vec )
 				return false;
 
 			uint16_t v[3];
-			v[0] = (uint16_t) round(vec->xyz[0]);
-			v[1] = (uint16_t) round(vec->xyz[1]);
-			v[2] = (uint16_t) round(vec->xyz[2]);
-
-			return device->write( (char*)v, 6 ) == 3;
+			for ( int i = 0; i < 3; i++ )
+				v[i] = (uint16_t) round( vec->xyz[i] );
+			return _DEVICE_WRITE_ARRAY( v );
 		}
 	case NifValue::tHalfVector3:
 		{
-			Vector3 * vec = static_cast<Vector3 *>(val.val.data);
+			auto vec = static_cast<Vector3 *>(val.val.data);
 			if ( !vec )
 				return false;
 
-			union { float f; uint32_t i; } xu, yu, zu;
-
-			xu.f = vec->xyz[0];
-			yu.f = vec->xyz[1];
-			zu.f = vec->xyz[2];
-
 			uint16_t v[3];
-			v[0] = half_from_float( xu.i );
-			v[1] = half_from_float( yu.i );
-			v[2] = half_from_float( zu.i );
-
-			return device->write( (char*)v, 6 ) == 6;
+			for ( int i = 0; i < 3; i++)
+				v[i] = floatToHalf( vec->xyz[i] );
+			return _DEVICE_WRITE_ARRAY( v );
 		}
 	case NifValue::tHalfVector2:
 		{
-			Vector2 * vec = static_cast<Vector2 *>(val.val.data);
+			auto vec = static_cast<Vector2 *>(val.val.data);
 			if ( !vec )
 				return false;
 
-			union { float f; uint32_t i; } xu, yu;
-
-			xu.f = vec->xy[0];
-			yu.f = vec->xy[1];
-
 			uint16_t v[2];
-			v[0] = half_from_float( xu.i );
-			v[1] = half_from_float( yu.i );
-
-			return device->write( (char*)v, 4 ) == 4;
+			v[0] = floatToHalf( vec->xy[0] );
+			v[1] = floatToHalf( vec->xy[1] );
+			return _DEVICE_WRITE_ARRAY( v );
 		}
 	case NifValue::tVector3:
-		return device->write( (char *)static_cast<Vector3 *>(val.val.data)->xyz, 12 ) == 12;
+		{
+			auto vec = static_cast<Vector3 *>(val.val.data);
+			return vec && _DEVICE_WRITE_ARRAY( vec->xyz );
+		}
 	case NifValue::tVector4:
-		return device->write( (char *)static_cast<Vector4 *>(val.val.data)->xyzw, 16 ) == 16;
+		{
+			auto vec = static_cast<Vector4 *>(val.val.data);
+			return vec && _DEVICE_WRITE_ARRAY( vec->xyzw ) ;
+		}
 	case NifValue::tTriangle:
-		return device->write( (char *)static_cast<Triangle *>(val.val.data)->v, 6 ) == 6;
+		{
+			auto tri = static_cast<Triangle *>(val.val.data);
+			return tri && _DEVICE_WRITE_ARRAY( tri->v );
+		}
 	case NifValue::tQuat:
-		return device->write( (char *)static_cast<Quat *>(val.val.data)->wxyz, 16 ) == 16;
+		{
+			auto quat = static_cast<Quat *>(val.val.data);
+			return quat && _DEVICE_WRITE_ARRAY( quat->wxyz );
+		}
 	case NifValue::tQuatXYZW:
 		{
-			Quat * q = static_cast<Quat *>(val.val.data);
-			return device->write( (char *)&q->wxyz[1], 12 ) == 12 && device->write( (char *)q->wxyz, 4 ) == 4;
+			auto quat = static_cast<Quat *>(val.val.data);
+			return quat && _DEVICE_WRITE_DATA( quat->wxyz + 1, sizeof(float) * 3 ) && _DEVICE_WRITE_DATA( quat->wxyz, sizeof(float) * 1 );
 		}
 	case NifValue::tMatrix:
-		return device->write( (char *)static_cast<Matrix *>(val.val.data)->m, 36 ) == 36;
+		{
+			auto matrix = static_cast<Matrix *>(val.val.data);
+			return matrix && _DEVICE_WRITE_ARRAY( matrix->m );
+		}
 	case NifValue::tMatrix4:
-		return device->write( (char *)static_cast<Matrix4 *>(val.val.data)->m, 64 ) == 64;
+		{
+			auto matrix = static_cast<Matrix4 *>(val.val.data);
+			return matrix && _DEVICE_WRITE_ARRAY( matrix->m );
+		}
 	case NifValue::tVector2:
-		return device->write( (char *)static_cast<Vector2 *>(val.val.data)->xy, 8 ) == 8;
+		{
+			auto vec = static_cast<Vector2 *>(val.val.data);
+			return vec && _DEVICE_WRITE_ARRAY( vec->xy );
+		}
 	case NifValue::tColor3:
-		return device->write( (char *)static_cast<Color3 *>(val.val.data)->rgb, 12 ) == 12;
+		{
+			auto color = static_cast<Color3 *>(val.val.data);
+			return color &&_DEVICE_WRITE_ARRAY( color->rgb );
+		}
 	case NifValue::tByteColor4:
 		{
-			Color4 * color = static_cast<Color4 *>(val.val.data);
+			auto color = static_cast<Color4 *>(val.val.data);
 			if ( !color )
 				return false;
 
-			quint8 c[4];
-
-			auto cF = color->rgba;
-			for ( int i = 0; i < 4; i++ ) {
-				c[i] = round( cF[i] * 255.0f );
-			}
-
-			return device->write( (char*)c, 4 ) == 4;
+			uint8_t out[4];
+			for ( int i = 0; i < 4; i++ )
+				out[i] = std::clamp( round( color->rgba[i] * 255.0 ), 0.0, 255.0 );
+			return _DEVICE_WRITE_ARRAY( out );
 		}
 	case NifValue::tColor4:
-		return device->write( (char *)static_cast<Color4 *>(val.val.data)->rgba, 16 ) == 16;
-	case NifValue::tSizedString:
 		{
-			QByteArray string = static_cast<QString *>(val.val.data)->toLatin1();
-			//string.replace( "\\r", "\r" );
-			//string.replace( "\\n", "\n" );
-			int len = string.size();
-
-			if ( device->write( (char *)&len, 4 ) != 4 )
+			auto color = static_cast<Color4 *>(val.val.data);
+			return color && _DEVICE_WRITE_ARRAY( color->rgba );
+		}
+	case NifValue::tSizedString:
+	case NifValue::tText:
+	{
+			auto valString = static_cast<QString *>(val.val.data);
+			if ( !valString )
 				return false;
 
-			return device->write( string.constData(), string.size() ) == string.size();
+			QByteArray byteString = valString->toLatin1();
+			int32_t len = byteString.size();
+			return _DEVICE_WRITE_VALUE( len ) && _DEVICE_WRITE_DATA( byteString.constData(), len );
 		}
 	case NifValue::tShortString:
 		{
-			QByteArray string = static_cast<QString *>(val.val.data)->toLocal8Bit();
-			string.replace( "\\r", "\r" );
-			string.replace( "\\n", "\n" );
-
-			if ( string.size() > 254 )
-				string.resize( 254 );
-
-			unsigned char len = string.size() + 1;
-
-			if ( device->write( (char *)&len, 1 ) != 1 )
+			auto valString = static_cast<QString *>(val.val.data);
+			if ( !valString )
 				return false;
 
-			return device->write( string.constData(), len ) == len;
-		}
-	case NifValue::tText:
-		{
-			QByteArray string = static_cast<QString *>(val.val.data)->toLatin1();
-			int len = string.size();
-
-			if ( device->write( (char *)&len, 4 ) != 4 )
-				return false;
-
-			return device->write( (const char *)string.constData(), string.size() ) == string.size();
+			QByteArray byteString = valString->toLocal8Bit();
+			shortString_prepareForWrite( byteString );
+			uint8_t len = byteString.size() + 1;
+			return _DEVICE_WRITE_VALUE( len ) && _DEVICE_WRITE_DATA( byteString.constData(), len );
 		}
 	case NifValue::tHeaderString:
 	case NifValue::tLineString:
 		{
-			QByteArray string = static_cast<QString *>(val.val.data)->toLatin1();
-
-			if ( device->write( string.constData(), string.length() ) != string.length() )
+			auto valString = static_cast<QString *>(val.val.data);
+			if ( !valString )
 				return false;
 
-			return (device->write( "\n", 1 ) == 1);
+			QByteArray byteString = valString->toLatin1();
+			int len = byteString.length();
+			return _DEVICE_WRITE_DATA( byteString.constData(), len ) && _DEVICE_WRITE_DATA( "\n", 1 );
 		}
 	case NifValue::tChar8String:
 		{
-			QByteArray string = static_cast<QString *>(val.val.data)->toLatin1();
-			quint32 n = std::min<quint32>( 8, string.length() );
-
-			if ( device->write( string.constData(), n ) != n )
+			auto valString = static_cast<QString *>(val.val.data);
+			if ( !valString )
 				return false;
 
-			for ( quint32 i = n; i < 8; ++i ) {
-				if ( device->write( "\0", 1 ) != 1 )
+			QByteArray byteString = valString->toLatin1();
+			int len = std::min( byteString.length(), CHAR8_STRING_SIZE );
+			if ( !_DEVICE_WRITE_DATA( byteString.constData(), len ) )
+				return false;
+
+			// Pad it to CHAR8_STRING_SIZE bytes
+			for ( ; len < CHAR8_STRING_SIZE; len++ ) {
+				if ( !_DEVICE_WRITE_DATA( "\0", 1 ) )
 					return false;
 			}
-
 
 			return true;
 		}
 	case NifValue::tByteArray:
 		{
-			QByteArray * array = static_cast<QByteArray *>(val.val.data);
-			int len = array->count();
-
-			if ( device->write( (char *)&len, 4 ) != 4 )
+			auto array = static_cast<QByteArray *>(val.val.data);
+			if ( !array )
 				return false;
 
-			return device->write( *array ) == len;
+			int32_t len = array->count();
+			return _DEVICE_WRITE_VALUE( len ) && ( device->write( *array ) == len );
 		}
 	case NifValue::tStringPalette:
 		{
-			QByteArray * array = static_cast<QByteArray *>(val.val.data);
-			int len = array->count();
-
-			if ( device->write( (char *)&len, 4 ) != 4 )
+			auto array = static_cast<QByteArray *>(val.val.data);
+			if ( !array )
 				return false;
 
-			if ( device->write( *array ) != len )
+			int32_t len = array->count();
+			if ( len > 0xffff )
 				return false;
-
-			return device->write( (char *)&len, 4 ) == 4;
+			return _DEVICE_WRITE_VALUE( len ) && ( device->write( *array ) == len ) && _DEVICE_WRITE_VALUE( len );
 		}
 	case NifValue::tByteMatrix:
 		{
-			ByteMatrix * array = static_cast<ByteMatrix *>(val.val.data);
-			int len = array->count( 0 );
-
-			if ( device->write( (char *)&len, 4 ) != 4 )
+			auto array = static_cast<ByteMatrix *>(val.val.data);
+			if ( !array )
 				return false;
 
-			len = array->count( 1 );
+			int32_t size1 = array->count( 0 );
+			int32_t size2 = array->count( 1 );
+			int64_t totalSize = int64_t(size1) * int64_t(size2); 
 
-			if ( device->write( (char *)&len, 4 ) != 4 )
-				return false;
-
-			len = array->count();
-			return device->write( array->data(), len ) == len;
+			return _DEVICE_WRITE_VALUE( size1 ) && _DEVICE_WRITE_VALUE( size2 ) && _DEVICE_WRITE_DATA( array->data(), totalSize );
 		}
 	case NifValue::tString:
 	case NifValue::tFilePath:
 		{
 			if ( stringAdjust ) {
 				if ( val.val.u32 < 0x00010000 ) {
-					return device->write( (char *)&val.val.u32, 4 ) == 4;
+					return _DEVICE_WRITE_VALUE( val.val.u32 );
 				} else {
-					int value = 0;
-					return device->write( (char *)&value, 4 ) == 4;
+					uint32_t value = 0;
+					return _DEVICE_WRITE_VALUE( value );
 				}
 			} else {
-				QByteArray string;
-
-				if ( val.val.data != 0 ) {
-					string = static_cast<QString *>(val.val.data)->toLatin1();
-				}
-
-				//string.replace( "\\r", "\r" );
-				//string.replace( "\\n", "\n" );
-				int len = string.size();
-
-				if ( device->write( (char *)&len, 4 ) != 4 )
-					return false;
-
-				return device->write( string.constData(), string.size() ) == string.size();
+				QByteArray byteString;
+				if ( val.val.data != 0 )
+					byteString = static_cast<QString *>(val.val.data)->toLatin1();
+				int32_t len = byteString.size();
+				return _DEVICE_WRITE_VALUE( len ) && _DEVICE_WRITE_DATA( byteString.constData(), len );
 			}
 		}
 	case NifValue::tBSVertexDesc:
 		{
 			auto d = static_cast<BSVertexDesc *>(val.val.data);
-			if ( !d )
-				return false;
-
-			return device->write( (char*)&d->desc, 8 ) == 8;
+			return d && _DEVICE_WRITE_VALUE( d->desc );
 		}
 	case NifValue::tBlob:
-
-		if ( val.val.data ) {
-			QByteArray * array = static_cast<QByteArray *>(val.val.data);
-			return device->write( array->data(), array->size() ) == array->size();
+		{
+			auto blob = static_cast<QByteArray *>(val.val.data);
+			return blob && _DEVICE_WRITE_DATA( blob->data(), blob->size() );
 		}
-
-		return true;
 	case NifValue::tNone:
 		return true;
+	default:
+		Q_ASSERT( 0 );
 	}
 
 	return false;
@@ -881,12 +859,7 @@ int NifSStream::size( const NifValue & val )
 {
 	switch ( val.type() ) {
 	case NifValue::tBool:
-
-		if ( bool32bit )
-			return 4;
-		else
-			return 1;
-
+		return bool32bit ? 4 : 1;
 	case NifValue::tByte:
 	case NifValue::tNormbyte:
 		return 1;
@@ -911,104 +884,95 @@ int NifSStream::size( const NifValue & val )
 	case NifValue::tHfloat:
 		return 2;
 	case NifValue::tByteVector3:
-		return 3;
+		return 1 * 3;
+	case NifValue::tUshortVector3:
+		return 2 * 3;
 	case NifValue::tHalfVector3:
-		return 6;
+		return 2 * 3;
 	case NifValue::tHalfVector2:
-		return 4;
+		return 2 * 2;
+	case NifValue::tVector2:
+		return 4 * 2;
 	case NifValue::tVector3:
-		return 12;
+		return 4 * 3;
 	case NifValue::tVector4:
-		return 16;
+		return 4 * 4;
 	case NifValue::tTriangle:
-		return 6;
+		return 2 * 3;
 	case NifValue::tQuat:
 	case NifValue::tQuatXYZW:
-		return 16;
+		return 4 * 4;
 	case NifValue::tMatrix:
-		return 36;
+		return 4 * 3 * 3;
 	case NifValue::tMatrix4:
-		return 64;
-	case NifValue::tVector2:
+		return 4 * 4 * 4;
 	case NifValue::tBSVertexDesc:
 		return 8;
 	case NifValue::tColor3:
-		return 12;
+		return 4 * 3;
 	case NifValue::tByteColor4:
-		return 4;
+		return 1 * 4;
 	case NifValue::tColor4:
-		return 16;
+		return 4 * 4;
 	case NifValue::tSizedString:
+	case NifValue::tText:
 		{
-			QByteArray string = static_cast<QString *>(val.val.data)->toLatin1();
-			//string.replace( "\\r", "\r" );
-			//string.replace( "\\n", "\n" );
-			return 4 + string.size();
+			auto valString = static_cast<QString *>(val.val.data);
+			return 4 + ( valString ? valString->toLatin1().size() : 0 );
 		}
 	case NifValue::tShortString:
 		{
-			QByteArray string = static_cast<QString *>(val.val.data)->toLatin1();
+			int len = 0;
 
-			//string.replace( "\\r", "\r" );
-			//string.replace( "\\n", "\n" );
-			if ( string.size() > 254 )
-				string.resize( 254 );
+			auto valString = static_cast<QString *>(val.val.data);
+			if ( valString ) {
+				QByteArray byteString = valString->toLatin1();
+				shortString_prepareForWrite( byteString );
+				len = byteString.size();
+			}
 
-			return 1 + string.size() + 1;
-		}
-	case NifValue::tText:
-		{
-			QByteArray string = static_cast<QString *>(val.val.data)->toLatin1();
-			return 4 + string.size();
+			return 1 + len + 1;
 		}
 	case NifValue::tHeaderString:
 	case NifValue::tLineString:
 		{
-			QByteArray string = static_cast<QString *>(val.val.data)->toLatin1();
-			return string.length() + 1;
+			auto valString = static_cast<QString *>(val.val.data);
+			return ( valString ? valString->toLatin1().size() : 0 ) + 1;
 		}
 	case NifValue::tChar8String:
-		{
-			return 8;
-		}
+		return CHAR8_STRING_SIZE;
 	case NifValue::tByteArray:
 		{
-			QByteArray * array = static_cast<QByteArray *>(val.val.data);
-			return 4 + array->count();
+			auto array = static_cast<QByteArray *>(val.val.data);
+			return 4 + ( array ? array->count() : 0 );
 		}
 	case NifValue::tStringPalette:
 		{
-			QByteArray * array = static_cast<QByteArray *>(val.val.data);
-			return 4 + array->count() + 4;
+			auto array = static_cast<QByteArray *>(val.val.data);
+			return 4 + ( array ? array->count() : 0 ) + 4;
 		}
 	case NifValue::tByteMatrix:
 		{
-			ByteMatrix * array = static_cast<ByteMatrix *>(val.val.data);
-			return 4 + 4 + array->count();
+			auto array = static_cast<ByteMatrix *>(val.val.data);
+			return 4 + 4 + ( array ? array->count() : 0 );
 		}
 	case NifValue::tString:
 	case NifValue::tFilePath:
-		{
-			if ( stringAdjust ) {
-				return 4;
-			}
-			QByteArray string = static_cast<QString *>(val.val.data)->toLatin1();
-			//string.replace( "\\r", "\r" );
-			//string.replace( "\\n", "\n" );
-			return 4 + string.size();
+		if ( stringAdjust ) {
+			return 4;
+		} else {
+			auto valString = static_cast<QString *>(val.val.data);
+			return 4 + ( valString ? valString->toLatin1().size() : 0 );
 		}
-
 	case NifValue::tBlob:
-
-		if ( val.val.data ) {
-			QByteArray * array = static_cast<QByteArray *>(val.val.data);
-			return array->size();
+		{
+			auto blob = static_cast<QByteArray *>(val.val.data);
+			return blob ? blob->size() : 0;
 		}
-
-		return 0;
-
 	case NifValue::tNone:
 		return 0;
+	default:
+		Q_ASSERT( 0 );
 	}
 
 	return 0;
