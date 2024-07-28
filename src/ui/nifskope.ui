@@ -316,8 +316,8 @@
     <addaction name="aNifToolsWebsite"/>
     <addaction name="aNifToolsDownloads"/>
     <addaction name="separator"/>
-    <addaction name="aAboutNifSkope"/>
     <addaction name="aAboutQt"/>
+    <addaction name="aAboutNifSkope"/>
    </widget>
    <widget class="QMenu" name="mOptions">
     <property name="title">
