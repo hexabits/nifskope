@@ -132,13 +132,13 @@ void Shape::fillViewModeWeights( double * outWeights, bool & outIsSkinned, const
 }
 
 
-const GLfloat BIG_VERTEX_SIZE = 8.5f;
-const GLfloat SMALL_VERTEX_SIZE = 5.5f;
-const GLfloat WIREFRAME_LINE_WIDTH = 1.0f;
-const GLfloat VECTOR_LINE_WIDTH = 1.5f;
-const float VECTOR_SCALE_DIV = 20.0f;
-const float VECTOR_MIN_SCALE = 0.5f; // 1.0f;
-const float VECTOR_MAX_SCALE = 25.0f;
+constexpr GLfloat BIG_VERTEX_SIZE = 8.5f;
+constexpr GLfloat SMALL_VERTEX_SIZE = 5.5f;
+constexpr GLfloat WIREFRAME_LINE_WIDTH = 1.0f;
+constexpr GLfloat VECTOR_LINE_WIDTH = 1.5f;
+constexpr float VECTOR_SCALE_DIV = 20.0f;
+constexpr float VECTOR_MIN_SCALE = 0.5f; // 1.0f;
+constexpr float VECTOR_MAX_SCALE = 25.0f;
 const Color4 BOUND_SPHERE_COLOR( 1, 1, 1, 0.4f );
 const Color4 BOUND_SPHERE_CENTER_COLOR( 1, 1, 1, 1 );
 
@@ -147,7 +147,6 @@ void Shape::drawShapes( NodeList * secondPass, bool presort )
 	if ( numVerts <= 0 || isHidden() )
 		return;
 
-	// TODO: Only run this if BSXFlags has "EditorMarkers present" flag
 	if ( !scene->hasOption(Scene::ShowMarkers) && isEditorMarker() )
 		return;
 
