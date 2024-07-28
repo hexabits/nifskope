@@ -3,9 +3,16 @@ import os.path as os_path
 APP_VER_MAJOR    = 2
 APP_VER_MINOR    = 0
 APP_VER_REVISION = 9
+APP_VER_BUILD    = 1
 
-APP_VER_SHORT = f"{APP_VER_MAJOR}.{APP_VER_MINOR}.{APP_VER_REVISION}"
-APP_VER_FULL  = f"{APP_VER_MAJOR}.{APP_VER_MINOR} Dev {APP_VER_REVISION} (Gavrant)"
+APP_VER_SHORT = f"{APP_VER_MAJOR}.{APP_VER_MINOR}.{APP_VER_REVISION}.{APP_VER_BUILD}"
+
+build_suffix = ""
+if APP_VER_BUILD > 0:
+    if APP_VER_BUILD > 26:
+        raise Exception(f"The build value ({APP_VER_BUILD}) is too high")
+    build_suffix = chr(97 + APP_VER_BUILD - 1) # 'a' + (APP_VER_BUILD - 1)
+APP_VER_FULL = f"{APP_VER_MAJOR}.{APP_VER_MINOR} Dev {APP_VER_REVISION}{build_suffix} (Gavrant)"
 
 APP_NAME    = "NifSkope"
 APP_COMPANY = "NifTools"
@@ -69,6 +76,7 @@ with open(header_path, "w") as header:
     header.write(f"#define APP_VER_MAJOR    {APP_VER_MAJOR}\n")
     header.write(f"#define APP_VER_MINOR    {APP_VER_MINOR}\n")
     header.write(f"#define APP_VER_REVISION {APP_VER_REVISION}\n")
+    header.write(f"#define APP_VER_BUILD    {APP_VER_BUILD}\n")
     header.write( "\n")
     header.write(f"#define APP_VER_SHORT {header_string(APP_VER_SHORT)}\n")
     header.write(f"#define APP_VER_FULL  {header_string(APP_VER_FULL)}\n")

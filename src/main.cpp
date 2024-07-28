@@ -210,7 +210,7 @@ static const MigrateSettingsList migrate1_2 = {
 	{ "Render Settings/Show Hidden Objects", "Settings/Render/General/Startup Defaults/Show Hidden" },
 };
 
-void migrateSettings( QSettings & newCfg, const QString & oldCompany, const QString & oldAppName, const MigrateSettingsList & migrateKeys, bool & alreadyMigrated )
+static void migrateSettings( QSettings & newCfg, const QString & oldCompany, const QString & oldAppName, const MigrateSettingsList & migrateKeys, bool & alreadyMigrated )
 {
 	QSettings oldCfg( oldCompany, oldAppName );
 	if ( !oldCfg.value("Version").isValid() )
@@ -230,11 +230,11 @@ void migrateSettings( QSettings & newCfg, const QString & oldCompany, const QStr
 			newCfg.setValue( newPath, val );
 	};
 
-	// Copy entire keys
-	const QStringList keysToCopy = { "spells/", "import-export/", "XML Checker/", };
+	// Copy entire groups
+	const QStringList groupsToCopy = { "spells/", "import-export/", "XML Checker/", };
 	for ( const auto & key : oldCfg.allKeys() ) {
-		for ( const auto & keyToCopy : keysToCopy ) {
-			if ( key.startsWith( keyToCopy, Qt::CaseInsensitive ) ) {
+		for ( const auto & groupToCopy : groupsToCopy ) {
+			if ( key.startsWith( groupToCopy, Qt::CaseInsensitive ) ) {
 				copyValue( key, key );
 				break;
 			}
@@ -266,7 +266,7 @@ void initSettings()
 	QString oldQtVer = cfg.value("Qt Version").toString();
 	if ( newQtVer != oldQtVer ) {
 		auto newv = QVersionNumber::fromString( newQtVer );
-		auto oldv = oldQtVer.isEmpty() ? QVersionNumber( 0, 0, 0 ) : QVersionNumber::fromString( oldQtVer );
+		auto oldv = QVersionNumber::fromString( oldQtVer );
 		if ( newv.majorVersion() != oldv.majorVersion() 
 			|| ( oldv.majorVersion() == 5 && oldv.minorVersion() < 7 ) // Gavrant: keeping byte arrays from Qt 5.7.x (Dev 7) and above seems to be rather safe?
 		) {
