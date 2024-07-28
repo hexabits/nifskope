@@ -138,9 +138,7 @@ SED = $$getSed()
     unix:doxygen.commands += $${_7z} -o $${TAGS}$${QMAKE_DIR_SEP}tags.zip -d $${TAGS} $$nt
 }
 
-doxygen.commands += $${SED} -e \"s%@VERSION@%$$getVersion()%g;\
-                                 s%@REVISION@%$$getRevision()%g;\
-                                 s%@OUTPUT@%$${OUTPUT}%g;\
+doxygen.commands += $${SED} -e \"s%@OUTPUT@%$${OUTPUT}%g;\
                                  s%@INPUT@%$${INPUT}%g;\
                                  s%@PWD@%$${ROOT}%g;\
                                  s%@QT_VER@%$$QtHex()%g;\

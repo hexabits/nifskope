@@ -36,7 +36,6 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "glview.h"
 #include "message.h"
 #include "spellbook.h"
-#include "version.h"
 #include "gl/glscene.h"
 #include "model/kfmmodel.h"
 #include "model/nifmodel.h"
@@ -886,9 +885,6 @@ void NifSkope::saveUi() const
 	settings.setValue( "Kfmtree Header"_uip, kfmtree->header()->saveState() );
 
 	settings.setValue( "GLView/Enable Animations", ui->aAnimate->isChecked() );
-	//settings.setValue( "GLView/Play Animation", ui->aAnimPlay->isChecked() );
-	//settings.setValue( "GLView/Loop Animation", ui->aAnimLoop->isChecked() );
-	//settings.setValue( "GLView/Switch Animation", ui->aAnimSwitch->isChecked() );
 	settings.setValue( "GLView/Perspective", ui->aViewPerspective->isChecked() );
 }
 
@@ -943,9 +939,6 @@ void NifSkope::restoreUi()
 	hideSections( header, bHideMetadatColumns );
 
 	ui->aAnimate->setChecked( settings.value( "GLView/Enable Animations", true ).toBool() );
-	//ui->aAnimPlay->setChecked( settings.value( "GLView/Play Animation", true ).toBool() );
-	//ui->aAnimLoop->setChecked( settings.value( "GLView/Loop Animation", true ).toBool() );
-	//ui->aAnimSwitch->setChecked( settings.value( "GLView/Switch Animation", true ).toBool() );
 
 	auto isPersp = settings.value( "GLView/Perspective", true ).toBool();
 	ui->aViewPerspective->setChecked( isPersp );

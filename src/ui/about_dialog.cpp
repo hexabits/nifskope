@@ -1,18 +1,12 @@
 #include "about_dialog.h"
+#include "version.h"
 
 #include <QScrollArea>
-#include <QDebug>
-
-#include "../version.h"
 
 
 AboutDialog::AboutDialog( QWidget * parent )
 	: ToolDialog( parent, 
-#ifdef NIFSKOPE_REVISION
-		tr( "About NifSkope %1 (revision %2)" ).arg( NifSkopeVersion::rawToDisplay( NIFSKOPE_VERSION, true ), NIFSKOPE_REVISION ),
-#else
-		tr( "About NifSkope %1" ).arg( NifSkopeVersion::rawToDisplay( NIFSKOPE_VERSION, true ) ),
-#endif
+		tr( "About %1 (revision %2)" ).arg( APP_NAME_FULL, APP_GIT_BUILD ),
 		ToolDialog::ApplicationBlocking, 650, 400 )
 {
 	QString text = tr( R"rhtml(

@@ -47,6 +47,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <QStack>
 #include <QUdpSocket>
 #include <QUrl>
+#include <QVersionNumber>
 
 
 QCoreApplication * createApplication( int &argc, char *argv[] )
@@ -73,17 +74,27 @@ QCoreApplication * createApplication( int &argc, char *argv[] )
  *  main
  */
 
+void initSettings();
+
 //! The main program
 int main( int argc, char * argv[] )
 {
 	QScopedPointer<QCoreApplication> app( createApplication( argc, argv ) );
 
 	if ( auto a = qobject_cast<QApplication *>(app.data()) ) {
+		// The Organization and Application names here define the default path for all QSettings in the app.
+		// Any change to them would need a custom code for migrating the settings to the new location on app update.
+		// So they must NOT be auto-updated from APP_* macros.
 		a->setOrganizationName( "NifTools" );
+		a->setApplicationName( "NifSkope 2.0" );
+
 		a->setOrganizationDomain( "niftools.org" );
-		a->setApplicationName( "NifSkope " + NifSkopeVersion::rawToMajMin( NIFSKOPE_VERSION ) );
-		a->setApplicationVersion( NIFSKOPE_VERSION );
-		UIUtils::applicationDisplayName = "NifSkope " + NifSkopeVersion::rawToDisplay( NIFSKOPE_VERSION, true );
+		a->setApplicationVersion( APP_VER_SHORT );
+		#ifdef _DEBUG
+		UIUtils::applicationDisplayName = QString( APP_NAME_FULL " - DEBUG" );
+		#else
+		UIUtils::applicationDisplayName = QString( APP_NAME_FULL );
+		#endif
 
 		// Must set current directory or this causes issues with several features
 		QDir::setCurrent( qApp->applicationDirPath() );
@@ -91,16 +102,16 @@ int main( int argc, char * argv[] )
 		// Register message handler
 		//qRegisterMetaType<Message>( "Message" );
 		qInstallMessageHandler( NifSkope::MessageOutput );
+		// freopen("log.txt", "w", stderr);
 
 		// Register types
 		qRegisterMetaType<NifValue>( "NifValue" );
 		QMetaType::registerComparators<NifValue>();
 
 		// Set locale
-		QSettings cfg( QString( "%1/nifskope.ini" ).arg( QCoreApplication::applicationDirPath() ), QSettings::IniFormat );
-		cfg.beginGroup( "Settings" );
-		NifSkope::SetAppLocale( cfg.value( "Locale", "en" ).toLocale() );
-		cfg.endGroup();
+		NifSkope::SetAppLocale( QLocale("en") );
+
+		initSettings();
 
 		// Load XML files
 		NifModel::loadXML();
@@ -166,6 +177,113 @@ int main( int argc, char * argv[] )
 	return 0;
 }
 
+using MigrateSettingsEntry = QPair<QString, QString>;
+using MigrateSettingsList = QVector<MigrateSettingsEntry>;
+
+static const MigrateSettingsList migrate1_1 = {
+	{ "auto sanitize", "File/Auto Sanitize" },
+	{ "list mode", "UI/List Mode" },
+	{ "enable animations", "GLView/Enable Animations" },
+	{ "perspective", "GLView/Perspective" },
+
+	{ "Render Settings/Draw Axes", "Settings/Render/General/Startup Defaults/Show Axes" },
+	{ "Render Settings/Draw Collision Geometry", "Settings/Render/General/Startup Defaults/Show Collision" },
+	{ "Render Settings/Draw Constraints", "Settings/Render/General/Startup Defaults/Show Constraints" },
+	{ "Render Settings/Draw Furniture Markers", "Settings/Render/General/Startup Defaults/Show Markers" },
+	{ "Render Settings/Draw Nodes", "Settings/Render/General/Startup Defaults/Show Nodes" },
+	// { "Render Settings/Enable Shaders", "Settings/Render/General/Use Shaders" },
+	{ "Render Settings/Show Hidden Objects", "Settings/Render/General/Startup Defaults/Show Hidden" },
+};
+
+static const MigrateSettingsList migrate1_2 = {
+	{ "File/Auto Sanitize", "File/Auto Sanitize" },
+	{ "UI/List Mode", "UI/List Mode" },
+	{ "GLView/Enable Animations", "GLView/Enable Animations" },
+	{ "GLView/Perspective", "GLView/Perspective" },
+
+	{ "Render Settings/Draw Axes", "Settings/Render/General/Startup Defaults/Show Axes" },
+	{ "Render Settings/Draw Collision Geometry", "Settings/Render/General/Startup Defaults/Show Collision" },
+	{ "Render Settings/Draw Constraints", "Settings/Render/General/Startup Defaults/Show Constraints" },
+	{ "Render Settings/Draw Furniture Markers", "Settings/Render/General/Startup Defaults/Show Markers" },
+	{ "Render Settings/Draw Nodes", "Settings/Render/General/Startup Defaults/Show Nodes" },
+	{ "Render Settings/Enable Shaders", "Settings/Render/General/Use Shaders" },
+	{ "Render Settings/Show Hidden Objects", "Settings/Render/General/Startup Defaults/Show Hidden" },
+};
+
+void migrateSettings( QSettings & newCfg, const QString & oldCompany, const QString & oldAppName, const MigrateSettingsList & migrateKeys, bool & alreadyMigrated )
+{
+	QSettings oldCfg( oldCompany, oldAppName );
+	if ( !oldCfg.value("Version").isValid() )
+		return;
+
+	// The "migrated" thing left in case someone runs an older pre-Dev 10 release of NifSkope 2.0 so it would not copy the settings AGAIN.
+	// It could be removed if the settings root changes to something other than "NifSkope 2.0".
+	oldCfg.setValue( "migrated", true );
+
+	if ( alreadyMigrated )
+		return;
+	alreadyMigrated = true;
+
+	auto copyValue = [&oldCfg, &newCfg]( const QString & oldPath, const QString & newPath ) {
+		QVariant val = oldCfg.value( oldPath );
+		if ( val.isValid() && val.type() != QVariant::ByteArray )
+			newCfg.setValue( newPath, val );
+	};
+
+	// Copy entire keys
+	const QStringList keysToCopy = { "spells/", "import-export/", "XML Checker/", };
+	for ( const auto & key : oldCfg.allKeys() ) {
+		for ( const auto & keyToCopy : keysToCopy ) {
+			if ( key.startsWith( keyToCopy, Qt::CaseInsensitive ) ) {
+				copyValue( key, key );
+				break;
+			}
+		}
+	}
+
+	// Copy stuff from migrateKeys
+	for ( const auto & pair : migrateKeys )
+		copyValue( pair.first, pair.second );
+}
+
+void initSettings()
+{
+	QSettings cfg;
+
+	QString newCfgVer = APP_VER_SHORT;
+	QString oldCfgVer = cfg.value("Version").toString();
+	if ( newCfgVer != oldCfgVer ) {
+		bool migrated = ( oldCfgVer.length() > 0 );
+		migrateSettings( cfg, "NifTools", "NifSkope 1.2", migrate1_2, migrated );
+		migrateSettings( cfg, "NifTools", "NifSkope", migrate1_1, migrated );
+
+		cfg.setValue( "Version", newCfgVer );
+	}
+
+	// Qt version update
+#ifdef QT_NO_DEBUG
+	QString newQtVer = QT_VERSION_STR;
+	QString oldQtVer = cfg.value("Qt Version").toString();
+	if ( newQtVer != oldQtVer ) {
+		auto newv = QVersionNumber::fromString( newQtVer );
+		auto oldv = oldQtVer.isEmpty() ? QVersionNumber( 0, 0, 0 ) : QVersionNumber::fromString( oldQtVer );
+		if ( newv.majorVersion() != oldv.majorVersion() 
+			|| ( oldv.majorVersion() == 5 && oldv.minorVersion() < 7 ) // Gavrant: keeping byte arrays from Qt 5.7.x (Dev 7) and above seems to be rather safe?
+		) {
+			// Check all keys and delete all QByteArrays to prevent portability problems between Qt versions
+			for ( const auto & key : cfg.allKeys() ) {
+				if ( cfg.value( key ).type() == QVariant::ByteArray ) {
+					// QDebug(QtInfoMsg) << "Removing Qt version-specific settings" << key
+					//	<< "while migrating settings from previous version";
+					cfg.remove( key );
+				}
+			}
+		}
+
+		cfg.setValue( "Qt Version", newQtVer );
+	}
+#endif
+}
 
 
 /*

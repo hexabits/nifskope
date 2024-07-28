@@ -80,52 +80,6 @@ defineReplace(get7z) {
 }
 
 
-_VERSION =
-_REVISION =
-
-# Retrieve NifSkope version
-defineReplace(getVersion) {
-	# I turned this into a function because I didn't want
-	# the Version/Revision macros to have to straddle the
-	# includes. (VERSION needed to come before, REVISION after)
-	!isEmpty(_VERSION):return($$_VERSION)
-
-	_VERSION = $$cat(build/VERSION)
-	export(_VERSION)
-	return($$_VERSION)
-}
-
-# Retrieve NifSkope revision
-defineReplace(getRevision) {
-
-	!isEmpty(_REVISION):return($$_REVISION)
-
-	GIT_HEAD = $$cat(.git/HEAD)
-	# At this point GIT_HEAD either contains commit hash, or symbolic ref:
-	#	GIT_HEAD = 303c05416ecceb3368997c86676a6e63e968bc9b
-	#	GIT_HEAD = ref: refs/head/feature/blabla
-	contains(GIT_HEAD, "ref:") {
-		# Resolve symbolic ref
-		GIT_HEAD = .git/$$member(GIT_HEAD, 1)
-		# GIT_HEAD now points to the file containing hash,
-		#	e.g. .git/refs/head/feature/blabla
-		exists($$GIT_HEAD) {
-			GIT_HEAD = $$cat($$GIT_HEAD)
-		} else {
-			clear(GIT_HEAD)
-		}
-	}
-	count(GIT_HEAD, 1) {
-		# Single component, hopefully the commit hash
-		# Fetch first seven characters (abbreviated hash)
-		GIT_HEAD ~= s/^(.......).*/\\1/
-		_REVISION = $$GIT_HEAD
-		export(_REVISION)
-		return($$_REVISION)
-	}
-	return()
-}
-
 # Format Qt Version
 defineReplace(QtHex) {
 

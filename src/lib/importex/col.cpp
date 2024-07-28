@@ -34,6 +34,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gl/gltex.h"
 #include "gl/glscene.h"
 #include "model/nifmodel.h"
+#include "version.h"
 
 #include "lib/nvtristripwrapper.h"
 
@@ -1003,7 +1004,7 @@ void exportCol( const NifModel * nif, const Scene* scene, QFileInfo fileInfo )
 	QDomElement contributor = doc.createElement( "contributor" );
 	asset.appendChild( contributor );
 	contributor.appendChild( doc.createElement( "author" ) );
-	contributor.appendChild( textElement( "authoring_tool", QString( "NifSkope %1" ).arg( NIFSKOPE_VERSION ) ) );
+	contributor.appendChild( textElement( "authoring_tool", QString( APP_NAME_FULL ) ) );
 	contributor.appendChild( doc.createElement( "comments" ) );
 	asset.appendChild( dateElement( "created", QDateTime::currentDateTime() ) );
 	asset.appendChild( dateElement( "modified", QDateTime::currentDateTime() ) );

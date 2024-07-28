@@ -320,9 +320,6 @@ private:
 	//! Set the theme
 	void setTheme( nstheme::WindowTheme theme );
 
-	//! Migrate settings from older versions of NifSkope.
-	void migrateSettings() const;
-
 	//! Checks if Block List is shown as a list, not tree.
 	bool isInListMode() const;
 

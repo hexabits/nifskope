@@ -1987,8 +1987,6 @@ PREDEFINED             = UNICODE \
                          QT_NO_DEBUG \
                          Q_OS_WIN \
                          Q_OS_WIN32 \
-                         "NIFSKOPE_VERSION=\"@VERSION@\"" \
-                         "NIFSKOPE_REVISION=\"@REVISION@\"" \
                          "QT_VERSION=@QT_VER@"
 
 # If the MACRO_EXPANSION and EXPAND_ONLY_PREDEF tags are set to YES then this

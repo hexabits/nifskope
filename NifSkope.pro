@@ -83,24 +83,6 @@ include(NifSkope_functions.pri)
 
 
 ###############################
-## MACROS
-###############################
-
-# NifSkope Version
-VER = $$getVersion()
-# NifSkope Revision
-REVISION = $$getRevision()
-
-# NIFSKOPE_VERSION macro
-DEFINES += NIFSKOPE_VERSION=\\\"$${VER}\\\"
-
-# NIFSKOPE_REVISION macro
-!isEmpty(REVISION) {
-	DEFINES += NIFSKOPE_REVISION=\\\"$${REVISION}\\\"
-}
-
-
-###############################
 ## OUTPUT DIRECTORIES
 ###############################
 
@@ -305,7 +287,6 @@ SOURCES += \
 	src/nifskope.cpp \
 	src/nifskope_ui.cpp \
 	src/spellbook.cpp \
-	src/version.cpp \
 	lib/half.cpp
 
 RESOURCES += \
@@ -474,20 +455,6 @@ macx {
 
 # Pre/Post Link in build_pass only
 build_pass|!debug_and_release {
-
-###############################
-## QMAKE_PRE_LINK
-###############################
-
-	# Find `sed` command
-	SED = $$getSed()
-
-	!isEmpty(SED) {
-		# Replace @VERSION@ with number from build/VERSION
-		# Copy build/README.md.in > README.md
-		QMAKE_PRE_LINK += $${SED} -e s/@VERSION@/$${VER}/ $${PWD}/build/README.md.in > $${PWD}/README.md $$nt
-	}
-
 
 ###############################
 ## QMAKE_POST_LINK
