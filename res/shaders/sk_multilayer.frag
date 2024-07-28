@@ -1,4 +1,4 @@
-#version 120
+#version 130
 
 uniform sampler2D BaseMap;
 uniform sampler2D NormalMap;
@@ -37,16 +37,14 @@ uniform float outerReflection;
 
 uniform mat4 worldMatrix;
 
-varying vec3 LightDir;
-varying vec3 ViewDir;
+in vec3 LightDir;
+in vec3 ViewDir;
 
-varying vec4 A;
-varying vec4 C;
-varying vec4 D;
+in vec4 A;
+in vec4 C;
+in vec4 D;
 
-varying vec3 N;
-varying vec3 t;
-varying vec3 b;
+in mat3 tbnMatrix;
 
 
 vec3 tonemap(vec3 x)
@@ -66,8 +64,8 @@ vec3 toGrayscale(vec3 color)
 	return vec3(dot(vec3(0.3, 0.59, 0.11), color));
 }
 
-// Compute inner layer’s texture coordinate and transmission depth
-// vTexCoord: Outer layer’s texture coordinate
+// Compute inner layerâ€™s texture coordinate and transmission depth
+// vTexCoord: Outer layerâ€™s texture coordinate
 // vInnerScale: Tiling of inner texture
 // vViewTS: View vector in tangent space
 // vNormalTS: Normal in tangent space (sampled normal map)
@@ -87,7 +85,7 @@ vec3 ParallaxOffsetAndDepth( vec2 vTexCoord, vec2 vInnerScale, vec3 vViewTS, vec
 	//	introduced the additional parameter.
 	vec2 vTexelSize = vec2( 1.0/(1024.0 * vInnerScale.x), 1.0/(1024.0 * vInnerScale.y) );
 	
-	// Inner layer’s texture coordinate due to parallax
+	// Inner layerâ€™s texture coordinate due to parallax
 	vec2 vOffset = vTexelSize * fTransDist * vTransTS.xy;
 	vec2 vOffsetTexCoord = vTexCoord + vOffset;
 	
@@ -102,7 +100,7 @@ void main( void )
 	vec4 baseMap = texture2D( BaseMap, offset );
 	vec4 normalMap = texture2D( NormalMap, offset );
 	
-	vec3 normal = normalize(normalMap.rgb * 2.0 - 1.0);
+	vec3 normal = normalize(tbnMatrix * (normalMap.rgb * 2.0 - 1.0));
 
 	// Sample the non-parallax offset alpha channel of the inner map
 	//	Used to modulate the innerThickness
@@ -128,8 +126,7 @@ void main( void )
 	vec4 innerMap = texture2D( InnerMap, parallax.xy * innerScale );
 
 	vec3 reflected = reflect( -E, normal );
-	vec3 reflectedVS = b * reflected.x + t * reflected.y + N * reflected.z;
-	vec3 reflectedWS = vec3( worldMatrix * (gl_ModelViewMatrixInverse * vec4( reflectedVS, 0.0 )) );
+	vec3 reflectedWS = vec3( worldMatrix * (gl_ModelViewMatrixInverse * vec4( reflected, 0.0 )) );
 
 
 	vec4 color;
