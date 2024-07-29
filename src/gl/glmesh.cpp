@@ -385,6 +385,19 @@ void Mesh::updateData_NiMesh( const NifModel * nif )
 	}
 }
 
+static inline void remapTriangleVertices( Triangle & t, const QVector<int> & vertexMap )
+{
+	int nMappedVertices = vertexMap.count();
+	if ( t.v1() >= nMappedVertices || t.v2() >= nMappedVertices || t.v3() >= nMappedVertices ) {
+		// Intentionally break all vertices of the triangle if any of them failed mapping.
+		// Then the triangle will be discarded on post-update triangles cleanup.
+		// And in the worst case (the total number of vertices in the shape is (Triangle::MAX_VERTEX_INDEX + 1) or greater) the triangle still won't be rendered.
+		t.set( Triangle::MAX_VERTEX_INDEX, Triangle::MAX_VERTEX_INDEX, Triangle::MAX_VERTEX_INDEX );
+	} else {
+		t.set( vertexMap[t.v1()], vertexMap[t.v2()], vertexMap[t.v3()] );
+	}
+}
+
 void Mesh::updateData_NiTriShape( const NifModel * nif )
 {
 	NifFieldConst block = nif->block(iBlock);
@@ -625,22 +638,12 @@ void Mesh::updateData_NiTriShape( const NifModel * nif )
 						tris.reserve( partTrisRoot.childCount() );
 						for ( auto triEntry : partTrisRoot.iter() ) {
 							Triangle t = triEntry.value<Triangle>();
-							bool success = true;
 							for ( TriVertexIndex & tv : t.v ) {
-								if ( tv < nPartMappedVertices ) {
-									tv = partVertexMap[tv];
-								} else {
+								if ( tv >= nPartMappedVertices ) {
 									triEntry.reportError( tr("Invalid vertex map index %1").arg(tv) );
-									success = false;
 								}
 							}
-							if ( !success ) {
-								// Intentionally break all vertices of the triangle if any of them failed mapping.
-								// Then it will be discarded on post-update triangles cleanup.
-								// Even in the worst case (the total number of vertices in the shape is (Triangle::MAX_VERTEX_INDEX + 1) or greater) 
-								// the triangle still won't be rendered.
-								t.set( Triangle::MAX_VERTEX_INDEX, Triangle::MAX_VERTEX_INDEX, Triangle::MAX_VERTEX_INDEX );
-							}
+							remapTriangleVertices( t, partVertexMap );
 							tris << t;
 						}
 						addTriangles( partTrisRoot, tris );
@@ -670,13 +673,7 @@ void Mesh::updateData_NiTriShape( const NifModel * nif )
 
 							QVector<Triangle> stripTris = triangulateStrip( stripPoints );
 							for ( auto & t : stripTris ) {
-								if ( t[0] >= nPartMappedVertices || t[1] >= nPartMappedVertices || t[2] >= nPartMappedVertices ) {
-									// Intentionally break all vertices of the triangle if any of them failed mapping.
-									// Then it will be discarded on post-update triangles cleanup.
-									// Even in the worst case (the total number of vertices in the shape is (Triangle::MAX_VERTEX_INDEX + 1) or greater) 
-									// the triangle still won't be rendered.
-									t.set( Triangle::MAX_VERTEX_INDEX, Triangle::MAX_VERTEX_INDEX, Triangle::MAX_VERTEX_INDEX );
-								}
+								remapTriangleVertices( t, partVertexMap );
 							}
 							addStrip( stripEntry, stripTris, vertexMapRoot );
 						}
