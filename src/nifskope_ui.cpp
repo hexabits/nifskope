@@ -907,7 +907,7 @@ void NifSkope::restoreUi()
 
 	restoreState( settings.value( "Window State"_uip ).toByteArray(), WINDOW_STATE_VER );
 
-	aSanitize->setChecked( settings.value( "File/Auto Sanitize", true ).toBool() );
+	aSanitize->setChecked( settings.value( "File/Auto Sanitize", false ).toBool() );
 
 	if ( settings.value( "List Mode"_uip, "hierarchy" ).toString() == "list" )
 		aList->setChecked( true );
