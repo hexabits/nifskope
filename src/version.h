@@ -6,15 +6,15 @@
 #define APP_VER_MAJOR    2
 #define APP_VER_MINOR    0
 #define APP_VER_REVISION 9
-#define APP_VER_BUILD    2
+#define APP_VER_BUILD    3
 
-#define APP_VER_SHORT "2.0.9.2"
-#define APP_VER_FULL  "2.0 Dev 9b (Gavrant)"
+#define APP_VER_SHORT "2.0.9.3"
+#define APP_VER_FULL  "2.0 Dev 9c (Gavrant)"
 
-#define APP_GIT_BUILD "da31a4d"
+#define APP_GIT_BUILD "7e90323"
 
 #define APP_COMPANY   "NifTools"
 #define APP_NAME      "NifSkope"
-#define APP_NAME_FULL "NifSkope 2.0 Dev 9b (Gavrant)"
+#define APP_NAME_FULL "NifSkope 2.0 Dev 9c (Gavrant)"
 
 #endif // VERSION_H
