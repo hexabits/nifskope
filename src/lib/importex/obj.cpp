@@ -35,6 +35,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gl/glscene.h"
 #include "model/nifmodel.h"
 #include "spells/tangentspace.h"
+#include "spells/texture.h"
 
 #include "lib/nvtristripwrapper.h"
 
@@ -845,27 +846,10 @@ void importObjMain( NifModel * nif, const QModelIndex & index, bool collision )
 						// no need of NiTexturingProperty when BSShaderPPLightingProperty is present
 						addLink( nif, iShape, "Properties", nif->getBlockNumber( iTexProp ) );
 
-						nif->set<int>( iTexProp, "Has Base Texture", 1 );
-						iBaseMap = nif->getIndex( iTexProp, "Base Texture" );
-						nif->set<int>( iBaseMap, "Clamp Mode", 3 );
-						nif->set<int>( iBaseMap, "Filter Mode", 2 );
-					}
-
-					if ( iTexSource.isValid() == false || first_tri_shape == false || nif->itemStrType( iTexSource ) != "NiSourceTexture" ) {
-						if ( !cBSShaderPPLightingProperty )
-							iTexSource = nif->insertNiBlock( "NiSourceTexture" );
-					}
-
-					if ( !cBSShaderPPLightingProperty ) {
-						// no need of NiTexturingProperty when BSShaderPPLightingProperty is present
-						nif->setLink( iBaseMap, "Source", nif->getBlockNumber( iTexSource ) );
-						nif->set<int>( iTexSource, "Pixel Layout", nif->getVersion() == "20.0.0.5" ? 6 : 5 );
-						nif->set<int>( iTexSource, "Use Mipmaps", 2 );
-						nif->set<int>( iTexSource, "Alpha Format", 3 );
-						nif->set<int>( iTexSource, "Unknown Byte", 1 );
-						nif->set<int>( iTexSource, "Unknown Byte 2", 1 );
-
-						nif->set<int>( iTexSource, "Use External", 1 );
+						if ( iTexSource.isValid() == false || first_tri_shape == false || nif->itemStrType( iTexSource ) != "NiSourceTexture" ) {
+							iTexSource = QModelIndex();
+						}
+						iTexSource = NiTexturingProperty_addTexture( nif, iTexProp, iTexSource, "Base Texture" );
 						nif->set<QString>( iTexSource, "File Name", TexCache::stripPath( mtl.map_Kd, nif->getFolder() ) );
 					}
 				} else {

@@ -279,42 +279,62 @@ public:
 
 REGISTER_SPELL( spEditTexCoords )
 
+
+QModelIndex NiTexturingProperty_addTexture( NifModel * nif, const QModelIndex & iTexProperty, const QModelIndex & iOldSrcTexBlock, const QString & texName )
+{
+	auto propBlock = nif->field( iTexProperty ).block("NiTexturingProperty");
+	if ( !propBlock )
+		return QModelIndex();
+
+	// Set up NiTexturingProperty 
+	auto texCountField = propBlock["Texture Count"];
+	if ( texCountField.value<int>() < 7 )
+		texCountField.setValue<int>(7);
+
+	propBlock[QString("Has ") + texName].setValue<bool>(true);
+
+	auto descEntry = propBlock[texName];
+	if ( !descEntry )
+		return QModelIndex();
+
+	descEntry.child("Clamp Mode").setValue<int>(3);
+	descEntry.child("Filter Mode").setValue<int>(3);
+	descEntry.child("PS2 K").setValue<short>(-75);
+	descEntry.child("Unknown Short 1").setValue<ushort>(257);
+
+	// Set up NiSourceTexture for the texture
+	NifField texBlock = nif->field( iOldSrcTexBlock ).block("NiSourceTexture");
+	if ( !texBlock ) {
+		texBlock = nif->block( nif->insertNiBlock( "NiSourceTexture", propBlock.toBlockNumber() + 1 ) );
+		if ( !texBlock )
+			return QModelIndex();
+	}
+	descEntry["Source"].setLink( texBlock );
+
+	texBlock["Use External"].setValue<uint8_t>(1);
+	texBlock["Is Static"].setValue<uint8_t>(1);
+
+	auto prefsField = texBlock["Format Prefs"];
+	prefsField["Pixel Layout"].setValue<int>( ( nif->checkVersion( 0x14000005, 0x14000005 ) && descEntry.hasName("Base Texture") ) ? 6 : 5 );
+	prefsField["Use Mipmaps"].setValue<int>(2);
+	prefsField["Alpha Format"].setValue<int>(3);
+
+	// texBlock["Unknown Byte"].setValue<int>(1); // No idea what the "Unknown Byte" from 2008 is now.
+
+	return texBlock.toIndex();
+}
+
 //! Add a texture to the specified texture slot
 /*!
  * \param nif The model
  * \param index The index of the mesh
  * \param name The name of the texture slot
  */
-QModelIndex addTexture( NifModel * nif, const QModelIndex & index, const QString & name )
+static QModelIndex addTexture( NifModel * nif, const QModelIndex & index, const QString & name )
 {
-	QModelIndex iTexProp = nif->getBlockIndex( index, "NiTexturingProperty" );
-
-	if ( !iTexProp.isValid() )
+	QModelIndex iSrcTex = NiTexturingProperty_addTexture( nif, index, QModelIndex(), name );
+	if ( !iSrcTex.isValid() )
 		return index;
-
-	if ( nif->get<int>( iTexProp, "Texture Count" ) < 7 )
-		nif->set<int>( iTexProp, "Texture Count", 7 );
-
-	nif->set<int>( iTexProp, QString( "Has %1" ).arg( name ), 1 );
-	QPersistentModelIndex iTex = nif->getIndex( iTexProp, name );
-
-	if ( !iTex.isValid() )
-		return index;
-
-	nif->set<int>( iTex, "Clamp Mode", 3 );
-	nif->set<int>( iTex, "Filter Mode", 3 );
-	nif->set<int>( iTex, "PS2 K", -75 );
-	nif->set<int>( iTex, "Unknown1", 257 );
-
-	QModelIndex iSrcTex = nif->insertNiBlock( "NiSourceTexture", nif->getBlockNumber( iTexProp ) + 1 );
-	nif->setLink( iTex, "Source", nif->getBlockNumber( iSrcTex ) );
-
-	nif->set<int>( iSrcTex, "Pixel Layout", ( nif->getVersion() == "20.0.0.5" && name == "Base Texture" ? 6 : 5 ) );
-	nif->set<int>( iSrcTex, "Use Mipmaps", 2 );
-	nif->set<int>( iSrcTex, "Alpha Format", 3 );
-	nif->set<int>( iSrcTex, "Unknown Byte", 1 );
-	nif->set<int>( iSrcTex, "Is Static", 1 );
-	nif->set<int>( iSrcTex, "Use External", 1 );
 
 	spChooseTexture * chooser = new spChooseTexture();
 	return chooser->cast( nif, iSrcTex );

@@ -38,4 +38,13 @@ protected slots:
 	void listFromNif();
 };
 
+/*! Add a texture to the specified texture slot in a NiTexturingProperty block
+* \param nif The model
+* \param iTexProperty The index of the NiTexturingProperty (or its child)
+* \param iOldSrcTexBlock The index of the NiSourceTexture to reuse (optional)
+* \param texName The name of the texture slot ("Base Texture", "Detail Texture"...)
+* \return The index of the result NiSourceTexture 
+*/
+QModelIndex NiTexturingProperty_addTexture( NifModel * nif, const QModelIndex & iTexProperty, const QModelIndex & iOldSrcTexBlock, const QString & texName );
+
 #endif

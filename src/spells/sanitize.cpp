@@ -156,24 +156,29 @@ public:
 
 	QModelIndex cast( NifModel * nif, const QModelIndex & ) override final
 	{
-		for ( int i = 0; i < nif->getBlockCount(); i++ ) {
-			QModelIndex iTexSrc = nif->getBlockIndex( i, "NiSourceTexture" );
+		for ( auto block : nif->blockIter() ) {
+			if ( !block.inherits("NiSourceTexture") )
+				continue;
 
-			if ( iTexSrc.isValid() ) {
-				QModelIndex iFileName = nif->getIndex( iTexSrc, "File Name" );
+			// adjust file path
+			auto pathField = block.child("File Name");
+			if ( pathField )
+				pathField.setValue<QString>( pathField.value<QString>().replace( "/", "\\" ) );
 
-				if ( iFileName.isValid() ) // adjust file path
-					nif->set<QString>( iFileName, nif->get<QString>( iFileName ).replace( "/", "\\" ) );
-
-				if ( nif->checkVersion( 0x14000005, 0x14000005 ) ) {
-					// adjust format options (oblivion only)
-					nif->set<int>( iTexSrc, "Pixel Layout", 6 );
-					nif->set<int>( iTexSrc, "Use Mipmaps", 1 );
-					nif->set<int>( iTexSrc, "Alpha Format", 3 );
-					nif->set<int>( iTexSrc, "Unknown Byte", 1 );
-					nif->set<int>( iTexSrc, "Unknown Byte 2", 1 );
-				}
+			// Some of the sanitized fields below disappeared from NiSourceTexture in nif.xml somewhere between 2008 and 2018 (Unknown Byte, Unknown Byte 2).
+			// For others, NifSkope itself sets values other than the "forced" ones below.
+			// And anyway, this code has not be doing anything for years because of the changes in nif.xml, until 2023 when "field not found" warnings were introduced.
+			// So let's ditch it.
+			/*
+			// adjust format options (oblivion only)
+			if ( nif->checkVersion( 0x14000005, 0x14000005 ) ) {
+				nif->set<int>( iTexSrc, "Pixel Layout", 6 );
+				nif->set<int>( iTexSrc, "Use Mipmaps", 1 );
+				nif->set<int>( iTexSrc, "Alpha Format", 3 );
+				nif->set<int>( iTexSrc, "Unknown Byte", 1 );
+				nif->set<int>( iTexSrc, "Unknown Byte 2", 1 );
 			}
+			*/
 		}
 
 		return QModelIndex();
