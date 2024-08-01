@@ -56,18 +56,10 @@ int Node::SELECTING = 0;
 static QColor highlightColor;
 static QColor wireframeColor;
 
+
 /*
  *  Node list
  */
-
-NodeList::NodeList()
-{
-}
-
-NodeList::NodeList( const NodeList & other )
-{
-	operator=( other );
-}
 
 NodeList::~NodeList()
 {
@@ -76,60 +68,55 @@ NodeList::~NodeList()
 
 void NodeList::clear()
 {
-	foreach ( Node * n, nodes ) {
-		del( n );
-	}
+	for ( Node * node : nodes )
+		detach( node );
+	nodes.clear();
 }
 
 NodeList & NodeList::operator=( const NodeList & other )
 {
 	clear();
-	for ( Node * n : other.list() ) {
-		add( n );
-	}
+
+	nodes.reserve( other.nodes.count() );
+	for ( Node * node : other.nodes )
+		attach( node );
+
 	return *this;
 }
 
-void NodeList::add( Node * n )
+void NodeList::add( Node * node )
 {
-	if ( n && !nodes.contains( n ) ) {
-		++n->ref;
-		nodes.append( n );
-	}
+	if ( node && !nodes.contains( node ) )
+		attach( node );
 }
 
-void NodeList::del( Node * n )
+void NodeList::del( Node * node )
 {
-	if ( nodes.contains( n ) ) {
-		int cnt = nodes.removeAll( n );
-
-		if ( n->ref <= cnt ) {
-			delete n;
-		} else {
-			n->ref -= cnt;
-		}
+	int i = nodes.indexOf( node );
+	if ( i >= 0 ) {
+		detach( node );
+		nodes.removeAt( i );
 	}
-}
-
-Node * NodeList::get( const QModelIndex & index ) const
-{
-	for ( Node * n : nodes ) {
-		if ( n->index().isValid() && n->index() == index )
-			return n;
-	}
-	return nullptr;
 }
 
 void NodeList::validate()
 {
-	QList<Node *> rem;
-	for ( Node * n : nodes ) {
-		if ( !n->isValid() )
-			rem.append( n );
+	for ( int i = nodes.count() - 1; i >= 0; i-- ) {
+		auto node = nodes[i];
+		if ( !node->isValid() ) {
+			detach( node );
+			nodes.removeAt( i );
+		}
 	}
-	foreach ( Node * n, rem ) {
-		del( n );
+}
+
+Node * NodeList::get( const QModelIndex & iNodeBlock ) const
+{
+	for ( Node * node : nodes ) {
+		if ( node->isValid() && node->index() == iNodeBlock )
+			return node;
 	}
+	return nullptr;
 }
 
 bool compareNodes( const Node * node1, const Node * node2 )
@@ -138,9 +125,8 @@ bool compareNodes( const Node * node1, const Node * node2 )
 	bool p2 = node2->isPresorted();
 
 	// Presort meshes
-	if ( p1 && p2 ) {
+	if ( p1 && p2 )
 		return node1->id() < node2->id();
-	}
 
 	return p2;
 }
@@ -154,20 +140,15 @@ bool compareNodesAlpha( const Node * node1, const Node * node2 )
 	bool p2 = node2->isPresorted();
 
 	// Presort meshes
-	if ( p1 && p2 ) {
+	if ( p1 && p2 )
 		return node1->id() < node2->id();
-	}
 
-	bool a1 = node1->findProperty<AlphaProperty>();
-	bool a2 = node2->findProperty<AlphaProperty>();
-
-	float d1 = node1->viewDepth();
-	float d2 = node2->viewDepth();
+	bool a1 = node1->findProperty<AlphaProperty>() != nullptr;
+	bool a2 = node2->findProperty<AlphaProperty>() != nullptr;
 
 	// Alpha sort meshes
-	if ( a1 == a2 ) {
-		return (d1 < d2);
-	}
+	if ( a1 == a2 )
+		return node1->viewDepth() < node2->viewDepth();
 
 	return a2;
 }
@@ -182,10 +163,10 @@ void NodeList::alphaSort()
 	std::stable_sort( nodes.begin(), nodes.end(), compareNodesAlpha );
 }
 
+
 /*
  *	Node
  */
-
 
 Node::Node( Scene * s, const QModelIndex & iBlock) : IControllable( s, iBlock ), parent( 0 ), ref( 0 )
 {
@@ -248,11 +229,10 @@ void Node::clear()
 
 Controller * Node::findController( const QString & proptype, const QString & ctrltype, const QString & var1, const QString & var2 )
 {
-	if ( proptype != "<empty>" && !proptype.isEmpty() ) {
-		for ( Property * prp : properties.list() ) {
-			if ( prp->typeId() == proptype ) {
+	if ( !proptype.isEmpty() && proptype != QStringLiteral("<empty>") ) {
+		for ( Property * prp : properties.hash() ) {
+			if ( prp->typeId() == proptype )
 				return prp->findController( ctrltype, var1, var2 );
-			}
 		}
 		return nullptr;
 	}
@@ -262,18 +242,15 @@ Controller * Node::findController( const QString & proptype, const QString & ctr
 
 Controller * Node::findController( const QString & proptype, const QModelIndex & index )
 {
-	Controller * c = nullptr;
-
-	for ( Property * prp : properties.list() ) {
+	for ( Property * prp : properties.hash() ) {
 		if ( prp->typeId() == proptype ) {
+			auto c = prp->findController( index );
 			if ( c )
-				break;
-
-			c = prp->findController( index );
+				return c;
 		}
 	}
 
-	return c;
+	return nullptr;
 }
 
 void Node::updateImpl( const NifModel * nif, const QModelIndex & index )

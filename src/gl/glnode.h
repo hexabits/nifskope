@@ -46,32 +46,37 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 class Node;
 class NifModel;
 
+// A list of Nodes without duplicates and with reference counting
 class NodeList final
 {
 public:
-	NodeList();
-	NodeList( const NodeList & other );
+	NodeList() {}
+	NodeList( const NodeList & other ) { operator=( other ); }
 	~NodeList();
-
-	void add( Node * );
-	void del( Node * );
-
-	Node * get( const QModelIndex & idx ) const;
-
-	void validate();
 
 	void clear();
 
 	NodeList & operator=( const NodeList & other );
 
+	void add( Node * node );
+	void del( Node * node );
+
+	void validate();
+
 	const QVector<Node *> & list() const { return nodes; }
+
+	Node * get( const QModelIndex & iNodeBlock ) const;
 
 	void sort();
 	void alphaSort();
 
-protected:
+private:
 	QVector<Node *> nodes;
+
+	void attach( Node * node );
+	void detach( Node * node );
 };
+
 
 class Node : public IControllable
 {
@@ -221,5 +226,20 @@ public:
 	const Transform & viewTrans() const override;
 };
 
+
+// Inlines - NodeList
+
+inline void NodeList::attach( Node * node )
+{
+	node->ref++;
+	nodes.append( node );
+}
+
+inline void NodeList::detach( Node * node )
+{
+	Q_ASSERT( node->ref > 0 );
+	if ( --node->ref <= 0 )
+		delete node;
+}
 
 #endif

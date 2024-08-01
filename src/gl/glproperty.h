@@ -97,51 +97,65 @@ protected:
 //! Associate a Property subclass with a Property::Type
 #define REGISTER_PROPERTY( CLASSNAME, TYPENAME ) template <> inline Property::Type Property::_type<CLASSNAME>() { return Property::TYPENAME; }
 
+
 //! A list of [Properties](@ref Property)
 class PropertyList final
 {
 public:
-	PropertyList();
-	PropertyList( const PropertyList & other );
+	PropertyList() {}
+	PropertyList( const PropertyList & other ) { operator=( other ); }
 	~PropertyList();
-
-	void add( Property * );
-	void del( Property * );
-	bool contains( Property * ) const;
-
-	Property * get( const QModelIndex & idx ) const;
-
-	template <typename T> T * get() const;
-	template <typename T> bool contains() const;
-
-	void validate();
 
 	void clear();
 
 	PropertyList & operator=( const PropertyList & other );
 
-	QList<Property *> list() const { return properties.values(); }
+	void add( Property * prop );
+	void del( Property * prop );
+
+	void validate();
 
 	void merge( const PropertyList & list );
 
-protected:
+	const QMultiHash<Property::Type, Property *> & hash() const { return properties; }
+
+	Property * get( const QModelIndex & iPropBlock ) const;
+
+	template <typename T> T * get() const;
+	template <typename T> bool contains() const;
+
+private:
 	QMultiHash<Property::Type, Property *> properties;
+
+	void attach( Property * prop );
+	void detach( Property * prop, int cnt );
 };
 
 template <typename T> inline T * PropertyList::get() const
 {
 	Property * p = properties.value( Property::_type<T>() );
-
-	if ( p )
-		return p->cast<T>();
-
-	return nullptr;
+	return p ? p->cast<T>() : nullptr;
 }
 
 template <typename T> inline bool PropertyList::contains() const
 {
 	return properties.contains( Property::_type<T>() );
 }
+
+inline void PropertyList::attach( Property * prop )
+{
+	++prop->ref;
+	properties.insert( prop->type(), prop );
+}
+
+inline void PropertyList::detach( Property * prop, int cnt )
+{
+	Q_ASSERT( cnt > 0 && prop->ref >= cnt );
+	prop->ref -= cnt;
+	if ( prop->ref <= 0 )
+		delete prop;
+}
+
 
 //! A Property that specifies alpha blending
 class AlphaProperty final : public Property

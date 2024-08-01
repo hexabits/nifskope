@@ -57,7 +57,7 @@ public:
 	virtual ~IControllable();
 
 	QModelIndex index() const { return iBlock; }
-	virtual bool isValid() const { return iBlock.isValid(); }
+	bool isValid() const { return iBlock.isValid(); }
 
 	virtual void clear();
 

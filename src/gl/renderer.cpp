@@ -493,7 +493,7 @@ QString Renderer::setupProgram( Shape * mesh, const QString & hint )
 	QVector<QModelIndex> iBlocks;
 	iBlocks << mesh->index();
 	iBlocks << mesh->iData;
-	for ( Property * p : props.list() ) {
+	for ( Property * p : props.hash() ) {
 		iBlocks.append( p->index() );
 	}
 

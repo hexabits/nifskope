@@ -94,15 +94,6 @@ Property * Property::create( Scene * scene, const NifModel * nif, const QModelIn
 	return property;
 }
 
-PropertyList::PropertyList()
-{
-}
-
-PropertyList::PropertyList( const PropertyList & other )
-{
-	operator=( other );
-}
-
 PropertyList::~PropertyList()
 {
 	clear();
@@ -110,68 +101,32 @@ PropertyList::~PropertyList()
 
 void PropertyList::clear()
 {
-	for ( Property * p : properties ) {
-		if ( --p->ref <= 0 )
-			delete p;
-	}
+	for ( Property * p : properties )
+		detach( p, 1 );
 	properties.clear();
 }
 
 PropertyList & PropertyList::operator=( const PropertyList & other )
 {
 	clear();
-	for ( Property * p : other.properties ) {
-		add( p );
-	}
+	for ( Property * p : other.properties )
+		attach( p );
 	return *this;
 }
 
-bool PropertyList::contains( Property * p ) const
+void PropertyList::add( Property * prop )
 {
-	if ( !p )
-		return false;
-
-	QList<Property *> props = properties.values( p->type() );
-	return props.contains( p );
+	if ( prop && !properties.contains( prop->type(), prop ) ) 
+		attach( prop );
 }
 
-void PropertyList::add( Property * p )
+void PropertyList::del( Property * prop )
 {
-	if ( p && !contains( p ) ) {
-		++p->ref;
-		properties.insert( p->type(), p );
+	if ( prop ) {
+		int cnt = properties.remove( prop->type(), prop );
+		if ( cnt > 0 )
+			detach( prop, cnt );
 	}
-}
-
-void PropertyList::del( Property * p )
-{
-	if ( !p )
-		return;
-
-	QHash<Property::Type, Property *>::iterator i = properties.find( p->type() );
-
-	while ( p && i != properties.end() && i.key() == p->type() ) {
-		if ( i.value() == p ) {
-			i = properties.erase( i );
-
-			if ( --p->ref <= 0 )
-				delete p;
-		} else {
-			++i;
-		}
-	}
-}
-
-Property * PropertyList::get( const QModelIndex & index ) const
-{
-	if ( !index.isValid() )
-		return 0;
-
-	for ( Property * p : properties ) {
-		if ( p->index() == index )
-			return p;
-	}
-	return 0;
 }
 
 void PropertyList::validate()
@@ -181,18 +136,30 @@ void PropertyList::validate()
 		if ( !p->isValid() )
 			rem.append( p );
 	}
-	for ( Property * p : rem ) {
+	for ( Property * p : rem )
 		del( p );
-	}
 }
 
 void PropertyList::merge( const PropertyList & other )
 {
 	for ( Property * p : other.properties ) {
 		if ( !properties.contains( p->type() ) )
-			add( p );
+			attach( p );
 	}
 }
+
+Property * PropertyList::get( const QModelIndex & iPropBlock ) const
+{
+	if ( iPropBlock.isValid() ) {
+		for ( Property * p : properties ) {
+			if ( p->index() == iPropBlock )
+				return p;
+		}
+	}
+
+	return nullptr;
+}
+
 
 void AlphaProperty::updateImpl( const NifModel * nif, const QModelIndex & index )
 {

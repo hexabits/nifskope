@@ -101,10 +101,10 @@ Controller * IControllable::findController( const QModelIndex & index )
 
 void IControllable::update( const NifModel * nif, const QModelIndex & index )
 {
-	if ( !iBlock.isValid() )
+	if ( isValid() ) {
+		updateImpl( nif, index );
+	} else {
 		clear();
-	else {
-		updateImpl(nif, index);
 	}
 }
 

@@ -143,7 +143,7 @@ void Scene::update( const NifModel * nif, const QModelIndex & index )
 		if ( !block.isValid() )
 			return;
 
-		for ( Property * prop : properties.list() )
+		for ( Property * prop : properties.hash() )
 			prop->update( nif, block );
 
 		for ( Node * node : nodes.list() )
@@ -152,7 +152,7 @@ void Scene::update( const NifModel * nif, const QModelIndex & index )
 		properties.validate();
 		nodes.validate();
 
-		for ( Property * p : properties.list() )
+		for ( Property * p : properties.hash() )
 			p->update( nif, p->index() );
 
 		for ( Node * n : nodes.list() )
@@ -315,7 +315,7 @@ void Scene::setSequence( const QString & seqname )
 	for ( Node * node : nodes.list() ) {
 		node->setSequence( seqname );
 	}
-	for ( Property * prop : properties.list() ) {
+	for ( Property * prop : properties.hash() ) {
 		prop->setSequence( seqname );
 	}
 
@@ -331,7 +331,7 @@ void Scene::transform( const Transform & trans, float time )
 	viewTrans.clear();
 	bhkBodyTrans.clear();
 
-	for ( Property * prop : properties.list() ) {
+	for ( Property * prop : properties.hash() ) {
 		prop->transform();
 	}
 	for ( Node * node : roots.list() ) {
@@ -436,7 +436,7 @@ void Scene::updateTimeBounds() const
 		for ( Node * node : nodes.list() ) {
 			node->timeBounds( tMin, tMax );
 		}
-		for ( Property * prop : properties.list() ) {
+		for ( Property * prop : properties.hash() ) {
 			prop->timeBounds( tMin, tMax );
 		}
 	} else {
