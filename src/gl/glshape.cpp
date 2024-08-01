@@ -44,6 +44,11 @@ Shape::Shape( Scene * s, const QModelIndex & b ) : Node( s, b )
 	shapeNumber = s->shapes.count();
 }
 
+Shape::~Shape()
+{
+	qDeleteAll( selections );
+}
+
 void Shape::clear()
 {
 	Node::clear();

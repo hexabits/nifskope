@@ -236,6 +236,7 @@ class Shape : public Node
 
 public:
 	Shape( Scene * s, const QModelIndex & b );
+	virtual ~Shape();
 
 	// IControllable
 
