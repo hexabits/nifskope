@@ -46,7 +46,7 @@ class Particles : public Node
 	friend class ParticleController;
 
 public:
-	Particles( Scene * s, const QModelIndex & b ) : Node( s, b ) {}
+	Particles( Scene * _scene, NifFieldConst _block );
 
 	void clear() override;
 	void transform() override;

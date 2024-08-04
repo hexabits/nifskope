@@ -43,6 +43,11 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *  Particle
  */
 
+Particles::Particles( Scene * _scene, NifFieldConst _block )
+	: Node( _scene, _block )
+{
+}
+
 void Particles::clear()
 {
 	Node::clear();

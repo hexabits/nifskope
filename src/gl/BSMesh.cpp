@@ -20,7 +20,8 @@ BoneWeightsUNorm::BoneWeightsUNorm(QVector<QPair<quint16, quint16>> weights)
 	}
 }
 
-BSMesh::BSMesh(Scene* s, const QModelIndex& iBlock) : Shape(s, iBlock)
+BSMesh::BSMesh( Scene * _scene, NifFieldConst _block )
+	: Shape( _scene, _block )
 {
 }
 
@@ -42,7 +43,7 @@ void BSMesh::drawShapes(NodeList* secondPass, bool presort)
 	auto nif = NifModel::fromIndex(iBlock);
 	if ( lodLevel != scene->lodLevel ) {
 		lodLevel = scene->lodLevel;
-		updateData(nif);
+		updateData();
 	}
 
 	glPushMatrix();
@@ -250,7 +251,7 @@ void BSMesh::updateImpl(const NifModel* nif, const QModelIndex& index)
 	forMeshIndex(nif, createMeshFile);
 }
 
-void BSMesh::updateDataImpl(const NifModel* nif)
+void BSMesh::updateDataImpl()
 {
 	qDebug() << "updateData";
 	gpuLODs.clear();
@@ -292,50 +293,50 @@ void BSMesh::updateDataImpl(const NifModel* nif)
 		boundSphere.applyInv(viewTrans());
 	}
 
-	auto links = nif->getChildLinks(nif->getBlockNumber(iBlock));
+	auto links = model->getChildLinks(model->getBlockNumber(iBlock));
 	for ( const auto link : links ) {
-		auto idx = nif->getBlockIndex(link);
-		if ( nif->blockInherits(idx, "BSShaderProperty") ) {
-			materialPath = nif->get<QString>(idx, "Name");
-		} else if ( nif->blockInherits(idx, "NiIntegerExtraData") ) {
-			materialID = nif->get<int>(idx, "Integer Data");
-		} else if ( nif->blockInherits(idx, "BSSkin::Instance") ) {
+		auto idx = model->getBlockIndex(link);
+		if ( model->blockInherits(idx, "BSShaderProperty") ) {
+			materialPath = model->get<QString>(idx, "Name");
+		} else if ( model->blockInherits(idx, "NiIntegerExtraData") ) {
+			materialID = model->get<int>(idx, "Integer Data");
+		} else if ( model->blockInherits(idx, "BSSkin::Instance") ) {
 			iSkin = idx;
-			iSkinData = nif->getBlockIndex(nif->getLink(nif->getIndex(idx, "Data")));
-			skinID = nif->getBlockNumber(iSkin);
+			iSkinData = model->getBlockIndex(model->getLink(model->getIndex(idx, "Data")));
+			skinID = model->getBlockNumber(iSkin);
 
-			auto iBones = nif->getLinkArray(iSkin, "Bones");
+			auto iBones = model->getLinkArray(iSkin, "Bones");
 			for ( const auto b : iBones ) {
 				if ( b == -1 )
 					continue;
-				auto iBone = nif->getBlockIndex(b);
-				boneNames.append(nif->resolveString(iBone, "Name"));
+				auto iBone = model->getBlockIndex(b);
+				boneNames.append(model->resolveString(iBone, "Name"));
 			}
 
-			auto numBones = nif->get<int>(iSkinData, "Num Bones");
+			auto numBones = model->get<int>(iSkinData, "Num Bones");
 			boneTransforms.resize(numBones);
-			auto iBoneList = nif->getIndex(iSkinData, "Bone List");
+			auto iBoneList = model->getIndex(iSkinData, "Bone List");
 			for ( int i = 0; i < numBones; i++ ) {
 				auto iBone = iBoneList.child(i, 0);
 				Transform trans;
-				trans.rotation = nif->get<Matrix>(iBone, "Rotation");
-				trans.translation = nif->get<Vector3>(iBone, "Translation");
-				trans.scale = nif->get<float>(iBone, "Scale");
+				trans.rotation = model->get<Matrix>(iBone, "Rotation");
+				trans.translation = model->get<Vector3>(iBone, "Translation");
+				trans.scale = model->get<float>(iBone, "Scale");
 				boneTransforms[i] = trans;
 			}
 		}
 	}
 	// Do after dependent blocks above
 	for ( const auto link : links ) {
-		auto idx = nif->getBlockIndex(link);
-		if ( nif->blockInherits(idx, "SkinAttach") ) {
-			boneNames = nif->getArray<QString>(idx, "Bones");
+		auto idx = model->getBlockIndex(link);
+		if ( model->blockInherits(idx, "SkinAttach") ) {
+			boneNames = model->getArray<QString>(idx, "Bones");
 			if ( std::all_of(boneNames.begin(), boneNames.end(), [](const QString& name) { return name.isEmpty(); }) ) {
 				boneNames.clear();
-				auto iBones = nif->getLinkArray(nif->getIndex(iSkin, "Bones"));
+				auto iBones = model->getLinkArray(model->getIndex(iSkin, "Bones"));
 				for ( const auto& b : iBones ) {
-					auto iBone = nif->getBlockIndex(b);
-					boneNames.append(nif->resolveString(iBone, "Name"));
+					auto iBone = model->getBlockIndex(b);
+					boneNames.append(model->resolveString(iBone, "Name"));
 				}
 			}
 		}

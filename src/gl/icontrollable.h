@@ -33,6 +33,8 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef ICONTROLLABLE_H
 #define ICONTROLLABLE_H
 
+#include "model/nifmodel.h"
+
 #include <QObject> // Inherited
 #include <QList>
 #include <QPersistentModelIndex>
@@ -53,15 +55,22 @@ class IControllable : public QObject
 	friend class ControllerManager;
 
 public:
-	IControllable( Scene * Scene, const QModelIndex & index );
+	IControllable( Scene * _scene, NifFieldConst _block );
 	virtual ~IControllable();
 
 	QModelIndex index() const { return iBlock; }
 	bool isValid() const { return iBlock.isValid(); }
 
+	auto modelVersion() const { return model->getVersionNumber(); }
+	bool modelVersionInRange( quint32 since, quint32 until ) const { return model->checkVersion( since, until ); }
+	auto modelBSVersion() const { return model->getBSVersion(); }
+
+	const QString & blockName() const { return name; }
+
 	virtual void clear();
 
 	void update( const NifModel * nif, const QModelIndex & index );
+	void update() { update( model, iBlock ); }
 
 	virtual void transform();
 
@@ -72,7 +81,15 @@ public:
 
 	Controller * findController( const QModelIndex & index );
 
-	QString getName() const;
+public:
+	// scene, block and model below are set once at the creation of a IControllable and never change during its lifetime.
+	// At the same time, they are frequently read in a lot of code across NifSkope.
+	// That's why they are public but const (could only be set by IControllable::IControllable(...) ).
+	// Whatever createas a IControllable, must ensure that it passes a valid non-null scene and a valid block to the constructor.
+
+	Scene * const scene;
+	const NifFieldConst block;
+	const NifModel * const model;
 
 protected:
 	//! Sets the Controller
@@ -80,8 +97,6 @@ protected:
 
 	//! Actual implementation of update, with the validation check taken care of by update(...)
 	virtual void updateImpl( const NifModel * nif, const QModelIndex & index );
-
-	Scene * scene;
 
 	QPersistentModelIndex iBlock;
 

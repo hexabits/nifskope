@@ -41,6 +41,11 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 //! @file glmesh.cpp Scene management for visible meshes such as NiTriShapes.
 
+Mesh::Mesh( Scene * _scene, NifFieldConst _block )
+	: Shape( _scene, _block )
+{
+}
+
 void Mesh::updateImpl( const NifModel * nif, const QModelIndex & index )
 {
 	Shape::updateImpl(nif, index);
@@ -49,17 +54,17 @@ void Mesh::updateImpl( const NifModel * nif, const QModelIndex & index )
 		needUpdateData = true;
 }
 
-void Mesh::updateDataImpl( const NifModel * nif )
+void Mesh::updateDataImpl()
 {
-	if ( nif->checkVersion( 0x14050000, 0 ) && nif->blockInherits( iBlock, "NiMesh" ) )
-		updateData_NiMesh( nif );
-	else
-		updateData_NiTriShape( nif );
+	if ( block.inherits("NiMesh") && modelVersion() >= 0x14050000 ) {
+		updateData_NiMesh();
+	} else {
+		updateData_NiTriShape();
+	}
 }
 
-void Mesh::updateData_NiMesh( const NifModel * nif )
+void Mesh::updateData_NiMesh()
 {
-	auto block = nif->field(iBlock);
 	auto datastreams = block.child("Datastreams");
 	if ( !datastreams )
 		return;
@@ -104,7 +109,7 @@ void Mesh::updateData_NiMesh( const NifModel * nif )
 				invalidIndex = true;
 
 			if ( invalidIndex ) {
-				streamEntry.reportError( tr( "NifSkope requires 'INDEX' datastream be first, with Usage type 'USAGE_VERTEX_INDEX'." ) );
+				streamEntry.reportError( tr("NifSkope requires 'INDEX' datastream be first, with Usage type 'USAGE_VERTEX_INDEX'.") );
 				return;
 			}
 
@@ -270,19 +275,19 @@ void Mesh::updateData_NiMesh( const NifModel * nif )
 					switch ( compType ) {
 					case NiMesh::E_POSITION:
 					case NiMesh::E_POSITION_BP:
-						verts[j + off] = tempValue.get<Vector3>( nif, nullptr );
+						verts[j + off] = tempValue.get<Vector3>( model, nullptr );
 						break;
 					case NiMesh::E_NORMAL:
 					case NiMesh::E_NORMAL_BP:
-						norms[j + off] = tempValue.get<Vector3>( nif, nullptr );
+						norms[j + off] = tempValue.get<Vector3>( model, nullptr );
 						break;
 					case NiMesh::E_TANGENT:
 					case NiMesh::E_TANGENT_BP:
-						tangents[j + off] = tempValue.get<Vector3>( nif, nullptr );
+						tangents[j + off] = tempValue.get<Vector3>( model, nullptr );
 						break;
 					case NiMesh::E_BINORMAL:
 					case NiMesh::E_BINORMAL_BP:
-						bitangents[j + off] = tempValue.get<Vector3>( nif, nullptr );
+						bitangents[j + off] = tempValue.get<Vector3>( model, nullptr );
 						break;
 					default:
 						break;
@@ -294,7 +299,7 @@ void Mesh::updateData_NiMesh( const NifModel * nif )
 						// TODO: The total index value across all submeshes
 						// is likely allowed to exceed USHRT_MAX.
 						// For now limit the index.
-						quint32 ind = tempValue.get<quint16>( nif, nullptr ) + off;
+						quint32 ind = tempValue.get<quint16>( model, nullptr ) + off;
 						if ( ind > 0xFFFF )
 							qDebug() << QString( "[%1] %2" ).arg( streamBlock.repr() ).arg( ind );
 
@@ -313,7 +318,7 @@ void Mesh::updateData_NiMesh( const NifModel * nif )
 					if ( compType == NiMesh::E_TEXCOORD ) {
 						quint32 coordSet = compSemanticIndexMaps[i].value( k ).second;
 						Q_ASSERT( coords.size() > coordSet );
-						coords[coordSet][j + off] = tempValue.get<Vector2>( nif, nullptr );
+						coords[coordSet][j + off] = tempValue.get<Vector2>( model, nullptr );
 					}
 					break;
 				case NiMesh::F_UINT8_4:
@@ -322,18 +327,18 @@ void Mesh::updateData_NiMesh( const NifModel * nif )
 				case NiMesh::F_NORMUINT8_4:
 					Q_ASSERT( usage == NiMesh::USAGE_VERTEX );
 					if ( compType == NiMesh::E_COLOR )
-						colors[j + off] = tempValue.get<ByteColor4>( nif, nullptr );
+						colors[j + off] = tempValue.get<ByteColor4>( model, nullptr );
 					break;
 				case NiMesh::F_NORMUINT8_4_BGRA:
 					Q_ASSERT( usage == NiMesh::USAGE_VERTEX );
 					if ( compType == NiMesh::E_COLOR ) {
 						// Swizzle BGRA -> RGBA
-						auto c = tempValue.get<ByteColor4>( nif, nullptr ).data();
+						auto c = tempValue.get<ByteColor4>( model, nullptr ).data();
 						colors[j + off] = {c[2], c[1], c[0], c[3]};
 					}
 					break;
 				default:
-					streamBlock.reportError( tr( "Unsupported Component: %2" ).arg( NifValue::enumOptionName( "ComponentFormat", typeK ) ) );
+					streamBlock.reportError( tr("Unsupported Component: %2.").arg( NifValue::enumOptionName( "ComponentFormat", typeK ) ) );
 					abort = true;
 					break;
 				}
@@ -380,7 +385,7 @@ void Mesh::updateData_NiMesh( const NifModel * nif )
 	case NiMesh::PRIMITIVE_LINESTRIPS:
 	case NiMesh::PRIMITIVE_QUADS:
 	case NiMesh::PRIMITIVE_POINTS:
-		typeField.reportError( tr("Unsupported primitive type value: %1").arg( NifValue::enumOptionName("MeshPrimitiveType", meshPrimitiveType) ) );
+		typeField.reportError( tr("Unsupported primitive type value: %1.").arg( NifValue::enumOptionName("MeshPrimitiveType", meshPrimitiveType) ) );
 		break;
 	}
 }
@@ -398,27 +403,25 @@ static inline void remapTriangleVertices( Triangle & t, const QVector<int> & ver
 	}
 }
 
-void Mesh::updateData_NiTriShape( const NifModel * nif )
+void Mesh::updateData_NiTriShape()
 {
-	NifFieldConst block = nif->block(iBlock);
-
 	// Find iData and iSkin blocks among the children
 	NifFieldConst dataBlock, skinBlock;
-	for ( auto childLink : nif->getChildLinks( id() ) ) {
-		auto childBlock = nif->block( childLink );
+	for ( auto childLink : model->getChildLinks( id() ) ) {
+		auto childBlock = model->block( childLink );
 		if ( !childBlock )
 			continue;
 
-		if ( childBlock.inherits( "NiTriShapeData", "NiTriStripsData" ) ) {
+		if ( childBlock.inherits("NiTriShapeData", "NiTriStripsData") ) {
 			if ( !dataBlock )
 				dataBlock = childBlock;
 			else if ( dataBlock != childBlock )
-				block.reportError( tr( "Block has multiple data blocks" ) );
-		} else if ( childBlock.inherits( "NiSkinInstance" ) ) {
+				block.reportError( tr("Block has multiple data blocks.") );
+		} else if ( childBlock.inherits("NiSkinInstance") ) {
 			if ( !skinBlock )
 				skinBlock = childBlock;
 			else if ( skinBlock != childBlock )
-				block.reportError( tr( "Block has multiple skin instances" ) );
+				block.reportError( tr("Block has multiple skin instances.") );
 		}
 	}
 	if ( !dataBlock )
@@ -456,9 +459,9 @@ void Mesh::updateData_NiTriShape( const NifModel * nif )
 	}
 
 	NifFieldConst extraTangents;
-	for ( auto extraLink : block.child("Extra Data List").linkArray() ) {
-		auto extraBlock = nif->block( extraLink );
-		if ( extraBlock.inherits("NiBinaryExtraData") && extraBlock.child("Name").value<QString>() == QStringLiteral("Tangent space (binormal & tangent vectors)") ) {
+	for ( auto extraEntry : block.child("Extra Data List").iter() ) {
+		auto extraBlock = extraEntry.linkBlock("NiBinaryExtraData");
+		if ( extraBlock && extraBlock.child("Name").value<QString>() == QStringLiteral("Tangent space (binormal & tangent vectors)") ) {
 			extraTangents = extraBlock;
 			break;
 		}
@@ -560,7 +563,7 @@ void Mesh::updateData_NiTriShape( const NifModel * nif )
 					for ( auto mapEntry : vertexMapRoot.iter() ) {
 						int v = mapEntry.value<int>();
 						if ( v < 0 || v >= numVerts )
-							mapEntry.reportError( tr("Invalid vertex index %1").arg(v) );
+							mapEntry.reportError( tr("Invalid vertex index %1.").arg(v) );
 						partVertexMap << v;
 					}
 					addVertexSelection( vertexMapRoot, VertexSelectionType::VERTICES, vertexMapRoot );
@@ -574,7 +577,7 @@ void Mesh::updateData_NiTriShape( const NifModel * nif )
 				for ( auto mapEntry : boneMapRoot.iter() ) {
 					int b = mapEntry.value<int>();
 					if ( b < 0 || b >= nTotalBones )
-						mapEntry.reportError( tr("Invalid bone index %1").arg(b) );
+						mapEntry.reportError( tr("Invalid bone index %1.").arg(b) );
 					partBoneMap << b;
 				}
 
@@ -618,7 +621,7 @@ void Mesh::updateData_NiTriShape( const NifModel * nif )
 							continue;
 						int b = bentry[wind].value<int>();
 						if ( b < 0 || b >= nPartBones ) {
-							bentry[wind].reportError( tr("Invalid bone index %1").arg(b) );
+							bentry[wind].reportError( tr("Invalid bone index %1.").arg(b) );
 							continue;
 						}
 						int bind = partBoneMap[b];
@@ -640,7 +643,7 @@ void Mesh::updateData_NiTriShape( const NifModel * nif )
 							Triangle t = triEntry.value<Triangle>();
 							for ( TriVertexIndex & tv : t.v ) {
 								if ( tv >= nPartMappedVertices ) {
-									triEntry.reportError( tr("Invalid vertex map index %1").arg(tv) );
+									triEntry.reportError( tr("Invalid vertex map index %1.").arg(tv) );
 								}
 							}
 							remapTriangleVertices( t, partVertexMap );
@@ -666,7 +669,7 @@ void Mesh::updateData_NiTriShape( const NifModel * nif )
 							for ( auto pointEntry : stripEntry.iter() ) {
 								TriVertexIndex p = pointEntry.value<TriVertexIndex>();
 								if ( p >= nPartMappedVertices ) {
-									pointEntry.reportError( tr("Invalid vertex map index %1").arg(p) );
+									pointEntry.reportError( tr("Invalid vertex map index %1.").arg(p) );
 								}
 								stripPoints << p;
 							}
@@ -734,7 +737,7 @@ void Mesh::updateData_NiTriShape( const NifModel * nif )
 						continue;
 					int vind = wentry[iIndexField].value<int>();
 					if ( vind < 0 || vind >= numVerts ) {
-						wentry[iIndexField].reportError( tr("Invalid vertex index %1").arg(vind) );
+						wentry[iIndexField].reportError( tr("Invalid vertex index %1.").arg(vind) );
 						continue;
 					}
 					outWeights << VertexWeight( vind, w );
@@ -744,8 +747,8 @@ void Mesh::updateData_NiTriShape( const NifModel * nif )
 	}
 
 	// LODs
-	if ( block.isBlockType( "BSLODTriShape" ) ) {
-		initLodData( block );
+	if ( block.hasName("BSLODTriShape") ) {
+		initLodData();
 	}
 
 	// Bounding sphere

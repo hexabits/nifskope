@@ -51,45 +51,60 @@ bool checkSet( int s, const QVector<QVector<Vector2> > & texcoords )
 
 Property * Property::create( Scene * scene, const NifModel * nif, const QModelIndex & index )
 {
-	Property * property = 0;
+	Property * property = nullptr;
 
 	auto block = nif->field( index );
 	if ( !block ) {
 		// Do nothing
+
 	} else if ( !block.isBlock() ) {
-		block.reportError( tr("Could not create Property from a non-block field") );
-	} else if ( block.hasName( "NiAlphaProperty" ) ) {
+		nif->reportError( tr("Property::create: item '%1' is not a block.").arg( block.repr() ) );
+
+	} else if ( block.hasName("NiAlphaProperty") ) {
 		property = new AlphaProperty( scene, block );
-	} else if ( block.hasName( "NiZBufferProperty" ) ) {
+
+	} else if ( block.hasName("NiZBufferProperty") ) {
 		property = new ZBufferProperty( scene, block );
-	} else if ( block.hasName( "NiTexturingProperty" ) ) {
+
+	} else if ( block.hasName("NiTexturingProperty") ) {
 		property = new TexturingProperty( scene, block );
-	} else if ( block.hasName( "NiTextureProperty" ) ) {
+
+	} else if ( block.hasName("NiTextureProperty") ) {
 		property = new TextureProperty( scene, block );
-	} else if ( block.hasName( "NiMaterialProperty" ) ) {
+
+	} else if ( block.hasName("NiMaterialProperty") ) {
 		property = new MaterialProperty( scene, block );
-	} else if ( block.hasName( "NiSpecularProperty" ) ) {
+
+	} else if ( block.hasName("NiSpecularProperty") ) {
 		property = new SpecularProperty( scene, block );
-	} else if ( block.hasName( "NiWireframeProperty" ) ) {
+
+	} else if ( block.hasName("NiWireframeProperty") ) {
 		property = new WireframeProperty( scene, block );
-	} else if ( block.hasName( "NiVertexColorProperty" ) ) {
+
+	} else if ( block.hasName("NiVertexColorProperty") ) {
 		property = new VertexColorProperty( scene, block );
-	} else if ( block.hasName( "NiStencilProperty" ) ) {
+
+	} else if ( block.hasName("NiStencilProperty") ) {
 		property = new StencilProperty( scene, block );
-	} else if ( block.hasName( "BSLightingShaderProperty" ) ) {
+
+	} else if ( block.hasName("BSLightingShaderProperty") ) {
 		property = new BSLightingShaderProperty( scene, block );
-	} else if ( block.hasName( "BSEffectShaderProperty" ) ) {
+
+	} else if ( block.hasName("BSEffectShaderProperty") ) {
 		property = new BSEffectShaderProperty( scene, block );
-	} else if ( block.hasName( "BSWaterShaderProperty" ) ) {
+
+	} else if ( block.hasName("BSWaterShaderProperty") ) {
 		property = new BSWaterShaderProperty( scene, block );
-	} else if ( block.inherits( "BSShaderLightingProperty" ) ) {
+
+	} else if ( block.inherits("BSShaderLightingProperty") ) {
 		property = new BSShaderLightingProperty( scene, block );
+
 	} else {
-		block.reportError( tr("Could not create Property from a block of type '%1'").arg( block.name() ) );
+		nif->reportError( tr("Property::create: Could not create Property from a block of type '%1'.").arg( block.name() ) );
 	}
 
 	if ( property )
-		property->update( nif, index );
+		property->update();
 
 	return property;
 }
@@ -191,7 +206,7 @@ void AlphaProperty::updateImpl( const NifModel * nif, const QModelIndex & index 
 		alphaSort = ( flags & 0x2000 ) == 0;
 
 		// Temporary Weapon Blood fix for FO4
-		if ( nif->getBSVersion() >= 130 )
+		if ( modelBSVersion() >= 130 )
 			alphaTest |= (flags == 20547);
 	}
 }
@@ -235,9 +250,9 @@ void ZBufferProperty::updateImpl( const NifModel * nif, const QModelIndex & inde
 		};
 
 		// This was checking version 0x10000001 ?
-		if ( nif->checkVersion( 0x04010012, 0x14000005 ) ) {
+		if ( modelVersionInRange( 0x04010012, 0x14000005 ) ) {
 			depthFunc = depthMap[ block["Function"].value<int>() & 0x07 ];
-		} else if ( nif->checkVersion( 0x14010003, 0 ) ) {
+		} else if ( modelVersion() >= 0x14010003 ) {
 			depthFunc = depthMap[ (flags >> 2 ) & 0x07 ];
 		} else {
 			depthFunc = GL_LEQUAL;
@@ -297,10 +312,10 @@ void TexturingProperty::updateImpl( const NifModel * nif, const QModelIndex & in
 			textures[t].coordset = texEntry.child("UV Set").value<int>();
 				
 			int filterMode = 0, clampMode = 0;
-			if ( nif->checkVersion( 0, 0x14010002 ) ) {
+			if ( modelVersion() <= 0x14010002 ) {
 				filterMode = texEntry["Filter Mode"].value<int>();
 				clampMode  = texEntry["Clamp Mode"].value<int>();
-			} else if ( nif->checkVersion( 0x14010003, 0 ) ) {
+			} else {
 				auto flags = texEntry["Flags"].value<ushort>();
 				filterMode = ((flags & 0x0F00) >> 0x08);
 				clampMode  = ((flags & 0xF000) >> 0x0C);
@@ -314,7 +329,7 @@ void TexturingProperty::updateImpl( const NifModel * nif, const QModelIndex & in
 				af = max_af;
 
 			// Override with value in NIF for 20.5+
-			if ( nif->checkVersion( 0x14050004, 0 ) )
+			if ( modelVersion() >= 0x14050004 )
 				af = std::min( max_af, float( texEntry["Max Anisotropy"].value<ushort>() ) );
 
 			textures[t].maxAniso = std::max( 1.0f, std::min( af, max_af ) );
@@ -661,7 +676,7 @@ void VertexColorProperty::updateImpl( const NifModel * nif, const QModelIndex & 
 	Property::updateImpl( nif, index );
 
 	if ( index == iBlock ) {
-		if ( nif->checkVersion( 0, 0x14010001 ) ) {
+		if ( modelVersion() <= 0x14010001 ) {
 			vertexmode = block["Vertex Mode"].value<int>();
 			// 0 : source ignore
 			// 1 : source emissive
@@ -732,7 +747,7 @@ void StencilProperty::updateImpl( const NifModel * nif, const QModelIndex & inde
 		};
 
 		int drawMode = 0;
-		if ( nif->checkVersion( 0, 0x14000005 ) ) {
+		if ( modelVersion() <= 0x14000005 ) {
 			drawMode = block["Draw Mode"].value<int>();
 			func     = funcMap[std::min( block["Stencil Function"].value<quint32>(), quint32(TEST_MAX) - 1 )];
 			failop   = opMap[std::min( block["Fail Action"].value<quint32>(), quint32(ACTION_MAX) - 1 )];
@@ -817,7 +832,7 @@ void BSShaderProperty::updateImpl( const NifModel * nif, const QModelIndex & ind
 	}
 }
 
-void BSShaderProperty::resetParams()
+void BSShaderProperty::resetData()
 {
 	uvScale.reset();
 	uvOffset.reset();
@@ -1085,7 +1100,7 @@ void BSShaderLightingProperty::updateImpl( const NifModel * nif, const QModelInd
 	BSShaderProperty::updateImpl( nif, index );
 
 	if ( index == iBlock || index == iTextureSet ) {
-		updateParams(nif);
+		updateData();
 	}
 }
 
@@ -1177,9 +1192,9 @@ public:
 	bool depthWrite() const { return has( Fallout3_ShaderFlags2::ZBUFFER_WRITE ); }
 };
 
-void BSShaderLightingProperty::updateParams( const NifModel * nif )
+void BSShaderLightingProperty::updateData()
 {
-	resetParams();
+	resetData();
 
 	Fallout3_ShaderFlags flags;
 	NifFieldConst flagField;
@@ -1222,16 +1237,16 @@ void BSLightingShaderProperty::updateImpl( const NifModel * nif, const QModelInd
 
 	if ( index == iBlock ) {
 		setMaterial(name.endsWith(".bgsm", Qt::CaseInsensitive) ? new ShaderMaterial(name, scene->getGame()) : nullptr);
-		updateParams(nif);
+		updateData();
 	}
 	else if ( index == iTextureSet ) {
-		updateParams(nif);
+		updateData();
 	}
 }
 
-void BSLightingShaderProperty::resetParams()
+void BSLightingShaderProperty::resetData()
 {
-	BSShaderProperty::resetParams();
+	BSShaderProperty::resetData();
 
 	hasGlowMap = false;
 	hasEmittance = false;
@@ -1428,7 +1443,7 @@ public:
 	ShaderFlagsType flags1 = 0;
 	ShaderFlagsType flags2 = 0;
 
-	void setVersion( bool _isFO4, bool isEffectsShader );
+	void setFO4( bool _isFO4, bool isEffectsShader );
 
 private:
 	bool has( Skyrim_ShaderFlags1 f ) const { return ( flags1 & ShaderFlagsType(f) ); }
@@ -1465,7 +1480,7 @@ public:
 	bool effectLighting() const { return has( Skyrim_ShaderFlags2::EFFECT_LIGHTING, Fallout4_ShaderFlags2::EFFECT_LIGHTING ); }
 };
 
-void NewShaderFlags::setVersion( bool _isFO4, bool isEffectsShader )
+void NewShaderFlags::setFO4( bool _isFO4, bool isEffectsShader )
 {
 	isFO4 = _isFO4;
 	if ( isEffectsShader ) {
@@ -1520,38 +1535,39 @@ static const QMap<quint32, quint64> Fallout4_CRCFlagMap = {
 	{ 3707406987u, 0 }, //  NO_EXPOSURE
 };
 
-void readNewShaderFlags( NewShaderFlags & flags, BSShaderProperty * prop, bool isEffectsShader, NifFieldConst shaderBlock, const NifModel * nif )
+static void readNewShaderFlags( NewShaderFlags & flags, BSShaderProperty * prop, bool isEffectsShader)
 {
 	// Read flags fields
-	if ( nif->getBSVersion() >= 151 ) {
+	if ( prop->modelBSVersion() >= 151 ) {
 		flags.isFO4 = true;
 
-		auto sfs = shaderBlock["SF1"].array<quint32>() + shaderBlock["SF2"].array<quint32>();
+		auto sfs = prop->block["SF1"].array<quint32>() + prop->block["SF2"].array<quint32>();
 		quint64 allFlags = 0;
 		for ( auto sf : sfs )
 			allFlags |= Fallout4_CRCFlagMap.value( sf, 0 );
 		flags.flags1 = allFlags & quint64(MAXUINT32);
 		flags.flags2 = allFlags >> 32;
-	} else {
-		auto flagField1 = shaderBlock["Shader Flags 1"];
-		auto flagField2 = shaderBlock["Shader Flags 2"];
+
+	} else { // bsVersion < 151
+		auto flagField1 = prop->block["Shader Flags 1"];
+		auto flagField2 = prop->block["Shader Flags 2"];
 
 		if ( flagField1.hasStrType("SkyrimShaderPropertyFlags1") ) {
-			flags.setVersion( false, isEffectsShader );
+			flags.setFO4( false, isEffectsShader );
 			flags.flags1 = flagField1.value<uint>();
 		} else if ( flagField1.hasStrType("Fallout4ShaderPropertyFlags1") ) {
-			flags.setVersion( true, isEffectsShader );
+			flags.setFO4( true, isEffectsShader );
 			flags.flags1 = flagField1.value<uint>();
 		} else {
 			if ( flagField1 )
-				flagField1.reportError( QString("Unsupported value type '%1'.").arg( flagField1.strType() ) );
+				flagField1.reportError( Property::tr("Unsupported value type '%1'.").arg( flagField1.strType() ) );
 			// Fallback setVersion
-			flags.setVersion( !flagField1 && flagField2.hasStrType("Fallout4ShaderPropertyFlags2"), isEffectsShader );
+			flags.setFO4( !flagField1 && flagField2.hasStrType("Fallout4ShaderPropertyFlags2"), isEffectsShader );
 		}
 
 		if ( flagField2.hasStrType("SkyrimShaderPropertyFlags2") ) {
 			if ( flags.isFO4 ) {
-				flagField2.reportError( QString("Unexpected value type '%1'.").arg( flagField2.strType() ) );
+				flagField2.reportError( Property::tr("Unexpected value type '%1'.").arg( flagField2.strType() ) );
 			} else {
 				flags.flags2 = flagField2.value<uint>();
 			}
@@ -1559,15 +1575,15 @@ void readNewShaderFlags( NewShaderFlags & flags, BSShaderProperty * prop, bool i
 			if ( flags.isFO4 ) {
 				flags.flags2 = flagField2.value<uint>();
 			} else {
-				flagField2.reportError( QString("Unexpected value type '%1'.").arg( flagField2.strType() ) );
+				flagField2.reportError( Property::tr("Unexpected value type '%1'.").arg( flagField2.strType() ) );
 			}
 		} else if ( flagField2 ) {
-			flagField2.reportError( QString("Unsupported value type '%1'.").arg( flagField2.strType() ) );
+			flagField2.reportError( Property::tr("Unsupported value type '%1'.").arg( flagField2.strType() ) );
 		}
 	}
 
 	// Set common vertex flags in the property
-	if ( nif->getBSVersion() >= 130 ) {
+	if ( prop->modelBSVersion() >= 130 ) {
 		//  Always do vertex colors, incl. alphas, for FO4 and newer if colors present
 		prop->vertexColorMode = ShaderColorMode::FROM_DATA;
 		prop->hasVertexAlpha = true;
@@ -1607,12 +1623,12 @@ enum Skyrim_ShaderType : unsigned int // BSLightingShaderType in nif.xml
 };
 
 
-void BSLightingShaderProperty::updateParams( const NifModel * nif )
+void BSLightingShaderProperty::updateData()
 {
-	resetParams();
+	resetData();
 
 	NewShaderFlags flags;
-	readNewShaderFlags( flags, this, false, block, nif );
+	readNewShaderFlags( flags, this, false );
 
 	ShaderMaterial * m = ( material && material->isValid() ) ? static_cast<ShaderMaterial*>(material) : nullptr;
 	if ( m ) {
@@ -1641,8 +1657,7 @@ void BSLightingShaderProperty::updateParams( const NifModel * nif )
 		greyscaleColor = m->bGrayscaleToPaletteColor;
 		paletteScale = m->fGrayscaleToPaletteScale;
 
-		hasSpecularMap = m->bSpecularEnabled && (!m->textureList[2].isEmpty()
-			|| (nif->getBSVersion() >= 151 && !m->textureList[7].isEmpty()));
+		hasSpecularMap = m->bSpecularEnabled && ( !m->textureList[2].isEmpty() || (modelBSVersion() >= 151 && !m->textureList[7].isEmpty()) );
 		hasGlowMap = m->bGlowmap;
 		hasEmittance = m->bEmitEnabled;
 		hasBacklight = m->bBackLighting;
@@ -1664,7 +1679,7 @@ void BSLightingShaderProperty::updateParams( const NifModel * nif )
 	} else { // m == nullptr
 
 		Skyrim_ShaderType shaderType;
-		if ( nif->getBSVersion() >= 151 ) {
+		if ( modelBSVersion() >= 151 ) {
 			shaderType = SKY_SHADER_ENVMAP;
 		} else {
 			shaderType = SKY_SHADER_DEFAULT;
@@ -1674,7 +1689,7 @@ void BSLightingShaderProperty::updateParams( const NifModel * nif )
 				if ( v < SKY_SHADER_END )
 					shaderType = Skyrim_ShaderType( v );
 				else {
-					typeField.reportError( tr("Unsupported value %1").arg( v ) );
+					typeField.reportError( tr("Unsupported value %1.").arg( v ) );
 				}
 			} else if ( typeField ) {
 				typeField.reportError( tr("Unsupported value type '%1'.").arg( typeField.strType() ) );
@@ -1710,7 +1725,7 @@ void BSLightingShaderProperty::updateParams( const NifModel * nif )
 		hasGlowMap = ( shaderType == SKY_SHADER_GLOW ) && flags.glowMap() && !textures.value( 2, "" ).isEmpty();
 
 		// Version Dependent settings
-		if ( nif->getBSVersion() < 130 ) {
+		if ( modelBSVersion() < 130 ) {
 			lightingEffect1 = block["Lighting Effect 1"].value<float>();
 			lightingEffect2 = block["Lighting Effect 2"].value<float>();
 
@@ -1748,9 +1763,9 @@ void BSLightingShaderProperty::updateParams( const NifModel * nif )
 
 		// Environment Map, Mask and Reflection Scale
 		hasEnvironmentMap = 
-			( ( shaderType == SKY_SHADER_ENVMAP ) && flags.envMap() )
-			|| ( ( shaderType == SKY_SHADER_EYE_ENVMAP ) && flags.eyeEnvMap() )
-			|| ( nif->getBSVersion() == 100 && hasMultiLayerParallax );
+			( shaderType == SKY_SHADER_ENVMAP && flags.envMap() )
+			|| ( shaderType == SKY_SHADER_EYE_ENVMAP && flags.eyeEnvMap() )
+			|| ( modelBSVersion() == 100 && hasMultiLayerParallax );
 		
 		useEnvironmentMask = hasEnvironmentMap && !textures.value( 5, "" ).isEmpty();
 
@@ -1783,15 +1798,15 @@ void BSEffectShaderProperty::updateImpl( const NifModel * nif, const QModelIndex
 
 	if ( index == iBlock ) {
 		setMaterial(name.endsWith(".bgem", Qt::CaseInsensitive) ? new EffectMaterial(name, scene->getGame()) : nullptr);
-		updateParams(nif);
+		updateData();
 	}
 	else if ( index == iTextureSet )
-		updateParams(nif);
+		updateData();
 }
 
-void BSEffectShaderProperty::resetParams() 
+void BSEffectShaderProperty::resetData() 
 {
-	BSShaderProperty::resetParams();
+	BSShaderProperty::resetData();
 
 	hasSourceTexture = false;
 	hasGreyscaleMap = false;
@@ -1806,11 +1821,11 @@ void BSEffectShaderProperty::resetParams()
 
 	hasWeaponBlood = false;
 
-	falloff.startAngle = 1.0f;
-	falloff.stopAngle = 0.0f;
+	falloff.startAngle   = 1.0f;
+	falloff.stopAngle    = 0.0f;
 	falloff.startOpacity = 1.0f;
-	falloff.stopOpacity = 0.0f;
-	falloff.softDepth = 1.0f;
+	falloff.stopOpacity  = 0.0f;
+	falloff.softDepth    = 1.0f;
 
 	lumEmittance = 0.0;
 
@@ -1821,12 +1836,12 @@ void BSEffectShaderProperty::resetParams()
 	environmentReflection = 0.0;
 }
 
-void BSEffectShaderProperty::updateParams( const NifModel * nif )
+void BSEffectShaderProperty::updateData()
 {
-	resetParams();
+	resetData();
 
 	NewShaderFlags flags;
-	readNewShaderFlags( flags, this, true, block, nif );
+	readNewShaderFlags( flags, this, true );
 
 	EffectMaterial * m = ( material && material->isValid() ) ? static_cast<EffectMaterial*>(material) : nullptr;
 	if ( m ) {
@@ -1867,11 +1882,11 @@ void BSEffectShaderProperty::updateParams( const NifModel * nif )
 		if ( m->bEffectLightingEnabled )
 			lightingInfluence = m->fLightingInfluence;
 
-		falloff.startAngle = m->fFalloffStartAngle;
-		falloff.stopAngle = m->fFalloffStopAngle;
+		falloff.startAngle   = m->fFalloffStartAngle;
+		falloff.stopAngle    = m->fFalloffStopAngle;
 		falloff.startOpacity = m->fFalloffStartOpacity;
-		falloff.stopOpacity = m->fFalloffStopOpacity;
-		falloff.softDepth = m->fSoftDepth;
+		falloff.stopOpacity  = m->fFalloffStopOpacity;
+		falloff.softDepth    = m->fSoftDepth;
 
 	} else { // m == nullptr
 		
@@ -1886,7 +1901,7 @@ void BSEffectShaderProperty::updateParams( const NifModel * nif )
 		depthWrite = flags.depthWrite();
 		isDoubleSided = flags.doubleSided();
 
-		if ( nif->getBSVersion() < 130 ) {
+		if ( modelBSVersion() < 130 ) {
 			hasWeaponBlood = flags.weaponBlood();
 		} else {
 			hasEnvironmentMap = !block["Env Map Texture"].value<QString>().isEmpty();
@@ -1909,11 +1924,11 @@ void BSEffectShaderProperty::updateParams( const NifModel * nif )
 		if ( flags.effectLighting() )
 			lightingInfluence = float( block["Lighting Influence"].value<quint8>() ) / 255.0;
 
-		falloff.startAngle = block["Falloff Start Angle"].value<float>();
-		falloff.stopAngle = block["Falloff Stop Angle"].value<float>();
+		falloff.startAngle   = block["Falloff Start Angle"].value<float>();
+		falloff.stopAngle    = block["Falloff Stop Angle"].value<float>();
 		falloff.startOpacity = block["Falloff Start Opacity"].value<float>();
-		falloff.stopOpacity = block["Falloff Stop Opacity"].value<float>();
-		falloff.softDepth = block["Soft Falloff Depth"].value<float>();
+		falloff.stopOpacity  = block["Falloff Stop Opacity"].value<float>();
+		falloff.softDepth    = block["Soft Falloff Depth"].value<float>();
 	}
 }
 

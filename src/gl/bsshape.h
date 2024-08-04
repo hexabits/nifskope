@@ -8,7 +8,7 @@
 class BSShape : public Shape
 {
 public:
-	BSShape( Scene * s, const QModelIndex & b ) : Shape( s, b ) { }
+	BSShape( Scene * _scene, NifFieldConst _block );
 
 	// Node
 
@@ -23,7 +23,7 @@ protected:
 
 	bool isDynamic = false;
 
-	void updateDataImpl( const NifModel * nif ) override;
+	void updateDataImpl() override;
 };
 
 #endif // BSSHAPE_H

@@ -39,9 +39,10 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "lib/nvtristripwrapper.h"
 
 
-Shape::Shape( Scene * s, const QModelIndex & b ) : Node( s, b )
+Shape::Shape( Scene * _scene, NifFieldConst _block )
+	: Node( _scene, _block )
 {
-	shapeNumber = s->shapes.count();
+	shapeNumber = scene->registerShape( this );
 }
 
 Shape::~Shape()
@@ -73,7 +74,7 @@ void Shape::clear()
 void Shape::transform()
 {
 	if ( needUpdateData )
-		updateData( NifModel::fromValidIndex( iBlock ) );
+		updateData();
 
 	Node::transform();
 }
@@ -95,7 +96,7 @@ void Shape::fillViewModeWeights( double * outWeights, bool & outIsSkinned, const
 		return;
 
 	if ( needUpdateData )
-		updateData( NifModel::fromValidIndex( iBlock ) );
+		updateData();
 
 	if ( doSkinning() && ( triangles.count() || stripTriangles.count() ) )
 		outIsSkinned = true;
@@ -320,7 +321,7 @@ QModelIndex Shape::vertexAt( int vertexIndex ) const
 	return QModelIndex();
 }
 
-template <typename T> static inline void normalizeVectorSize(QVector<T> & v, int nRequiredSize, bool hasVertexData)
+template <typename T> static inline void normalizeVectorSize( QVector<T> & v, int nRequiredSize, bool hasVertexData )
 {
 	if ( hasVertexData ) {
 		if ( v.count() < nRequiredSize )
@@ -356,11 +357,11 @@ static void validateTriangles( QVector<Triangle> & tris, QVector<int> & triMap, 
 	}
 }
 
-void Shape::updateData( const NifModel * nif )
+void Shape::updateData()
 {
 	needUpdateData = false;
 
-	if ( !nif ) {
+	if ( !isValid() ) {
 		clear();
 		return;
 	}
@@ -368,7 +369,7 @@ void Shape::updateData( const NifModel * nif )
 	needUpdateBounds = true; // Force update bounds
 	resetBlockData();
 
-	updateDataImpl( nif );
+	updateDataImpl();
 
 	numVerts = verts.count();
 
@@ -393,7 +394,7 @@ void Shape::updateData( const NifModel * nif )
 	std::sort( selections.begin(), selections.end(), []( ShapeSelectionBase * a, ShapeSelectionBase * b ) { return a->level > b->level; });
 
 	if ( isLOD )
-		emit nif->lodSliderChanged( true );
+		emit model->lodSliderChanged( true );
 }
 
 void Shape::setController( const NifModel * nif, const QModelIndex & iController )
@@ -448,7 +449,7 @@ void Shape::reportCountMismatch( NifFieldConst rootEntry1, int entryCount1, NifF
 {
 	if ( rootEntry1 && rootEntry2 && entryCount1 != entryCount2 ) {
 		reportEntry.reportError( 
-			tr("The number of entries in %1 (%2) does not match that in %3 (%4)")
+			tr("The number of entries in %1 (%2) does not match that in %3 (%4).")
 				.arg( rootEntry1.repr( reportEntry ) )
 				.arg( entryCount1 )
 				.arg( rootEntry2.repr( reportEntry ) )
@@ -655,7 +656,7 @@ void Shape::updateShader()
 	}
 }
 
-void Shape::initLodData( NifFieldConst block )
+void Shape::initLodData()
 {
 	static constexpr int NUM_LODS = 3;
 	static const QString FIELD_NAMES[NUM_LODS] = {

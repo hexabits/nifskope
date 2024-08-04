@@ -99,7 +99,7 @@ class Node : public IControllable
 	} NodeFlags;
 
 public:
-	Node( Scene * scene, const QModelIndex & iBlock );
+	Node( Scene * _scene, NifFieldConst _block );
 
 	static int SELECTING;
 
@@ -199,7 +199,7 @@ template <typename T> inline T * Node::findProperty() const
 class LODNode : public Node
 {
 public:
-	LODNode( Scene * scene, const QModelIndex & block );
+	LODNode( Scene * _scene, NifFieldConst _block );
 
 	// IControllable
 
@@ -221,7 +221,7 @@ protected:
 class BillboardNode : public Node
 {
 public:
-	BillboardNode( Scene * scene, const QModelIndex & block );
+	BillboardNode( Scene * _scene, NifFieldConst _block );
 
 	const Transform & viewTrans() const override;
 };

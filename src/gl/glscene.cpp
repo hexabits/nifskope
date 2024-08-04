@@ -153,10 +153,10 @@ void Scene::update( const NifModel * nif, const QModelIndex & index )
 		nodes.validate();
 
 		for ( Property * p : properties.hash() )
-			p->update( nif, p->index() );
+			p->update();
 
 		for ( Node * n : nodes.list() )
-			n->update( nif, n->index() );
+			n->update();
 
 		roots.clear();
 		for ( const auto link : nif->getRootLinks() ) {
@@ -164,7 +164,7 @@ void Scene::update( const NifModel * nif, const QModelIndex & index )
 			if ( iBlock.isValid() ) {
 				Node * node = getNode( nif, iBlock );
 				if ( node ) {
-					node->makeParent( 0 );
+					node->makeParent( nullptr );
 					roots.add( node );
 				}
 			}
@@ -247,42 +247,46 @@ Node * Scene::getNode( const NifModel * nif, const QModelIndex & iNode )
 		return 0;
 
 	Node * node = nodes.get( iNode );
-
 	if ( node )
 		return node;
 
-	auto nodeName = nif->itemName(iNode);
-	if ( nif->blockInherits( iNode, "NiNode" ) ) {
-		if ( nodeName == "NiLODNode" )
-			node = new LODNode( this, iNode );
-		else if ( nodeName == "NiBillboardNode" )
-			node = new BillboardNode( this, iNode );
-		else
-			node = new Node( this, iNode );
-	} else if ( nodeName == "NiTriShape" || nodeName == "NiTriStrips" || nif->blockInherits( iNode, "NiTriBasedGeom" ) ) {
-		node = new Mesh( this, iNode );
-		shapes += static_cast<Shape *>(node);
-	} else if ( nif->checkVersion( 0x14050000, 0 ) && nodeName == "NiMesh" ) {
-		node = new Mesh( this, iNode );
-	}
-	//else if ( nif->blockInherits( iNode, "AParticleNode" ) || nif->blockInherits( iNode, "AParticleSystem" ) )
-	else if ( nif->blockInherits( iNode, "NiParticles" ) ) {
-		// ... where did AParticleSystem go?
-		node = new Particles( this, iNode );
-	} else if ( nif->blockInherits( iNode, "BSTriShape" ) ) {
-		node = new BSShape( this, iNode );
-		shapes += static_cast<Shape *>(node);
-	} else if ( nif->blockInherits(iNode, "BSGeometry") ) {
-		node = new BSMesh(this, iNode);
-		shapes += static_cast<Shape*>(node);
-	} else if ( nif->blockInherits( iNode, "NiAVObject" ) ) {
-		if ( nodeName == "BSTreeNode" )
-			node = new Node( this, iNode );
+	auto block = nif->field( iNode );
+	if ( !block ) {
+		// Do nothing
+	
+	} else if ( !block.isBlock() ) {
+		nif->reportError( tr("Scene::getNode: item '%1' is not a block.").arg( block.repr() ) );
+	
+	} else if ( block.inherits("NiNode") ) {
+		if ( block.hasName("NiLODNode") ) {
+			node = new LODNode( this, block );
+		} else if ( block.hasName("NiBillboardNode") ) {
+			node = new BillboardNode( this, block );
+		} else {
+			node = new Node( this, block );
+		}
+	
+	} else if ( block.hasName("NiTriShape", "NiTriStrips") || block.inherits("NiTriBasedGeom") ) {
+		node = new Mesh( this, block );
+	
+	} else if ( nif->checkVersion( 0x14050000, 0 ) && block.hasName("NiMesh") ) {
+		node = new Mesh( this, block );
+
+	// } else if ( block.inherits("AParticleNode", "AParticleSystem") )
+	// ... where did AParticleSystem go?
+	} else if ( block.inherits("NiParticles") ) {
+		node = new Particles( this, block );
+
+	} else if ( block.inherits("BSTriShape") ) {
+		node = new BSShape( this, block );
+
+	} else if ( block.inherits("BSGeometry") ) {
+		node = new BSMesh( this, block );
 	}
 
 	if ( node ) {
 		nodes.add( node );
-		node->update( nif, iNode );
+		node->update();
 	}
 
 	return node;
@@ -413,6 +417,12 @@ void Scene::drawSelection() const
 	for ( Node * node : nodes.list() ) {
 		node->drawSelection();
 	}
+}
+
+int Scene::registerShape( Shape * shape )
+{
+	shapes.append( shape );
+	return shapes.count() - 1;
 }
 
 BoundSphere Scene::bounds() const

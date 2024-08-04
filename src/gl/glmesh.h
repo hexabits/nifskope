@@ -40,7 +40,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 class Mesh : public Shape
 {
 public:
-	Mesh( Scene * s, const QModelIndex & b ) : Shape( s, b ) { }
+	Mesh( Scene * _scene, NifFieldConst _block );
 
 	// Node
 
@@ -54,11 +54,11 @@ public:
 
 protected:
 	void updateImpl( const NifModel * nif, const QModelIndex & index ) override;
-	void updateDataImpl( const NifModel * nif ) override;
+	void updateDataImpl() override;
 
 private:
-	void updateData_NiMesh( const NifModel * nif );
-	void updateData_NiTriShape( const NifModel * nif );
+	void updateData_NiMesh();
+	void updateData_NiTriShape();
 };
 
 #endif

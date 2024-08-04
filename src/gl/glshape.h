@@ -235,7 +235,7 @@ class Shape : public Node
 	friend class BoneSelection;
 
 public:
-	Shape( Scene * s, const QModelIndex & b );
+	Shape( Scene * _scene, NifFieldConst _block );
 	virtual ~Shape();
 
 	// IControllable
@@ -260,8 +260,8 @@ protected:
 
 	void setController( const NifModel * nif, const QModelIndex & controller ) override;
 	void updateImpl( const NifModel * nif, const QModelIndex & index ) override;
-	void updateData( const NifModel* nif );
-	virtual void updateDataImpl( const NifModel* nif ) = 0;
+	void updateData();
+	virtual void updateDataImpl() = 0;
 
 	void reportCountMismatch( NifFieldConst rootEntry1, int entryCount1, NifFieldConst rootEntry2, int entryCount2, NifFieldConst reportEntry ) const;
 	void reportCountMismatch( NifFieldConst rootEntry1, NifFieldConst rootEntry2, NifFieldConst reportEntry ) const;
@@ -394,7 +394,7 @@ protected:
 
 	bool isLOD = false;
 	QVector<TriangleRange *> lodLevels;
-	void initLodData( NifFieldConst block );
+	void initLodData();
 	
 
 	// drawSelection helpers

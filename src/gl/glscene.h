@@ -188,6 +188,7 @@ public:
 	QPersistentModelIndex currentIndex;
 
 	QVector<Shape *> shapes;
+	int registerShape( Shape * shape );
 
 	BoundSphere bounds() const;
 

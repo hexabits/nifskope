@@ -42,8 +42,12 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *  IControllable
  */
 
-IControllable::IControllable( Scene * s, const QModelIndex & iBlock) : scene( s ), iBlock( iBlock )
+IControllable::IControllable( Scene * _scene, NifFieldConst _block )
+	: scene( _scene ), block( _block ), iBlock( _block.toIndex() ), model( _block.model() )
 {
+	Q_ASSERT( scene != nullptr );
+	Q_ASSERT( block.isBlock() );
+	Q_ASSERT( model != nullptr );
 }
 
 IControllable::~IControllable()
@@ -51,14 +55,8 @@ IControllable::~IControllable()
 	qDeleteAll( controllers );
 }
 
-QString IControllable::getName() const
+void IControllable::setController( [[maybe_unused]] const NifModel * nif,  [[maybe_unused]] const QModelIndex & iController )
 {
-	return name;
-}
-
-void IControllable::setController( const NifModel * nif, const QModelIndex & iController )
-{
-	Q_UNUSED( nif ); Q_UNUSED( iController );
 }
 
 void IControllable::clear()
@@ -69,9 +67,8 @@ void IControllable::clear()
 	controllers.clear();
 }
 
-Controller * IControllable::findController( const QString & ctrltype, const QString & var1, const QString & var2 )
+Controller * IControllable::findController( const QString & ctrltype, [[maybe_unused]] const QString & var1, [[maybe_unused]] const QString & var2 )
 {
-	Q_UNUSED( var2 ); Q_UNUSED( var1 );
 	Controller * ctrl = nullptr;
 
 	for ( Controller * c : controllers ) {
@@ -201,9 +198,8 @@ QString Controller::typeId() const
 	return QString();
 }
 
-void Controller::setSequence( const QString & seqname )
+void Controller::setSequence( [[maybe_unused]] const QString & seqname )
 {
-	Q_UNUSED( seqname );
 }
 
 void Controller::setInterpolator( const QModelIndex & index )

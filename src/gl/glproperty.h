@@ -60,7 +60,7 @@ class Property : public IControllable
 
 protected:
 	//! Protected constructor; see IControllable()
-	Property( Scene * scene, NifFieldConst block ) : IControllable( scene, block.toIndex() ), block( block ) {}
+	Property( Scene * _scene, NifFieldConst _block ) : IControllable( _scene, _block ) {}
 
 	int ref = 0;
 
@@ -89,9 +89,6 @@ public:
 
 		return nullptr;
 	}
-
-protected:
-	NifFieldConst block; // TODO: Get rid of it when/if IControllable is switched from QModelIndex to NifFieldConst
 };
 
 //! Associate a Property subclass with a Property::Type
@@ -544,7 +541,7 @@ protected:
 	void setMaterial( Material * newMaterial );
 
 	void updateImpl( const NifModel * nif, const QModelIndex & index ) override;
-	virtual void resetParams();
+	virtual void resetData();
 };
 
 REGISTER_PROPERTY( BSShaderProperty, ShaderLighting )
@@ -560,7 +557,7 @@ public:
 
 protected:
 	void updateImpl( const NifModel * nif, const QModelIndex & index ) override;
-	void updateParams( const NifModel * nif );
+	void updateData();
 };
 
 REGISTER_PROPERTY( BSShaderLightingProperty, ShaderLighting )
@@ -620,8 +617,8 @@ public:
 protected:
 	void setController( const NifModel * nif, const QModelIndex & controller ) override final;
 	void updateImpl( const NifModel * nif, const QModelIndex & index ) override;
-	void resetParams() override;
-	void updateParams( const NifModel * nif );
+	void resetData() override;
+	void updateData();
 };
 
 REGISTER_PROPERTY( BSLightingShaderProperty, ShaderLighting )
@@ -673,8 +670,8 @@ public:
 protected:
 	void setController( const NifModel * nif, const QModelIndex & controller ) override final;
 	void updateImpl( const NifModel * nif, const QModelIndex & index ) override;
-	void resetParams() override;
-	void updateParams( const NifModel * nif );
+	void resetData() override;
+	void updateData();
 };
 
 REGISTER_PROPERTY( BSEffectShaderProperty, ShaderLighting )

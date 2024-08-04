@@ -39,9 +39,8 @@ public:
 
 class BSMesh : public Shape
 {
-
 public:
-	BSMesh(Scene* s, const QModelIndex& iBlock);
+	BSMesh( Scene * _scene, NifFieldConst _block );
 
 	// Node
 
@@ -72,7 +71,7 @@ public:
 
 protected:
 	void updateImpl(const NifModel* nif, const QModelIndex& index) override;
-	void updateDataImpl(const NifModel* nif) override;
+	void updateDataImpl() override;
 
 	QModelIndex iMeshes;
 

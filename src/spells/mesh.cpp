@@ -786,7 +786,7 @@ QModelIndex spUpdateTrianglesFromSkin::cast( NifModel * nif, const QModelIndex &
 					if ( tv < nMappedVertices ) {
 						tv = vertexMap[tv];
 					} else {
-						triEntry.reportError( tr("Invalid vertex index %1").arg(tv) );
+						triEntry.reportError( tr("Invalid vertex index %1.").arg(tv) );
 						success = false;
 					}
 				}

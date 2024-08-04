@@ -1,13 +1,16 @@
 #include "bsshape.h"
 #include "gl/glscene.h"
 
-void BSShape::updateDataImpl( const NifModel * nif )
+BSShape::BSShape( Scene * _scene, NifFieldConst _block )
+	: Shape( _scene, _block )
 {
-	NifFieldConst block = nif->block(iBlock);
+}
 
+void BSShape::updateDataImpl()
+{
 	isSkinned = block.child("Vertex Desc").value<BSVertexDesc>().HasFlag(VertexAttribute::VA_SKINNING);
 	isDynamic = block.inherits("BSDynamicTriShape");
-	sRGB      = ( nif->getBSVersion() >= 151 );
+	sRGB      = ( modelBSVersion() >= 151 );
 
 	dataBound = BoundSphere(block);
 
@@ -15,7 +18,7 @@ void BSShape::updateDataImpl( const NifModel * nif )
 	NifFieldConst skinBlock, skinDataBlock, skinPartBlock;
 	if ( isSkinned ) {
 		QString skinInstName, skinDataName;
-		if ( nif->getBSVersion() >= 130 ) {
+		if ( modelBSVersion() >= 130 ) {
 			skinInstName = "BSSkin::Instance";
 			skinDataName = "BSSkin::BoneData";
 		} else {
@@ -28,7 +31,7 @@ void BSShape::updateDataImpl( const NifModel * nif )
 			iSkin = skinBlock.toIndex(); // ???
 			skinDataBlock = skinBlock.child("Data").linkBlock(skinDataName);
 			iSkinData = skinDataBlock.toIndex(); // ???
-			if ( nif->getBSVersion() == 100 ) {
+			if ( modelBSVersion() == 100 ) {
 				skinPartBlock = skinBlock.child("Skin Partition").linkBlock("NiSkinPartition");
 				iSkinPart = skinPartBlock.toIndex(); // ???
 			}
@@ -149,7 +152,7 @@ void BSShape::updateDataImpl( const NifModel * nif )
 		// skeletonRoot = skinBlock.child("Skeleton Root").link(); 
 		skeletonRoot = 0; // Always 0
 
-		if ( nif->getBSVersion() < 130 )
+		if ( modelBSVersion() < 130 )
 			skeletonTrans = Transform( skinDataBlock );
 
 		initSkinBones( skinBlock.child("Bones"), skinDataBlock.child("Bone List"), block );
@@ -176,7 +179,7 @@ void BSShape::updateDataImpl( const NifModel * nif )
 							continue;
 						int bind = vbones[wind].value<int>();
 						if ( bind >= nBones || bind < 0 ) {
-							vbones[wind].reportError( tr("Invalid bone index %1").arg(bind) );
+							vbones[wind].reportError( tr("Invalid bone index %1.").arg(bind) );
 							continue;
 						}
 						bones[bind].vertexWeights << VertexWeight( vind, w );
@@ -187,8 +190,8 @@ void BSShape::updateDataImpl( const NifModel * nif )
 	}
 
 	// LODs
-	if ( block.isBlockType( "BSMeshLODTriShape" ) ) {
-		initLodData( block );
+	if ( block.hasName("BSMeshLODTriShape") ) {
+		initLodData();
 	}
 
 	// Bounding sphere
@@ -218,9 +221,9 @@ void BSShape::updateDataImpl( const NifModel * nif )
 	}
 
 	// BSPackedCombined... blocks
-	for ( auto extraLink : block.child("Extra Data List").linkArray() ) {
-		auto extraBlock = nif->block( extraLink );
-		if ( extraBlock.hasName( "BSPackedCombinedGeomDataExtra", "BSPackedCombinedSharedGeomDataExtra" ) ) {
+	for ( auto extraEntry : block.child("Extra Data List").iter() ) {
+		auto extraBlock = extraEntry.linkBlock();
+		if ( extraBlock.hasName("BSPackedCombinedGeomDataExtra", "BSPackedCombinedSharedGeomDataExtra") ) {
 			for ( auto dataEntry : extraBlock.child("Object Data").iter() ) {
 				for ( auto combinedEntry : dataEntry.child("Combined").iter() ) {
 					auto pSphere = addBoundSphereSelection( combinedEntry.child("Bounding Sphere") );

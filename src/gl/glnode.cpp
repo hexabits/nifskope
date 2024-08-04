@@ -168,7 +168,8 @@ void NodeList::alphaSort()
  *	Node
  */
 
-Node::Node( Scene * s, const QModelIndex & iBlock) : IControllable( s, iBlock ), parent( 0 ), ref( 0 )
+Node::Node( Scene * _scene, NifFieldConst _block )
+	: IControllable( _scene, _block ), parent( 0 ), ref( 0 )
 {
 	nodeId = 0;
 	flags.bits = 0;
@@ -1866,8 +1867,8 @@ BoundSphere Node::bounds() const
 }
 
 
-LODNode::LODNode( Scene * scene, const QModelIndex & iBlock )
-	: Node( scene, iBlock )
+LODNode::LODNode( Scene * _scene, NifFieldConst _block )
+	: Node( _scene, _block )
 {
 }
 
@@ -1933,8 +1934,8 @@ void LODNode::transform()
 }
 
 
-BillboardNode::BillboardNode( Scene * scene, const QModelIndex & iBlock )
-	: Node( scene, iBlock )
+BillboardNode::BillboardNode( Scene * _scene, NifFieldConst _block )
+	: Node( _scene, _block )
 {
 }
 
