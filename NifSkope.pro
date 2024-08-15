@@ -2,8 +2,24 @@
 ## BUILD OPTIONS
 ###############################
 
-TEMPLATE = vcapp
+!macx: {
+    TEMPLATE = vcapp
+}
+macx: {
+    TEMPLATE = app
+}
+
 TARGET   = NifSkope
+
+macx: {
+    QMAKE_CC = /usr/local/opt/llvm/bin/clang
+    QMAKE_CXX = /usr/local/opt/llvm/bin/clang++
+    INCLUDEPATH += /usr/local/opt/llvm/include
+}
+
+macx: {
+    ICON = nifskope.icns
+}
 
 QT += xml opengl network widgets
 
@@ -14,7 +30,12 @@ contains(QT_VERSION, ^5\\.[0-6]\\..*) {
 }
 
 # C++ Standard Support
-CONFIG += c++20
+!macx: {
+    CONFIG += c++20
+}
+macx: {
+    CONFIG += c++2a
+}
 
 # Dependencies
 CONFIG += nvtristrip qhull zlib lz4 fsengine gli
@@ -30,6 +51,11 @@ CONFIG(debug, debug|release) {
 	CONFIG -= console
 	DEFINES += QT_NO_DEBUG_OUTPUT
 }
+
+macx: {
+    QMAKE_CFLAGS = -fno-define-target-os-macros
+}
+
 # TODO: Get rid of this define
 #	uncomment this if you want the text stats gl option
 #	DEFINES += USE_GL_QPAINTER
@@ -74,6 +100,8 @@ VISUALSTUDIO = false
 	#	They are never used but get auto-generated because of CONFIG += debug_and_release
 	$$VISUALSTUDIO:OUT_PWD = $${_PRO_FILE_PWD_}/bin
 }
+
+
 
 ###############################
 ## FUNCTIONS
