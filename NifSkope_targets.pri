@@ -119,7 +119,7 @@ exists($$qhgen):GENERATE_QHP = YES
 
 HAVE_DOT = NO
 DOT_PATH = " " # Using space because sed on Windows errors on s%@DOT_PATH@%%g for some reason
-f(!isEmpty(dot)) {
+if(!isEmpty(dot)) {
     exists($$dot) {
 	HAVE_DOT = YES
 	DOT_PATH = $$re_escape($${dot})
