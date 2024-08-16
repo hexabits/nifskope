@@ -33,7 +33,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef GLPROPERTY_H
 #define GLPROPERTY_H
 
-#include "icontrollable.h" // Inherited
+#include "glcontrollable.h" // Inherited
 #include "data/niftypes.h"
 #include "model/nifmodel.h"
 
@@ -171,7 +171,7 @@ public:
 	friend void glProperty( AlphaProperty * );
 
 protected:
-	void setController( const NifModel * nif, const QModelIndex & controller ) override final;
+	Controller * createController( NifFieldConst controllerBlock ) override final;
 	void updateImpl( const NifModel * nif, const QModelIndex & index ) override final;
 
 	bool alphaBlend = false, alphaTest = false, alphaSort = false;
@@ -207,13 +207,13 @@ REGISTER_PROPERTY( ZBufferProperty, ZBuffer )
 //! A Property that specifies (multi-)texturing
 class TexturingProperty final : public Property
 {
-	friend class TexFlipController;
-	friend class TexTransController;
+	friend class TextureFlipInterpolator_Texturing;
+	friend class TextureTransformInterpolator;
 
 	//! The properties of each texture slot
 	struct TexDesc
 	{
-		QPersistentModelIndex iSource;
+		NifFieldConst sourceBlock;
 		GLenum filter = 0;
 		GLint wrapS = 0, wrapT = 0;
 		int coordset = 0;
@@ -251,7 +251,7 @@ public:
 protected:
 	TexDesc textures[NUM_TEXTURES];
 
-	void setController( const NifModel * nif, const QModelIndex & controller ) override final;
+	Controller * createController( NifFieldConst controllerBlock ) override final;
 	void updateImpl( const NifModel * nif, const QModelIndex & index ) override final;
 };
 
@@ -260,7 +260,7 @@ REGISTER_PROPERTY( TexturingProperty, Texturing )
 //! A Property that specifies a texture
 class TextureProperty final : public Property
 {
-	friend class TexFlipController;
+	friend class TextureFlipInterpolator_Texture;
 
 public:
 	TextureProperty( Scene * scene, NifFieldConst block ) : Property( scene, block ) {}
@@ -278,7 +278,7 @@ public:
 protected:
 	NifFieldConst imageBlock;
 
-	void setController( const NifModel * nif, const QModelIndex & controller ) override final;
+	Controller * createController( NifFieldConst controllerBlock ) override final;
 	void updateImpl( const NifModel * nif, const QModelIndex & index ) override final;
 };
 
@@ -287,8 +287,8 @@ REGISTER_PROPERTY( TextureProperty, Texture )
 //! A Property that specifies a material
 class MaterialProperty final : public Property
 {
-	friend class AlphaController;
-	friend class MaterialColorController;
+	friend class AlphaInterpolator_Material;
+	friend class MaterialColorInterpolator;
 
 public:
 	MaterialProperty( Scene * scene, NifFieldConst block ) : Property( scene, block ) {}
@@ -304,7 +304,7 @@ protected:
 	Color4 ambient, diffuse, specular, emissive;
 	GLfloat shininess = 0, alpha = 0;
 
-	void setController( const NifModel * nif, const QModelIndex & controller ) override final;
+	Controller * createController( NifFieldConst controllerBlock ) override final;
 	void updateImpl( const NifModel * nif, const QModelIndex & index ) override final;
 };
 
@@ -615,7 +615,7 @@ public:
 	float backlightPower = 0.0;
 
 protected:
-	void setController( const NifModel * nif, const QModelIndex & controller ) override final;
+	Controller * createController( NifFieldConst controllerBlock ) override final;
 	void updateImpl( const NifModel * nif, const QModelIndex & index ) override;
 	void resetData() override;
 	void updateData();
@@ -668,7 +668,7 @@ public:
 	float environmentReflection = 0.0;
 
 protected:
-	void setController( const NifModel * nif, const QModelIndex & controller ) override final;
+	Controller * createController( NifFieldConst controllerBlock ) override final;
 	void updateImpl( const NifModel * nif, const QModelIndex & index ) override;
 	void resetData() override;
 	void updateData();

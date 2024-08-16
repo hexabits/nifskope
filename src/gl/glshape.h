@@ -224,8 +224,9 @@ protected:
 // Base class for shape nodes
 class Shape : public Node
 {
+	friend class MorphInterpolator;
 	friend class MorphController;
-	friend class UVController;
+	friend class UVInterpolator;
 	friend class Renderer;
 	friend class ShapeSelectionBase;
 	friend class VertexSelection;
@@ -258,13 +259,10 @@ public:
 protected:
 	int shapeNumber;
 
-	void setController( const NifModel * nif, const QModelIndex & controller ) override;
+	Controller * createController( NifFieldConst controllerBlock ) override;
 	void updateImpl( const NifModel * nif, const QModelIndex & index ) override;
 	void updateData();
 	virtual void updateDataImpl() = 0;
-
-	void reportCountMismatch( NifFieldConst rootEntry1, int entryCount1, NifFieldConst rootEntry2, int entryCount2, NifFieldConst reportEntry ) const;
-	void reportCountMismatch( NifFieldConst rootEntry1, NifFieldConst rootEntry2, NifFieldConst reportEntry ) const;
 
 	//! Shape data
 	QPersistentModelIndex iData;
@@ -445,11 +443,6 @@ inline Transform SkinBone::localTransform( const Transform & parentTransform, in
 	if ( node )
 		return parentTransform * node->localTrans( skeletonRoot );
 	return parentTransform;
-}
-
-inline void Shape::reportCountMismatch( NifFieldConst rootEntry1, NifFieldConst rootEntry2, NifFieldConst reportEntry ) const
-{
-	reportCountMismatch( rootEntry1, rootEntry1.childCount(), rootEntry2, rootEntry2.childCount(), reportEntry );
 }
 
 inline void Shape::drawSelection_end() const

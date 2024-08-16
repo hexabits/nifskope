@@ -35,150 +35,267 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "model/nifmodel.h"
 
-#include <QObject> // Inherited
 #include <QPersistentModelIndex>
-#include <QString>
+#include <QPointer>
 
 
-//! @file glcontroller.h Controller, Interpolator, TransformInterpolator, BSplineTransformInterpolator
+class IControllable;
 
-class Transform;
-
-//! Something which can be attached to anything Controllable
+//! A block which can be attached to anything Controllable
 class Controller
 {
-	friend class Interpolator;
-
 public:
-	Controller( const QModelIndex & index );
-	virtual ~Controller() {}
+	const NifFieldConst block;
 
 	float start = 0;
 	float stop = 0;
 	float phase = 0;
 	float frequency = 0;
 
-	//! Extrapolation type
-	enum Extrapolation
+	enum class ExtrapolationType
 	{
-		Cyclic = 0, Reverse = 1, Constant = 2
-	} extrapolation = Cyclic;
+		Cyclic = 0,
+		Reverse = 1,
+		Constant = 2
+	};
+	ExtrapolationType extrapolation = ExtrapolationType::Cyclic;
 
 	bool active = false;
 
-	//! Find the model index of the controller
-	QModelIndex index() const { return iBlock; }
+protected:
+	QPersistentModelIndex iBlock;
 
-	//! Set the interpolator
-	virtual void setInterpolator( const QModelIndex & iInterpolator );
+public:
+	Controller( NifFieldConst ctrlBlock );
+	virtual ~Controller() {}
 
-	//! Set sequence name for animation groups
-	virtual void setSequence( const QString & seqname );
+	// Get the block type of the controller
+	const QString & typeId() const { return block.name(); }
 
-	//! Find the type of the controller
-	virtual QString typeId() const;
+	// Get the model index of the controller
+	QModelIndex index() const { return iBlock; } // TODO: Get rid of it
 
-	//! Update for model and index
-	virtual bool update( const NifModel * nif, const QModelIndex & index );
+	bool isValid() const { return iBlock.isValid(); }
+
+	// Set the interpolator from its block
+	virtual void setInterpolator( NifFieldConst newInterpolatorBlock );
+
+	// Set sequence name for animation groups
+	virtual void setSequence( const QString & seqName );
+
+	// Update for model and index
+	void update( NifFieldConst changedBlock );
+	void update() { update( block ); }
 
 	//! Update for specified time
 	virtual void updateTime( float time ) = 0;
 
-	//! Determine the controller time based on the specified time
+protected:
+	virtual void updateImpl( NifFieldConst changedBlock );
+
+	// Determine the controller time based on the specified time
 	float ctrlTime( float time ) const;
 
-	/*! Interpolate given the index of an array
-	 *
-	 * @param[out] value		The value being interpolated
-	 * @param[in]  array		The array index
-	 * @param[in]  time			The scene time
-	 * @param[out] lastIndex	The last index
-	 */
-	template <typename T> static bool interpolate( T & value, const QModelIndex & array, float time, int & lastIndex );
-
-	/*! Interpolate given an index and the array name
-	 *
-	 * @param[out] value		The value being interpolated
-	 * @param[in]  data			The index which houses the array
-	 * @param[in]  arrayid		The name of the array
-	 * @param[in]  time			The scene time
-	 * @param[out] lastIndex	The last index
-	 */
-	template <typename T> static bool interpolate( T & value, const QModelIndex & data, const QString & arrayid, float time, int & lastindex );
-	
-	/*! Returns the fraction of the way between two keyframes based on the scene time
-	 *
-	 * @param[in]  inTime		The scene time
-	 * @param[in]  nif			The NIF
-	 * @param[in]  keysArray	The Keys array in the interpolator
-	 * @param[out] prevFrame	The previous row in the Keys array
-	 * @param[out] nextFrame	The next row in the Keys array
-	 * @param[out] fraction		The current distance between the prev and next frame, as a fraction
-	 */
-	static bool timeIndex( float inTime, const NifModel * nif, const QModelIndex & keysArray, int & prevFrame, int & nextFrame, float & fraction );
-
-protected:
-
-	QPersistentModelIndex iBlock;
-	QPersistentModelIndex iInterpolator;
-	QPersistentModelIndex iData;
+	static NifFieldConst getInterpolatorBlock( NifFieldConst controllerBlock );
 };
 
-template <typename T> bool Controller::interpolate( T & value, const QModelIndex & data, const QString & arrayid, float time, int & lastindex )
+
+// Value interpolator template
+template <typename T>
+class ValueInterpolator final
 {
-	auto nif = NifModel::fromValidIndex(data);
-	if ( nif ) {
-		QModelIndex array = nif->getIndex( data, arrayid );
-		return interpolate( value, array, time, lastindex );
+	enum class InterpolationMode
+	{
+		Unknown = -1,
+		Linear = 1,
+		Quadratic = 2,
+		TBC = 3, // Tension Bias Continuity
+		XyzRotation = 4,
+		Const = 5,
+	};
+	InterpolationMode interpolationMode = InterpolationMode::Unknown;
+
+	struct Key
+	{
+		float time;
+		T value;
+		T backward;
+		T forward;
+
+		Key( NifFieldConst keyRoot, int iTimeField, int iValueField, int iBackwardField, int iForwardField );
+	};
+	using ConstKeyPtr = const Key *;
+
+	QVector<Key> keys;
+	int keyIndexCache = 0;
+
+public:
+	void clear();
+
+	void updateData( NifFieldConst keyGroup );
+	bool interpolate( T & value, float time );
+
+private:
+	bool getFrame( float inTime, ConstKeyPtr & prevKey, ConstKeyPtr & nextKey, float & fraction );
+};
+
+using ValueInterpolatorBool    = ValueInterpolator<bool>;
+using ValueInterpolatorFloat   = ValueInterpolator<float>;
+using ValueInterpolatorVector3 = ValueInterpolator<Vector3>;
+using ValueInterpolatorColor3  = ValueInterpolator<Color3>;
+using ValueInterpolatorColor4  = ValueInterpolator<Color4>;
+
+
+// Matrix value interpolator
+class ValueInterpolatorMatrix final
+{
+	static constexpr int EULER_COUNT = 3;
+
+	QVector<ValueInterpolatorFloat> eulers;
+	ValueInterpolator<Quat> quat;
+
+public:
+	void clear();
+
+	void updateData( NifFieldConst keyGroup );
+	bool interpolate( Matrix & value, float time );
+};
+
+
+// Base interface for controller interpolators
+class IControllerInterpolator
+{
+public:
+	const NifFieldConst interpolatorBlock;
+	Controller * const controller;
+
+protected:
+	QPointer<IControllable> targetControllable;
+
+private:
+	bool needDataUpdate = true;
+	QVector<NifFieldConst> updateBlocks; // (Extra) blocks that trigger updateDataImpl()
+
+public:
+	IControllerInterpolator( NifFieldConst _interpolatorBlock, IControllable * _targetControllable, Controller * _parentController );
+	IControllerInterpolator() = delete;
+	IControllerInterpolator( const IControllerInterpolator & ) = delete;
+
+	bool hasTarget() const { return !targetControllable.isNull(); }
+
+	NifFieldConst controllerBlock() const { return controller ? controller->block : NifFieldConst(); }
+
+	NifFieldConst getDataBlock() const { return interpolatorBlock.child("Data").linkBlock(); }
+
+	void registerUpdateBlock( NifFieldConst updateBlock )
+	{
+		if ( updateBlock )
+			updateBlocks.append( updateBlock );
 	}
 
-	return false;
-}
+	void updateData( NifFieldConst changedBlock );
 
-class Interpolator : public QObject
-{
-public:
-	Interpolator( Controller * owner );
-
-	virtual bool update( const NifModel * nif, const QModelIndex & index );
+	void applyTransform( float time )
+	{
+		if ( hasTarget() )
+			applyTransformImpl( time );
+	}
 
 protected:
-	QPersistentModelIndex GetControllerData();
-	Controller * parent;
+	virtual void updateDataImpl() = 0;
+	virtual void applyTransformImpl( float time ) = 0;
 };
 
-class TransformInterpolator : public Interpolator
+
+// Template for a controller interpolator targetting IControllables of certain type
+template<typename ControllableType>
+class IControllerInterpolatorTyped : public IControllerInterpolator
 {
 public:
-	TransformInterpolator( Controller * owner );
+	IControllerInterpolatorTyped( NifFieldConst _interpolatorBlock, ControllableType * _targetControllable, Controller * _parentController )
+		: IControllerInterpolator( _interpolatorBlock, _targetControllable, _parentController ) {}
 
-	bool update( const NifModel * nif, const QModelIndex & index ) override;
-	virtual bool updateTransform( Transform & tm, float time );
-
-protected:
-	QPersistentModelIndex iTranslations, iRotations, iScales;
-	int lTrans, lRotate, lScale;
+	ControllableType * target() const { return static_cast<ControllableType *>( targetControllable.data() ); }
 };
 
-class BSplineTransformInterpolator : public TransformInterpolator
+
+// Template for a simple Controller with a target IControllable and a controller interpolator
+template<typename ControllableType, typename InterpolatorType>
+class InterpolatedController : public Controller
 {
-public:
-	BSplineTransformInterpolator( Controller * owner );
+protected:
+	InterpolatorType * interpolator = nullptr;
+	QPointer<ControllableType> target;
 
-	bool update( const NifModel * nif, const QModelIndex & index ) override;
-	bool updateTransform( Transform & tm, float time ) override;
+public:
+	InterpolatedController( ControllableType * _targetControllable, NifFieldConst ctrlBlock )
+		: Controller( ctrlBlock ), target( _targetControllable )
+	{
+		Q_ASSERT( hasTarget() ); 
+	}
+	virtual ~InterpolatedController() { clearInterpolator(); }
+
+	bool hasValidInterpolator() const { return interpolator && interpolator->hasTarget(); }
+
+	bool hasTarget() const { return !target.isNull(); }
+
+	void setInterpolator( NifFieldConst newInterpolatorBlock ) override final
+	{
+		setInterpolatorImpl( newInterpolatorBlock, true );
+	}
+
+	void updateTime( float time ) override final
+	{
+		if ( active && hasValidInterpolator() )
+			interpolator->applyTransform( ctrlTime( time ) );
+	}
 
 protected:
-	float start = 0, stop = 0;
-	QPersistentModelIndex iControl, iSpline, iBasis;
-	QPersistentModelIndex lTrans, lRotate, lScale;
-	uint lTransOff = USHRT_MAX, lRotateOff = USHRT_MAX, lScaleOff = USHRT_MAX;
-	float lTransMult = 0, lRotateMult = 0, lScaleMult = 0;
-	float lTransBias = 0, lRotateBias = 0, lScaleBias = 0;
-	uint nCtrl = 0;
-	int degree = 3;
+	void updateImpl( NifFieldConst changedBlock ) override final
+	{
+		Controller::updateImpl( changedBlock );
+
+		if ( changedBlock == block && hasTarget() )
+			setInterpolatorImpl( getInterpolatorBlock( block ), false );
+
+		if ( hasValidInterpolator() )
+			interpolator->updateData( changedBlock );
+	}
+
+	void clearInterpolator()
+	{
+		if ( interpolator ) {
+			delete interpolator;
+			interpolator = nullptr;
+		}
+	}
+
+	void setInterpolatorImpl( NifFieldConst newInterpolatorBlock, bool instantDataUpdate )
+	{
+		if ( !hasTarget() || !newInterpolatorBlock ) {
+			clearInterpolator();
+		} else if ( interpolator && interpolator->interpolatorBlock == newInterpolatorBlock ) {
+			// No change, do nothing
+		} else {
+			clearInterpolator();
+			interpolator = createInterpolator( newInterpolatorBlock );
+			if ( interpolator && instantDataUpdate )
+				interpolator->updateData( newInterpolatorBlock );
+		}
+	}
+
+	virtual InterpolatorType * createInterpolator( NifFieldConst interpolatorBlock ) = 0;
 };
 
+#define DECLARE_INTERPOLATED_CONTROLLER( ControllerType, ControllableType, InterpolatorType ) \
+	class ControllerType final : public InterpolatedController<ControllableType, InterpolatorType> \
+	{ \
+	public: \
+		ControllerType( ControllableType * _targetControllable, NifFieldConst ctrlBlock ) \
+			: InterpolatedController( _targetControllable, ctrlBlock ) {} \
+	protected: \
+		InterpolatorType * createInterpolator( NifFieldConst interpolatorBlock ) override final; \
+	};
 
 #endif
 

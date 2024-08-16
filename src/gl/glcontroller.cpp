@@ -33,230 +33,59 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "glcontroller.h"
 
 #include "gl/glscene.h"
-#include "model/nifmodel.h"
 
 
 //! @file glcontroller.cpp Controllable management, Interpolation management
 
-/*
- *  IControllable
- */
-
-IControllable::IControllable( Scene * _scene, NifFieldConst _block )
-	: scene( _scene ), block( _block ), iBlock( _block.toIndex() ), model( _block.model() )
+Controller::Controller( NifFieldConst ctrlBlock )
+	: block( ctrlBlock ), iBlock( ctrlBlock.toIndex() )
 {
-	Q_ASSERT( scene != nullptr );
 	Q_ASSERT( block.isBlock() );
-	Q_ASSERT( model != nullptr );
 }
 
-IControllable::~IControllable()
-{
-	qDeleteAll( controllers );
-}
-
-void IControllable::setController( [[maybe_unused]] const NifModel * nif,  [[maybe_unused]] const QModelIndex & iController )
+void Controller::setSequence( [[maybe_unused]] const QString & seqName )
 {
 }
 
-void IControllable::clear()
+void Controller::setInterpolator( [[maybe_unused]] NifFieldConst newInterpolatorBlock )
 {
-	name = QString();
-
-	qDeleteAll( controllers );
-	controllers.clear();
 }
 
-Controller * IControllable::findController( const QString & ctrltype, [[maybe_unused]] const QString & var1, [[maybe_unused]] const QString & var2 )
-{
-	Controller * ctrl = nullptr;
-
-	for ( Controller * c : controllers ) {
-		if ( c->typeId() == ctrltype ) {
-			if ( !ctrl ) {
-				ctrl = c;
-			} else {
-				ctrl = nullptr;
-				// TODO: eval var1 + var2 offset to determine which controller is targeted
-				break;
-			}
-		}
-	}
-
-	return ctrl;
-}
-
-Controller * IControllable::findController( const QModelIndex & index )
-{
-	for ( Controller * c : controllers ) {
-		if ( c->index() == index )
-			return c;
-	}
-
-	return nullptr;
-}
-
-void IControllable::update( const NifModel * nif, const QModelIndex & index )
+void Controller::update( NifFieldConst changedBlock )
 {
 	if ( isValid() ) {
-		updateImpl( nif, index );
-	} else {
-		clear();
+		updateImpl( changedBlock );
 	}
 }
 
-void IControllable::updateImpl(const NifModel * nif, const QModelIndex & index)
+void Controller::updateImpl( NifFieldConst changedBlock )
 {
-	bool doUpdate = ( iBlock == index );
-	for ( Controller * ctrl : controllers ) {
-		ctrl->update( nif, index );
-		if ( !doUpdate && ctrl->index() == index )
-			doUpdate = true;
-	}
+	if ( changedBlock == block ) {
+		start     = block.child("Start Time").value<float>();
+		stop      = block.child("Stop Time").value<float>();
+		phase     = block.child("Phase").value<float>();
+		frequency = block.child("Frequency").value<float>();
 
-	if ( doUpdate ) {
-		name = nif->get<QString>( iBlock, "Name" );
-		// sync the list of attached controllers
-		QList<Controller *> rem( controllers );
-		QModelIndex iCtrl = nif->getBlockIndex( nif->getLink( iBlock, "Controller" ) );
-
-		while ( iCtrl.isValid() && nif->blockInherits( iCtrl, "NiTimeController" ) ) {
-			bool add = true;
-
-			for ( Controller * ctrl : controllers ) {
-				if ( ctrl->index() == iCtrl ) {
-					add = false;
-					rem.removeAll( ctrl );
-				}
-			}
-
-			if ( add )
-				setController( nif, iCtrl );
-
-			iCtrl = nif->getBlockIndex( nif->getLink( iCtrl, "Next Controller" ) );
-		}
-
-		for ( Controller * ctrl : rem ) {
-			controllers.removeAll( ctrl );
-			delete ctrl;
-		}
-	}
-}
-
-void IControllable::transform()
-{
-	if ( scene->animate ) {
-		for ( Controller * controller : controllers ) {
-			controller->updateTime( scene->time );
-		}
-	}
-}
-
-void IControllable::timeBounds( float & tmin, float & tmax )
-{
-	if ( controllers.isEmpty() )
-		return;
-
-	float mn = controllers.first()->start;
-	float mx = controllers.first()->stop;
-
-	for ( Controller * c : controllers ) {
-		mn = qMin( mn, c->start );
-		mx = qMax( mx, c->stop );
-	}
-	tmin = qMin( tmin, mn );
-	tmax = qMax( tmax, mx );
-}
-
-void IControllable::setSequence( const QString & seqname )
-{
-	for ( Controller * ctrl : controllers ) {
-		ctrl->setSequence( seqname );
-	}
-}
-
-void IControllable::registerController( const NifModel* nif, Controller* ctrl )
-{
-	ctrl->update(nif, ctrl->index());
-	controllers.append(ctrl);
-}
-
-
-/*
- *  Controller
- */
-
-Controller::Controller( const QModelIndex & index ) : iBlock( index )
-{
-}
-
-QString Controller::typeId() const
-{
-	if ( iBlock.isValid() )
-		return iBlock.data( NifSkopeDisplayRole ).toString();
-
-	return QString();
-}
-
-void Controller::setSequence( [[maybe_unused]] const QString & seqname )
-{
-}
-
-void Controller::setInterpolator( const QModelIndex & index )
-{
-	iInterpolator = index;
-
-	auto nif = NifModel::fromIndex( index );
-	if ( nif )
-		iData = nif->getBlockIndex( nif->getLink( iInterpolator, "Data" ) );
-}
-
-bool Controller::update( const NifModel * nif, const QModelIndex & index )
-{
-	if ( index == iBlock && iBlock.isValid() ) {
-		start = nif->get<float>( index, "Start Time" );
-		stop  = nif->get<float>( index, "Stop Time" );
-		phase = nif->get<float>( index, "Phase" );
-		frequency = nif->get<float>( index, "Frequency" );
-
-		int flags = nif->get<int>( index, "Flags" );
+		int flags = block.child("Flags").value<int>();
 		active = flags & 0x08;
-		extrapolation = (Extrapolation)( ( flags & 0x06 ) >> 1 );
+		extrapolation = ExtrapolationType( ( flags & 0x06 ) >> 1 );
 
 		// TODO: Bit 4 (16) - Plays entire animation backwards.
 		// TODO: Bit 5 (32) - Generally only set when sequences are present.
 		// TODO: Bit 6 (64) - Always seems to be set on Skyrim NIFs, unknown function.
-
-		QModelIndex idx = nif->getBlockIndex( nif->getLink( iBlock, "Interpolator" ) );
-
-		if ( idx.isValid() ) {
-			setInterpolator( idx );
-		} else {
-			idx = nif->getBlockIndex( nif->getLink( iBlock, "Data" ) );
-
-			if ( idx.isValid() )
-				iData = idx;
-		}
 	}
-
-	if ( index == iInterpolator && iInterpolator.isValid() )
-		iData = nif->getBlockIndex( nif->getLink( iInterpolator, "Data" ) );
-
-	return ( index.isValid() && (index == iBlock || index == iInterpolator || index == iData) );
 }
 
 float Controller::ctrlTime( float time ) const
 {
 	time = frequency * time + phase;
-
 	if ( time >= start && time <= stop )
 		return time;
 
 	switch ( extrapolation ) {
-	case Cyclic:
+	case ExtrapolationType::Cyclic:
 		{
 			float delta = stop - start;
-
 			if ( delta <= 0 )
 				return start;
 
@@ -265,10 +94,10 @@ float Controller::ctrlTime( float time ) const
 
 			return start + y;
 		}
-	case Reverse:
+
+	case ExtrapolationType::Reverse:
 		{
 			float delta = stop - start;
-
 			if ( delta <= 0 )
 				return start;
 
@@ -280,7 +109,8 @@ float Controller::ctrlTime( float time ) const
 
 			return stop - y;
 		}
-	case Constant:
+
+	case ExtrapolationType::Constant:
 	default:
 
 		if ( time < start )
@@ -293,505 +123,279 @@ float Controller::ctrlTime( float time ) const
 	}
 }
 
-bool Controller::timeIndex( float time, const NifModel * nif, const QModelIndex & array, int & i, int & j, float & x )
+NifFieldConst Controller::getInterpolatorBlock( NifFieldConst controllerBlock )
 {
-	int count;
+	auto interpolatorField = controllerBlock.child("Interpolator");
+	if ( interpolatorField )
+		return interpolatorField.linkBlock();
 
-	if ( array.isValid() && ( count = nif->rowCount( array ) ) > 0 ) {
-		if ( time <= nif->get<float>( array.child( 0, 0 ), "Time" ) ) {
-			i = j = 0;
-			x = 0.0;
+	if ( controllerBlock.child("Data") ) // Support for old controllers
+		return controllerBlock; 
 
-			return true;
-		}
-
-		if ( time >= nif->get<float>( array.child( count - 1, 0 ), "Time" ) ) {
-			i = j = count - 1;
-			x = 0.0;
-
-			return true;
-		}
-
-		if ( i < 0 || i >= count )
-			i = 0;
-
-		float tI = nif->get<float>( array.child( i, 0 ), "Time" );
-
-		if ( time > tI ) {
-			j = i + 1;
-			float tJ;
-
-			while ( time >= ( tJ = nif->get<float>( array.child( j, 0 ), "Time" ) ) ) {
-				i  = j++;
-				tI = tJ;
-			}
-
-			x = ( time - tI ) / ( tJ - tI );
-
-			return true;
-		} else if ( time < tI ) {
-			j = i - 1;
-			float tJ;
-
-			while ( time <= ( tJ = nif->get<float>( array.child( j, 0 ), "Time" ) ) ) {
-				i  = j--;
-				tI = tJ;
-			}
-
-			x = ( time - tI ) / ( tJ - tI );
-
-			// Quadratic Bug Fix
-
-			// Invert x
-			//	Previously, this branch was causing x to decrement from 1.0.
-			//	(This works fine for linear interpolation apparently)
-			x = 1.0 - x;
-			
-			// Swap I and J
-			//	With x inverted, we must swap I and J or the animation will reverse.
-			auto tmpI = i;
-			i = j;
-			j = tmpI;
-
-			// End Bug Fix
-
-			return true;
-		}
-
-		j = i;
-		x = 0.0;
-
-		return true;
-	}
-
-	return false;
+	return NifFieldConst();
 }
 
-template <typename T> bool interpolate( T & value, const QModelIndex & array, float time, int & last )
+
+// ValueInterpolator class
+
+template <typename T> 
+ValueInterpolator<T>::Key::Key( NifFieldConst keyRoot, int iTimeField, int iValueField, int iBackwardField, int iForwardField )
+	: time( keyRoot[iTimeField].value<float>() ),
+	value( keyRoot[iValueField].value<T>() ),
+	backward( keyRoot.child(iBackwardField).value<T>() ),
+	forward( keyRoot.child(iForwardField).value<T>() )
 {
-	auto nif = NifModel::fromValidIndex(array);
-	if ( nif ) {
-		QModelIndex frames = nif->getIndex( array, "Keys" );
-		int next;
-		float x;
-
-		if ( Controller::timeIndex( time, nif, frames, last, next, x ) ) {
-			T v1 = nif->get<T>( frames.child( last, 0 ), "Value" );
-			T v2 = nif->get<T>( frames.child( next, 0 ), "Value" );
-
-			switch ( nif->get<int>( array, "Interpolation" ) ) {
-			
-			case 2:
-			{
-				// Quadratic
-				/*
-					In general, for keyframe values v1 = 0, v2 = 1 it appears that
-					setting v1's corresponding "Backward" value to 1 and v2's
-					corresponding "Forward" to 1 results in a linear interpolation.
-				*/
-
-				// Tangent 1
-				T t1 = nif->get<T>( frames.child( last, 0 ), "Backward" );
-				// Tangent 2
-				T t2 = nif->get<T>( frames.child( next, 0 ), "Forward" );
-
-				float x2 = x * x;
-				float x3 = x2 * x;
-
-				// Cubic Hermite spline
-				//	x(t) = (2t^3 - 3t^2 + 1)P1  + (-2t^3 + 3t^2)P2 + (t^3 - 2t^2 + t)T1 + (t^3 - t^2)T2
-
-				value = v1 * (2.0f * x3 - 3.0f * x2 + 1.0f) + v2 * (-2.0f * x3 + 3.0f * x2) + t1 * (x3 - 2.0f * x2 + x) + t2 * (x3 - x2);
-
-			}	return true;
-			
-			case 5:
-				// Constant
-				if ( x < 0.5 )
-					value = v1;
-				else
-					value = v2;
-
-				return true;
-			default:
-				value = v1 + ( v2 - v1 ) * x;
-				return true;
-			}
-		}
-	}
-
-	return false;
 }
 
-template <> bool Controller::interpolate( float & value, const QModelIndex & array, float time, int & last )
+template <typename T> 
+void ValueInterpolator<T>::clear()
 {
-	return ::interpolate( value, array, time, last );
+	keys.clear();
 }
 
-template <> bool Controller::interpolate( Vector3 & value, const QModelIndex & array, float time, int & last )
+template <typename T> 
+void ValueInterpolator<T>::updateData( NifFieldConst keyGroup  )
 {
-	return ::interpolate( value, array, time, last );
-}
+	interpolationMode = InterpolationMode::Unknown;
+	keys.clear();
 
-template <> bool Controller::interpolate( Color4 & value, const QModelIndex & array, float time, int & last )
-{
-	return ::interpolate( value, array, time, last );
-}
+	NifFieldConst keyArrayRoot;
+	if ( keyGroup.hasStrType("KeyGroup", "Morph") ) {
+		keyArrayRoot = keyGroup.child("Keys");
+		auto modeField = keyGroup.child("Interpolation");
+		if ( modeField )
+			interpolationMode = InterpolationMode( modeField.value<int>() );
 
-template <> bool Controller::interpolate( Color3 & value, const QModelIndex & array, float time, int & last )
-{
-	return ::interpolate( value, array, time, last );
-}
+	} else if ( keyGroup.hasStrType("QuatKey") ) {
+		keyArrayRoot = keyGroup;
 
-template <> bool Controller::interpolate( bool & value, const QModelIndex & array, float time, int & last )
-{
-	int next;
-	float x;
-
-	auto nif = NifModel::fromValidIndex(array);
-	if ( nif ) {
-		QModelIndex frames = nif->getIndex( array, "Keys" );
-
-		if ( timeIndex( time, nif, frames, last, next, x ) ) {
-			value = nif->get<int>( frames.child( last, 0 ), "Value" );
-
-			return true;
-		}
-	}
-
-	return false;
-}
-
-template <> bool Controller::interpolate( Matrix & value, const QModelIndex & array, float time, int & last )
-{
-	int next;
-	float x;
-	
-	auto nif = NifModel::fromValidIndex(array);
-	if ( nif ) {
-		switch ( nif->get<int>( array, "Rotation Type" ) ) {
-		case 4:
-			{
-				QModelIndex subkeys = nif->getIndex( array, "XYZ Rotations" );
-
-				if ( subkeys.isValid() ) {
-					float r[3] = {};
-
-					for ( int s = 0; s < 3 && s < nif->rowCount( subkeys ); s++ ) {
-						r[s] = 0;
-						interpolate( r[s], subkeys.child( s, 0 ), time, last );
-					}
-
-					value = Matrix::euler( 0, 0, r[2] ) * Matrix::euler( 0, r[1], 0 ) * Matrix::euler( r[0], 0, 0 );
-
-					return true;
-				}
-			}
-			break;
-		default:
-			{
-				QModelIndex frames = nif->getIndex( array, "Quaternion Keys" );
-
-				if ( timeIndex( time, nif, frames, last, next, x ) ) {
-					Quat v1 = nif->get<Quat>( frames.child( last, 0 ), "Value" );
-					Quat v2 = nif->get<Quat>( frames.child( next, 0 ), "Value" );
-
-					if ( Quat::dotproduct( v1, v2 ) < 0 )
-						v1.negate(); // don't take the long path
-
-					Quat v3 = Quat::slerp( x, v1, v2 );
-					/*
-					Quat v4;
-					float a = acos( Quat::dotproduct( v1, v2 ) );
-					if ( fabs( a ) >= 0.00005 )
-					{
-					    float i = 1.0 / sin( a );
-					    v4 = v1 * sin( ( 1.0 - x ) * a ) * i + v2 * sin( x * a ) * i;
-					}
-					*/
-					value.fromQuat( v3 );
-
-					return true;
-				}
-			}
-			break;
-		}
-	}
-
-	return false;
-}
-
-/*********************************************************************
-Simple b-spline curve algorithm
-
-Copyright 1994 by Keith Vertanen (vertankd@cda.mrs.umn.edu)
-
-Released to the public domain (your mileage may vary)
-
-Found at: Programmers Heaven (www.programmersheaven.com/zone3/cat415/6660.htm)
-Modified by: Theo
-- reformat and convert doubles to floats
-- removed point structure in favor of arbitrary sized float array
-**********************************************************************/
-
-/*! Used to enable static arrays to be members of vectors */
-template <typename T>
-struct qarray
-{
-	qarray( const QModelIndex & array, uint off = 0 )
-		: array_( array ), off_( off )
-	{
-		nif_ = NifModel::fromIndex( array_ );
-	}
-	qarray( const qarray & other, uint off = 0 )
-		: nif_( other.nif_ ), array_( other.array_ ), off_( other.off_ + off )
-	{
-	}
-
-	T operator[]( uint index ) const
-	{
-		return nif_->get<T>( array_.child( index + off_, 0 ) );
-	}
-	const NifModel * nif_;
-	const QModelIndex & array_;
-	uint off_;
-};
-
-template <typename T>
-struct SplineTraits
-{
-	// Zero data
-	static T & Init( T & v )
-	{
-		v = T();
-		return v;
-	}
-
-	// Number of control points used
-	static int CountOf()
-	{
-		return ( sizeof(T) / sizeof(float) );
-	}
-
-	// Compute point from short array and mult/bias
-	static T & Compute( T & v, qarray<short> & c, float mult )
-	{
-		float * vf = (float *)&v; // assume default data is a vector of floats. specialize if necessary.
-
-		for ( int i = 0; i < CountOf(); ++i )
-			vf[i] = vf[i] + ( float(c[i]) / float(SHRT_MAX) ) * mult;
-
-		return v;
-	}
-	static T & Adjust( T & v, float mult, float bias )
-	{
-		float * vf = (float *)&v;  // assume default data is a vector of floats. specialize if necessary.
-
-		for ( int i = 0; i < CountOf(); ++i )
-			vf[i] = vf[i] * mult + bias;
-
-		return v;
-	}
-};
-
-template <> struct SplineTraits<Quat>
-{
-	static Quat & Init( Quat & v )
-	{
-		v = Quat(); v[0] = 0.0f; return v;
-	}
-	static int CountOf() { return 4; }
-	static Quat & Compute( Quat & v, qarray<short> & c, float mult )
-	{
-		for ( int i = 0; i < CountOf(); ++i )
-			v[i] = v[i] + ( float(c[i]) / float(SHRT_MAX) ) * mult;
-
-		return v;
-	}
-	static Quat & Adjust( Quat & v, float mult, float bias )
-	{
-		for ( int i = 0; i < CountOf(); ++i )
-			v[i] = v[i] * mult + bias;
-
-		return v;
-	}
-};
-
-// calculate the blending value
-static float blend( int k, int t, int * u, float v )
-{
-	float value;
-
-	if ( t == 1 ) {
-		// base case for the recursion
-		value = ( ( u[k] <= v ) && ( v < u[k + 1] ) ) ? 1.0f : 0.0f;
 	} else {
-		if ( ( u[k + t - 1] == u[k] ) && ( u[k + t] == u[k + 1] ) ) // check for divide by zero
-			value = 0;
-		else if ( u[k + t - 1] == u[k] )                            // if a term's denominator is zero,use just the other
-			value = ( u[k + t] - v) / ( u[k + t] - u[k + 1] ) * blend( k + 1, t - 1, u, v );
-		else if ( u[k + t] == u[k + 1] )
-			value = (v - u[k]) / (u[k + t - 1] - u[k]) * blend( k, t - 1, u, v );
-		else
-			value = ( v - u[k] ) / ( u[k + t - 1] - u[k] ) * blend( k, t - 1, u, v )
-			        + ( u[k + t] - v ) / ( u[k + t] - u[k + 1] ) * blend( k + 1, t - 1, u, v );
+		if ( keyGroup )
+			keyGroup.reportError( QString("Invalid or unsupported interpolator key group type '%1'.").arg( keyGroup.strType() ) );
 	}
 
-	return value;
-}
+	int nKeys = keyArrayRoot.childCount();
+	if ( nKeys > 0 ) {
+		auto firstKey = keyArrayRoot[0];
 
-// figure out the knots
-static void compute_intervals( int * u, int n, int t )
-{
-	for ( int j = 0; j <= n + t; j++ ) {
-		if ( j < t )
-			u[j] = 0;
-		else if ( ( t <= j ) && ( j <= n ) )
-			u[j] = j - t + 1;
-		else if ( j > n )
-			u[j] = n - t + 2;  // if n-t=-2 then we're screwed, everything goes to 0
+		int iTimeField  = firstKey["Time"].row();
+		int iValueField = firstKey["Value"].row();
+		if ( iTimeField >= 0 && iValueField >= 0 ) {
+			int iBackwardField = firstKey.child("Backward").row();
+			int iForwardField  = firstKey.child("Forward").row();
+
+			keys.reserve( nKeys );
+			for ( auto keyEntry : keyArrayRoot.iter() )
+				keys.append( Key( keyEntry, iTimeField, iValueField, iBackwardField, iForwardField ) );
+		}
 	}
 }
 
-template <typename T>
-static void compute_point( int * u, int n, int t, float v, qarray<short> & control, T & output, float mult, float bias )
+template <typename T> 
+bool ValueInterpolator<T>::getFrame( float inTime, ConstKeyPtr & pKey1, ConstKeyPtr & pKey2, float & fraction )
 {
-	// initialize the variables that will hold our output
-	int l = SplineTraits<T>::CountOf();
-	SplineTraits<T>::Init( output );
-
-	for ( int k = 0; k <= n; k++ ) {
-		qarray<short> qa( control, k * l );
-		SplineTraits<T>::Compute( output, qa, blend( k, t, u, v ) );
-	}
-
-	SplineTraits<T>::Adjust( output, mult, bias );
-}
-
-template <typename T>
-bool bsplineinterpolate( T & value, int degree, float interval, uint nctrl, const QModelIndex & array, uint off, float mult, float bias )
-{
-	if ( off == USHRT_MAX )
+	int lastKey = keys.count() - 1;
+	if ( lastKey < 0 )
 		return false;
 
-	qarray<short> subArray( array, off );
-	int t = degree + 1;
-	int n = nctrl - 1;
-	int l = SplineTraits<T>::CountOf();
+	ConstKeyPtr keyData = keys.constData();
 
-	if ( interval >= float(nctrl - degree) ) {
-		SplineTraits<T>::Init( value );
-		qarray<short> sa( subArray, n * l );
-		SplineTraits<T>::Compute( value, sa, 1.0f );
-		SplineTraits<T>::Adjust( value, mult, bias );
+	if ( inTime <= keyData[0].time ) {
+		pKey1 = pKey2 = keyData;
+	
+	} else if ( inTime >= keyData[lastKey].time ) {
+		pKey1 = pKey2 = keyData + lastKey;
+
 	} else {
-		int * u = new int[ n + t + 1 ];
-		compute_intervals( u, n, t );
-		compute_point( u, n, t, interval, subArray, value, mult, bias );
-		delete [] u;
+		int iKey = ( keyIndexCache >= 0 && keyIndexCache <= lastKey ) ? keyIndexCache : 0;
+		ConstKeyPtr pKey = keyData + iKey;
+		if ( pKey->time < inTime ) {
+			do {
+				pKey++;
+			} while( pKey->time < inTime );
+
+			pKey1 = ( pKey->time == inTime ) ? pKey : ( pKey - 1 );
+			pKey2 = pKey;
+
+		} else if ( pKey->time > inTime ) {
+			do {
+				pKey--;
+			} while( pKey->time > inTime );
+
+			pKey1 = pKey;
+			pKey2 = ( pKey->time == inTime ) ? pKey : ( pKey + 1 );
+
+		} else { // pKey->time == inTime
+			pKey1 = pKey2 = pKey;
+		}
+	}
+
+	if ( pKey1 != pKey2 ) {
+		fraction = ( inTime - pKey1->time ) / ( pKey2->time - pKey1->time );
+	} else {
+		fraction = 0.0;
+	}
+	keyIndexCache = pKey1 - keyData;
+
+	return true;
+}
+
+template <typename T> 
+bool ValueInterpolator<T>::interpolate( T & value, float time )
+{
+	ConstKeyPtr pKey1, pKey2;
+	float x;
+	if ( !getFrame( time, pKey1, pKey2, x ) )
+		return false;
+
+	const T & v1 = pKey1->value;
+	const T & v2 = pKey2->value;
+
+	switch( interpolationMode )
+	{
+	case InterpolationMode::Quadratic:
+	{
+		// Quadratic
+		/*
+		In general, for keyframe values v1 = 0, v2 = 1 it appears that
+		setting v1's corresponding "Backward" value to 1 and v2's
+		corresponding "Forward" to 1 results in a linear interpolation.
+		*/
+
+		// Tangent 1
+		const T & t1 = pKey1->backward;
+		// Tangent 2
+		const T & t2 = pKey2->forward;
+
+		float x2 = x * x;
+		float x3 = x2 * x;
+
+		// Cubic Hermite spline
+		//	x(t) = (2t^3 - 3t^2 + 1)P1  + (-2t^3 + 3t^2)P2 + (t^3 - 2t^2 + t)T1 + (t^3 - t^2)T2
+
+		value = v1 * (2.0f * x3 - 3.0f * x2 + 1.0f) + v2 * (-2.0f * x3 + 3.0f * x2) + t1 * (x3 - 2.0f * x2 + x) + t2 * (x3 - x2);
+
+	} break;
+	
+	case InterpolationMode::Const:
+		// Constant
+		if ( x < 0.5 )
+			value = v1;
+		else
+			value = v2;
+		break;
+
+	default:
+		value = v1 + ( v2 - v1 ) * x;
+		break;
 	}
 
 	return true;
 }
 
-Interpolator::Interpolator( Controller * owner ) : parent( owner )
+template <> 
+bool ValueInterpolator<bool>::interpolate( bool & value, float time )
 {
-}
+	ConstKeyPtr pKey1, pKey2;
+	float x;
+	if ( !getFrame( time, pKey1, pKey2, x ) )
+		return false;
 
-bool Interpolator::update( const NifModel * nif, const QModelIndex & index )
-{
-	Q_UNUSED( nif ); Q_UNUSED( index );
+	value = pKey1->value;
 	return true;
 }
-QPersistentModelIndex Interpolator::GetControllerData()
+
+template <>
+bool ValueInterpolator<Quat>::interpolate( Quat & value, float time )
 {
-	return parent->iData;
+	ConstKeyPtr pKey1, pKey2;
+	float x;
+	if ( !getFrame( time, pKey1, pKey2, x ) )
+		return false;
+
+	Quat v1 = pKey1->value;
+	const Quat & v2 = pKey2->value;
+
+	if ( Quat::dotproduct( v1, v2 ) < 0 )
+		v1.negate(); // don't take the long path
+
+	value = Quat::slerp( x, v1, v2 );
+	return true;
 }
 
-TransformInterpolator::TransformInterpolator( Controller * owner )
-	: Interpolator( owner ), lTrans( 0 ), lRotate( 0 ), lScale( 0 )
+// A hack to avoid "unresolved external symbol" errors for ValueInterpolator members
+// https://stackoverflow.com/questions/495021/why-can-templates-only-be-implemented-in-the-header-file?noredirect=1&lq=1
+template ValueInterpolator<bool>;
+template ValueInterpolator<float>;
+template ValueInterpolator<Vector3>;
+template ValueInterpolator<Color3>;
+template ValueInterpolator<Color4>;
+
+
+// ValueInterpolatorMatrix class
+
+void ValueInterpolatorMatrix::clear()
 {
+	eulers.clear();
+	quat.clear();
 }
 
-bool TransformInterpolator::update( const NifModel * nif, const QModelIndex & index )
+void ValueInterpolatorMatrix::updateData( NifFieldConst keyGroup )
 {
-	if ( Interpolator::update( nif, index ) ) {
-		QModelIndex iData = nif->getBlockIndex( nif->getLink( index, "Data" ), "NiKeyframeData" );
-		iTranslations = nif->getIndex( iData, "Translations" );
-		iRotations = nif->getIndex( iData, "Rotations" );
+	clear();
 
-		if ( !iRotations.isValid() )
-			iRotations = iData;
+	auto eulerRoot = keyGroup.child("XYZ Rotations");
+	if ( eulerRoot ) {
+		eulers.resize( EULER_COUNT );
+		for ( int i = 0; i < EULER_COUNT; i++ )
+			eulers[i].updateData( eulerRoot[i] );
+	} else {
+		quat.updateData( keyGroup["Quaternion Keys"] );
+	}
+}
 
-		iScales = nif->getIndex( iData, "Scales" );
+bool ValueInterpolatorMatrix::interpolate( Matrix & value, float time )
+{
+	if ( eulers.count() > 0 ) {
+		bool success = false;
+		float r[EULER_COUNT];
+		for ( int i = 0; i < EULER_COUNT; i++ ) {
+			r[i] = 0.0f;
+			if ( eulers[i].interpolate( r[i], time ) )
+				success = true;
+		}
 
-		return true;
+		if ( success ) {
+			value = Matrix::euler( 0, 0, r[2] ) * Matrix::euler( 0, r[1], 0 ) * Matrix::euler( r[0], 0, 0 );
+			return true;
+		}
+	} else {
+		Quat outv;
+		if ( quat.interpolate( outv, time ) ) {
+			value.fromQuat( outv );
+			return true;
+		}
 	}
 
 	return false;
 }
 
-bool TransformInterpolator::updateTransform( Transform & tm, float time )
-{
-	Controller::interpolate( tm.rotation, iRotations, time, lRotate );
-	Controller::interpolate( tm.translation, iTranslations, time, lTrans );
-	Controller::interpolate( tm.scale, iScales, time, lScale );
 
-	return true;
+// IControllerInterpolator class
+
+IControllerInterpolator::IControllerInterpolator( NifFieldConst _interpolatorBlock, IControllable * _targetControllable, Controller * _parentController )
+	: interpolatorBlock( _interpolatorBlock ), targetControllable( _targetControllable ), controller( _parentController )
+{
+	Q_ASSERT( interpolatorBlock.isBlock() );
+	Q_ASSERT( hasTarget() );
 }
 
-
-BSplineTransformInterpolator::BSplineTransformInterpolator( Controller * owner ) : TransformInterpolator( owner )
+void IControllerInterpolator::updateData( NifFieldConst changedBlock )
 {
-}
-
-bool BSplineTransformInterpolator::update( const NifModel * nif, const QModelIndex & index )
-{
-	if ( Interpolator::update( nif, index ) ) {
-		start = nif->get<float>( index, "Start Time" );
-		stop  = nif->get<float>( index, "Stop Time" );
-
-		iSpline = nif->getBlockIndex( nif->getLink( index, "Spline Data" ) );
-		iBasis  = nif->getBlockIndex( nif->getLink( index, "Basis Data" ) );
-
-		if ( iSpline.isValid() )
-			iControl = nif->getIndex( iSpline, "Compact Control Points" );
-
-		if ( iBasis.isValid() )
-			nCtrl = nif->get<uint>( iBasis, "Num Control Points" );
-
-		auto trans = nif->getIndex( index, "Transform" );
-
-		lTrans  = nif->getIndex( trans, "Translation" );
-		lRotate = nif->getIndex( trans, "Rotation" );
-		lScale  = nif->getIndex( trans, "Scale" );
-
-		lTransOff   = nif->get<uint>( index, "Translation Handle" );
-		lRotateOff  = nif->get<uint>( index, "Rotation Handle" );
-		lScaleOff   = nif->get<uint>( index, "Scale Handle" );
-		lTransMult  = nif->get<float>( index, "Translation Half Range" );
-		lRotateMult = nif->get<float>( index, "Rotation Half Range" );
-		lScaleMult  = nif->get<float>( index, "Scale Half Range" );
-		lTransBias  = nif->get<float>( index, "Translation Offset" );
-		lRotateBias = nif->get<float>( index, "Rotation Offset" );
-		lScaleBias  = nif->get<float>( index, "Scale Offset" );
-
-		return true;
+	if ( changedBlock == interpolatorBlock || needDataUpdate || updateBlocks.contains( changedBlock ) ) {
+		needDataUpdate = false;
+		updateBlocks.clear();
+		if ( hasTarget() )
+			updateDataImpl();
 	}
-
-	return false;
-}
-
-bool BSplineTransformInterpolator::updateTransform( Transform & transform, float time )
-{
-	float interval = ( ( time - start ) / ( stop - start ) ) * float(nCtrl - degree);
-	Quat q = transform.rotation.toQuat();
-
-	if ( ::bsplineinterpolate<Quat>( q, degree, interval, nCtrl, iControl, lRotateOff, lRotateMult, lRotateBias ) )
-		transform.rotation.fromQuat( q );
-
-	::bsplineinterpolate<Vector3>( transform.translation, degree, interval, nCtrl, iControl, lTransOff, lTransMult, lTransBias );
-	::bsplineinterpolate<float>( transform.scale, degree, interval, nCtrl, iControl, lScaleOff, lScaleMult, lScaleBias );
-
-	return true;
 }

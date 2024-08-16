@@ -89,6 +89,7 @@ public:
 	int bindTexture( const QModelIndex & index );
 
 	Node * getNode( const NifModel * nif, const QModelIndex & iNode );
+	Node * getNode( NifFieldConst nodeBlock );
 	Property * getProperty( const NifModel * nif, const QModelIndex & iProperty );
 	Property * getProperty( const NifModel * nif, const QModelIndex & iParentBlock, const QString & itemName, const QString & mustInherit );
 

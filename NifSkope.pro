@@ -133,6 +133,7 @@ HEADERS += \
 	src/gl/BSMesh.h \
 	src/gl/bsshape.h \
 	src/gl/controllers.h \
+	src/gl/glcontrollable.h \
 	src/gl/glcontroller.h \
 	src/gl/glmarker.h \
 	src/gl/glmesh.h \
@@ -144,7 +145,6 @@ HEADERS += \
 	src/gl/gltex.h \
 	src/gl/gltexloaders.h \
 	src/gl/gltools.h \
-	src/gl/icontrollable.h \
 	src/gl/renderer.h \
 	src/io/material.h \
 	src/io/MeshFile.h \
@@ -210,6 +210,7 @@ SOURCES += \
 	src/gl/BSMesh.cpp \
 	src/gl/bsshape.cpp \
 	src/gl/controllers.cpp \
+	src/gl/glcontrollable.cpp \
 	src/gl/glcontroller.cpp \
 	src/gl/glmarker.cpp \
 	src/gl/glmesh.cpp \

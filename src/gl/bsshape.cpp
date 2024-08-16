@@ -62,7 +62,7 @@ void BSShape::updateDataImpl()
 	if ( isDynamic ) {
 		auto dynVertsRoot = block["Vertices"];
 		addVertexSelection( dynVertsRoot, VertexSelectionType::VERTICES );
-		reportCountMismatch( dynVertsRoot, dynVertsRoot.childCount(), vertexData, numVerts, block );
+		reportFieldCountMismatch( dynVertsRoot, dynVertsRoot.childCount(), vertexData, numVerts, block );
 		dynVerts = dynVertsRoot.array<Vector4>();
 		if ( dynVerts.count() < numVerts )
 			dynVerts.resize( numVerts );

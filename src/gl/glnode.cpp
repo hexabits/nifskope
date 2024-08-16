@@ -110,14 +110,15 @@ void NodeList::validate()
 	}
 }
 
-Node * NodeList::get( const QModelIndex & iNodeBlock ) const
+Node * NodeList::get( NifFieldConst nodeBlock ) const
 {
 	for ( Node * node : nodes ) {
-		if ( node->isValid() && node->index() == iNodeBlock )
+		if ( node->isValid() && node->block == nodeBlock )
 			return node;
 	}
 	return nullptr;
 }
+
 
 bool compareNodes( const Node * node1, const Node * node2 )
 {
@@ -228,26 +229,28 @@ void Node::clear()
 	properties.clear();
 }
 
-Controller * Node::findController( const QString & proptype, const QString & ctrltype, const QString & var1, const QString & var2 )
+Controller * Node::findController( const QString & propType, const QString & ctrlType, const QString & var1, const QString & var2 ) const
 {
-	if ( !proptype.isEmpty() && proptype != QStringLiteral("<empty>") ) {
+	if ( !propType.isEmpty() && propType != QStringLiteral("<empty>") ) {
 		for ( Property * prp : properties.hash() ) {
-			if ( prp->typeId() == proptype )
-				return prp->findController( ctrltype, var1, var2 );
+			if ( prp->typeId() == propType )
+				return prp->findController( ctrlType, var1, var2 );
 		}
 		return nullptr;
 	}
 
-	return IControllable::findController( ctrltype, var1, var2 );
+	return IControllable::findController( ctrlType, var1, var2 );
 }
 
-Controller * Node::findController( const QString & proptype, const QModelIndex & index )
+Controller * Node::findController( const QString & propType, NifFieldConst ctrlBlock ) const
 {
-	for ( Property * prp : properties.hash() ) {
-		if ( prp->typeId() == proptype ) {
-			auto c = prp->findController( index );
-			if ( c )
-				return c;
+	if ( !propType.isEmpty() && ctrlBlock ) {
+		for ( Property * prp : properties.hash() ) {
+			if ( prp->typeId() == propType ) {
+				auto c = prp->findController( ctrlBlock );
+				if ( c )
+					return c;
+			}
 		}
 	}
 
@@ -305,26 +308,21 @@ void Node::makeParent( Node * newParent )
 		parent->children.add( this );
 }
 
-void Node::setController( const NifModel * nif, const QModelIndex & iController )
+Controller * Node::createController( NifFieldConst controllerBlock )
 {
-	QString cname = nif->itemName( iController );
+	if ( controllerBlock.hasName("NiTransformController", "NiKeyframeController") )
+		return new TransformController( this, controllerBlock );
 
-	if ( cname == "NiTransformController" ) {
-		Controller * ctrl = new TransformController( this, iController );
-		registerController(nif, ctrl);
-	} else if ( cname == "NiMultiTargetTransformController" ) {
-		Controller * ctrl = new MultiTargetTransformController( this, iController );
-		registerController(nif, ctrl);
-	} else if ( cname == "NiControllerManager" ) {
-		Controller * ctrl = new ControllerManager( this, iController );
-		registerController(nif, ctrl);
-	} else if ( cname == "NiKeyframeController" ) {
-		Controller * ctrl = new KeyframeController( this, iController );
-		registerController(nif, ctrl);
-	} else if ( cname == "NiVisController" ) {
-		Controller * ctrl = new VisibilityController( this, iController );
-		registerController(nif, ctrl);
-	}
+	if ( controllerBlock.hasName("NiMultiTargetTransformController") )
+		return new MultiTargetTransformController( this, controllerBlock );
+
+	if ( controllerBlock.hasName("NiControllerManager") )
+		return new ControllerManager( this, controllerBlock );
+
+	if ( controllerBlock.hasName("NiVisController") )
+		return new VisibilityController( this, controllerBlock );
+
+	return nullptr;
 }
 
 void Node::activeProperties( PropertyList & list ) const

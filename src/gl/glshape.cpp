@@ -397,18 +397,15 @@ void Shape::updateData()
 		emit model->lodSliderChanged( true );
 }
 
-void Shape::setController( const NifModel * nif, const QModelIndex & iController )
+Controller * Shape::createController( NifFieldConst controllerBlock )
 {
-	QString contrName = nif->itemName(iController);
-	if ( contrName == "NiGeomMorpherController" ) {
-		Controller * ctrl = new MorphController( this, iController );
-		registerController(nif, ctrl);
-	} else if ( contrName == "NiUVController" ) {
-		Controller * ctrl = new UVController( this, iController );
-		registerController(nif, ctrl);
-	} else {
-		Node::setController( nif, iController );
-	}
+	if ( controllerBlock.hasName("NiGeomMorpherController") )
+		return new MorphController( this, controllerBlock );
+
+	if ( controllerBlock.hasName("NiUVController") )
+		return new UVController( this, controllerBlock );
+
+	return Node::createController( controllerBlock );
 }
 
 void Shape::updateImpl( const NifModel * nif, const QModelIndex & index )
@@ -445,19 +442,6 @@ void Shape::updateImpl( const NifModel * nif, const QModelIndex & index )
 	// TODO: trigger update data if any of the shape's bones nodes are updated (or its sceleton root?)
 }
 
-void Shape::reportCountMismatch( NifFieldConst rootEntry1, int entryCount1, NifFieldConst rootEntry2, int entryCount2, NifFieldConst reportEntry ) const
-{
-	if ( rootEntry1 && rootEntry2 && entryCount1 != entryCount2 ) {
-		reportEntry.reportError( 
-			tr("The number of entries in %1 (%2) does not match that in %3 (%4).")
-				.arg( rootEntry1.repr( reportEntry ) )
-				.arg( entryCount1 )
-				.arg( rootEntry2.repr( reportEntry ) )
-				.arg( entryCount2 ) 
-		);
-	}
-}
-
 TriangleRange * Shape::addTriangles( NifFieldConst rangeRoot, const QVector<Triangle> & tris )
 {
 	int iStart = triangles.count();
@@ -486,7 +470,7 @@ StripRange * Shape::addStrips( NifFieldConst stripsRoot, NifSkopeFlagsType range
 
 void Shape::initSkinBones( NifFieldConst nodeMapRoot, NifFieldConst nodeListRoot, NifFieldConst block )
 {
-	reportCountMismatch( nodeMapRoot, nodeListRoot, block );
+	reportFieldCountMismatch( nodeMapRoot, nodeListRoot, block );
 	int nTotalBones = std::max( nodeMapRoot.childCount(), nodeListRoot.childCount() );
 	bones.reserve( nTotalBones );
 	Node * root = findParent( skeletonRoot );

@@ -244,44 +244,49 @@ void Scene::make( NifModel * nif, bool flushTextures )
 Node * Scene::getNode( const NifModel * nif, const QModelIndex & iNode )
 {
 	if ( !nif || !iNode.isValid() )
-		return 0;
+		return nullptr;
 
-	Node * node = nodes.get( iNode );
+	return getNode( nif->field( iNode ) );
+}
+
+Node * Scene::getNode( NifFieldConst nodeBlock )
+{
+	if ( !nodeBlock )
+		return nullptr;
+
+	Node * node = nodes.get( nodeBlock );
 	if ( node )
 		return node;
 
-	auto block = nif->field( iNode );
-	if ( !block ) {
-		// Do nothing
-	
-	} else if ( !block.isBlock() ) {
-		nif->reportError( tr("Scene::getNode: item '%1' is not a block.").arg( block.repr() ) );
-	
-	} else if ( block.inherits("NiNode") ) {
-		if ( block.hasName("NiLODNode") ) {
-			node = new LODNode( this, block );
-		} else if ( block.hasName("NiBillboardNode") ) {
-			node = new BillboardNode( this, block );
+	if ( !nodeBlock.isBlock() ) {
+		nodeBlock.model()->reportError( tr("Scene::getNode: item '%1' is not a block.").arg( nodeBlock.repr() ) );
+
+	} else if ( nodeBlock.inherits("NiNode") ) {
+		if ( nodeBlock.hasName("NiLODNode") ) {
+			node = new LODNode( this, nodeBlock );
+		} else if ( nodeBlock.hasName("NiBillboardNode") ) {
+			node = new BillboardNode( this, nodeBlock );
 		} else {
-			node = new Node( this, block );
+			node = new Node( this, nodeBlock );
 		}
-	
-	} else if ( block.hasName("NiTriShape", "NiTriStrips") || block.inherits("NiTriBasedGeom") ) {
-		node = new Mesh( this, block );
-	
-	} else if ( nif->checkVersion( 0x14050000, 0 ) && block.hasName("NiMesh") ) {
-		node = new Mesh( this, block );
 
-	// } else if ( block.inherits("AParticleNode", "AParticleSystem") )
+	} else if ( nodeBlock.hasName("NiTriShape", "NiTriStrips") || nodeBlock.inherits("NiTriBasedGeom") ) {
+		node = new Mesh( this, nodeBlock );
+
+	} else if ( nodeBlock.model()->checkVersion( 0x14050000, 0 ) && nodeBlock.hasName("NiMesh") ) {
+		node = new Mesh( this, nodeBlock );
+
+	// } else if ( nodeBlock.inherits("AParticleNode", "AParticleSystem") ) {
 	// ... where did AParticleSystem go?
-	} else if ( block.inherits("NiParticles") ) {
-		node = new Particles( this, block );
 
-	} else if ( block.inherits("BSTriShape") ) {
-		node = new BSShape( this, block );
+	} else if ( nodeBlock.inherits("NiParticles") ) {
+		node = new Particles( this, nodeBlock );
 
-	} else if ( block.inherits("BSGeometry") ) {
-		node = new BSMesh( this, block );
+	} else if ( nodeBlock.inherits("BSTriShape") ) {
+		node = new BSShape( this, nodeBlock );
+
+	} else if ( nodeBlock.inherits("BSGeometry") ) {
+		node = new BSMesh( this, nodeBlock );
 	}
 
 	if ( node ) {

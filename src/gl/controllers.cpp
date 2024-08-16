@@ -32,732 +32,852 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "controllers.h"
 
-#include "gl/glshape.h"
-#include "gl/glparticles.h"
-#include "gl/glproperty.h"
 #include "gl/glscene.h"
-#include "model/nifmodel.h"
 
 
-// `NiControllerManager` blocks
+// ControllerManager class
 
-ControllerManager::ControllerManager( Node * node, const QModelIndex & index )
-	: Controller( index ), target( node )
+ControllerManager::ControllerManager( Node * _parent, NifFieldConst ctrlBlock )
+	: Controller( ctrlBlock ), parent( _parent )
 {
+	Q_ASSERT( hasParent() );
 }
 
-bool ControllerManager::update( const NifModel * nif, const QModelIndex & index )
+void ControllerManager::updateImpl( NifFieldConst changedBlock )
 {
-	if ( Controller::update( nif, index ) ) {
-		if ( target ) {
-			Scene * scene = target->scene;
-			QVector<qint32> lSequences = nif->getLinkArray( index, "Controller Sequences" );
-			for ( const auto l : lSequences ) {
-				QModelIndex iSeq = nif->getBlockIndex( l, "NiControllerSequence" );
+	Controller::updateImpl( changedBlock );
 
-				if ( iSeq.isValid() ) {
-					QString name = nif->get<QString>( iSeq, "Name" );
+	if ( changedBlock == block && hasParent() ) {
+		Scene * scene = parent->scene;
+		for ( auto seqEntry : block.child("Controller Sequences").iter() ) {
+			auto seqBlock = seqEntry.linkBlock("NiControllerSequence");
+			if ( !seqBlock )
+				continue;
 
-					if ( !scene->animGroups.contains( name ) ) {
-						scene->animGroups.append( name );
+			QString seqName = seqBlock.child("Name").value<QString>();
+			if ( !scene->animGroups.contains( seqName ) ) {
+				scene->animGroups.append( seqName );
 
-						QMap<QString, float> tags = scene->animTags[name];
-
-						QModelIndex iKeys = nif->getBlockIndex( nif->getLink( iSeq, "Text Keys" ), "NiTextKeyExtraData" );
-						QModelIndex iTags = nif->getIndex( iKeys, "Text Keys" );
-
-						for ( int r = 0; r < nif->rowCount( iTags ); r++ ) {
-							tags.insert( nif->get<QString>( iTags.child( r, 0 ), "Value" ), nif->get<float>( iTags.child( r, 0 ), "Time" ) );
-						}
-
-						scene->animTags[name] = tags;
-					}
-				}
-			}
-		}
-
-		return true;
-	}
-
-	return false;
-}
-
-void ControllerManager::setSequence( const QString & seqname )
-{
-	auto nif = NifModel::fromValidIndex(iBlock);
-	if ( nif && target ) {
-		MultiTargetTransformController * multiTargetTransformer = 0;
-		for ( Controller * c : target->controllers ) {
-			if ( c->typeId() == "NiMultiTargetTransformController" ) {
-				multiTargetTransformer = static_cast<MultiTargetTransformController *>(c);
-				break;
-			}
-		}
-
-		QVector<qint32> lSequences = nif->getLinkArray( iBlock, "Controller Sequences" );
-		for ( const auto l : lSequences ) {
-			QModelIndex iSeq = nif->getBlockIndex( l, "NiControllerSequence" );
-
-			if ( iSeq.isValid() && nif->get<QString>( iSeq, "Name" ) == seqname ) {
-				start = nif->get<float>( iSeq, "Start Time" );
-				stop = nif->get<float>( iSeq, "Stop Time" );
-				phase = nif->get<float>( iSeq, "Phase" );
-				frequency = nif->get<float>( iSeq, "Frequency" );
-
-				QModelIndex iCtrlBlcks = nif->getIndex( iSeq, "Controlled Blocks" );
-
-				for ( int r = 0; r < nif->rowCount( iCtrlBlcks ); r++ ) {
-					QModelIndex iCB = iCtrlBlcks.child( r, 0 );
-
-					QModelIndex iInterp = nif->getBlockIndex( nif->getLink( iCB, "Interpolator" ), "NiInterpolator" );
-
-					QModelIndex iController = nif->getBlockIndex( nif->getLink( iCB, "Controller" ), "NiTimeController" );
-
-					QString nodename = nif->get<QString>( iCB, "Node Name" );
-
-					if ( nodename.isEmpty() ) {
-						QModelIndex idx = nif->getIndex( iCB, "Node Name Offset" );
-						nodename = idx.sibling( idx.row(), NifModel::ValueCol ).data( NifSkopeDisplayRole ).toString();
-
-						if ( nodename.isEmpty() )
-							nodename = nif->get<QString>( iCB, "Target Name" );
-					}
-
-					QString proptype = nif->get<QString>( iCB, "Property Type" );
-
-					if ( proptype.isEmpty() ) {
-						QModelIndex idx = nif->getIndex( iCB, "Property Type Offset" );
-						proptype = idx.sibling( idx.row(), NifModel::ValueCol ).data( NifSkopeDisplayRole ).toString();
-					}
-
-					QString ctrltype = nif->get<QString>( iCB, "Controller Type" );
-
-					if ( ctrltype.isEmpty() ) {
-						QModelIndex idx = nif->getIndex( iCB, "Controller Type Offset" );
-						ctrltype = idx.sibling( idx.row(), NifModel::ValueCol ).data( NifSkopeDisplayRole ).toString();
-
-						if ( ctrltype.isEmpty() && iController.isValid() )
-							ctrltype = nif->itemName( iController );
-					}
-
-					QString var1 = nif->get<QString>( iCB, "Controller ID" );
-
-					if ( var1.isEmpty() ) {
-						QModelIndex idx = nif->getIndex( iCB, "Controller ID Offset" );
-						var1 = idx.sibling( idx.row(), NifModel::ValueCol ).data( NifSkopeDisplayRole ).toString();
-					}
-
-					QString var2 = nif->get<QString>( iCB, "Interpolator ID" );
-
-					if ( var2.isEmpty() ) {
-						QModelIndex idx = nif->getIndex( iCB, "Interpolator ID Offset" );
-						var2 = idx.sibling( idx.row(), NifModel::ValueCol ).data( NifSkopeDisplayRole ).toString();
-					}
-
-					Node * node = target->findChild( nodename );
-
-					if ( !node )
-						continue;
-
-					if ( ctrltype == "NiTransformController" && multiTargetTransformer ) {
-						if ( multiTargetTransformer->setInterpolatorNode( node, iInterp ) ) {
-							multiTargetTransformer->start = start;
-							multiTargetTransformer->stop = stop;
-							multiTargetTransformer->phase = phase;
-							multiTargetTransformer->frequency = frequency;
-							continue;
-						}
-					}
-
-					if ( ctrltype == "BSLightingShaderPropertyFloatController"
-						|| ctrltype == "BSLightingShaderPropertyColorController"
-						|| ctrltype == "BSEffectShaderPropertyFloatController"
-						|| ctrltype == "BSEffectShaderPropertyColorController"
-						|| ctrltype == "BSNiAlphaPropertyTestRefController" )
-					{
-						//qDebug() << node->name;
-
-						auto ctrl = node->findController( proptype, iController );
-						if ( ctrl ) {
-							ctrl->setInterpolator( iInterp );
-						}
-						continue;
-					}
-
-					Controller * ctrl = node->findController( proptype, ctrltype, var1, var2 );
-
-					if ( ctrl ) {
-						ctrl->start = start;
-						ctrl->stop = stop;
-						ctrl->phase = phase;
-						ctrl->frequency = frequency;
-
-						ctrl->setInterpolator( iInterp );
-					}
-				}
+				QMap<QString, float> tags = scene->animTags[seqName];
+				auto keyBlock = seqBlock.child("Text Keys").linkBlock("NiTextKeyExtraData");
+				for ( auto keyEntry: keyBlock.child("Text Keys").iter() )
+					tags.insert( keyEntry["Value"].value<QString>(), keyEntry["Time"].value<float>() );
+				scene->animTags[seqName] = tags;
 			}
 		}
 	}
 }
 
-
-// `NiKeyframeController` blocks
-
-KeyframeController::KeyframeController( Node * node, const QModelIndex & index )
-	: Controller( index ), target( node ), lTrans( 0 ), lRotate( 0 ), lScale( 0 )
+void ControllerManager::setSequence( const QString & seqName )
 {
-}
-
-void KeyframeController::updateTime( float time )
-{
-	if ( !(active && target) )
+	if ( !hasParent() )
 		return;
 
-	time = ctrlTime( time );
-
-	interpolate( target->local.rotation, iRotations, time, lRotate );
-	interpolate( target->local.translation, iTranslations, time, lTrans );
-	interpolate( target->local.scale, iScales, time, lScale );
-}
-
-bool KeyframeController::update( const NifModel * nif, const QModelIndex & index )
-{
-	if ( Controller::update( nif, index ) ) {
-		iTranslations = nif->getIndex( iData, "Translations" );
-		iRotations = nif->getIndex( iData, "Rotations" );
-
-		if ( !iRotations.isValid() )
-			iRotations = iData;
-
-		iScales = nif->getIndex( iData, "Scales" );
-		return true;
-	}
-
-	return false;
-}
-
-
-// `NiTransformController` blocks
-
-TransformController::TransformController( Node * node, const QModelIndex & index )
-	: Controller( index ), target( node )
-{
-}
-
-void TransformController::updateTime( float time )
-{
-	if ( !(active && target) )
-		return;
-
-	time = ctrlTime( time );
-
-	if ( interpolator ) {
-		interpolator->updateTransform( target->local, time );
-	}
-}
-
-void TransformController::setInterpolator( const QModelIndex & idx )
-{
-	auto nif = NifModel::fromValidIndex(idx);
-	if ( nif ) {
-		if ( interpolator ) {
-			delete interpolator;
-			interpolator = 0;
-		}
-
-		if ( nif->isNiBlock( idx, "NiBSplineCompTransformInterpolator" ) ) {
-			iInterpolator = idx;
-			interpolator = new BSplineTransformInterpolator( this );
-		} else if ( nif->isNiBlock( idx, "NiTransformInterpolator" ) ) {
-			iInterpolator = idx;
-			interpolator = new TransformInterpolator( this );
-		}
-
-		if ( interpolator ) {
-			interpolator->update( nif, iInterpolator );
+	MultiTargetTransformController * multiTargetTransformer = nullptr;
+	for ( Controller * c : parent->controllers ) {
+		if ( c->typeId() == QStringLiteral("NiMultiTargetTransformController") ) {
+			multiTargetTransformer = static_cast<MultiTargetTransformController *>(c);
+			break;
 		}
 	}
+
+	// TODO: All of the below does not work well with block updates
+	for ( auto seqEntry : block.child("Controller Sequences").iter() ) {
+		auto seqBlock = seqEntry.linkBlock("NiControllerSequence");
+		if ( !seqBlock || seqBlock["Name"].value<QString>() != seqName )
+			continue;
+
+		start     = seqBlock.child("Start Time").value<float>();
+		stop      = seqBlock.child("Stop Time").value<float>();
+		phase     = seqBlock.child("Phase").value<float>();
+		frequency = seqBlock.child("Frequency").value<float>();
+
+		for ( auto ctrlBlockEntry : seqBlock.child("Controlled Blocks").iter() ) {			
+			auto resolveStrField = [ctrlBlockEntry]( const QString & strName, const QString & offsetName ) -> QString {
+				auto strField = ctrlBlockEntry.child(strName);
+				if ( strField )
+					return strField.value<QString>();
+
+				auto offsetField = ctrlBlockEntry.child(offsetName);
+				if ( offsetField ) {
+					QModelIndex iOffset = offsetField.toIndex();
+					return iOffset.sibling( iOffset.row(), NifModel::ValueCol ).data( NifSkopeDisplayRole ).toString();
+				}
+
+				return QString();
+			};
+
+			QString nodeName;
+			auto targetNameField = ctrlBlockEntry.child("Target Name");
+			if ( targetNameField ) {
+				nodeName = targetNameField.value<QString>();
+			} else {
+				nodeName = resolveStrField( QStringLiteral("Node Name"), QStringLiteral("Node Name Offset") );
+			}
+			if ( nodeName.isEmpty() )
+				continue;
+			Node * node = parent->findChild( nodeName );
+			if ( !node )
+				continue;
+
+			auto interpBlock = ctrlBlockEntry.child("Interpolator").linkBlock("NiInterpolator");
+			auto controllerBlock = ctrlBlockEntry.child("Controller").linkBlock("NiTimeController");
+
+			QString ctrlType = resolveStrField( QStringLiteral("Controller Type"), QStringLiteral("Controller Type Offset") );
+			if ( ctrlType.isEmpty() && controllerBlock )
+				ctrlType = controllerBlock.name();
+
+			if ( multiTargetTransformer && ctrlType == QStringLiteral("NiTransformController") ) {
+				if ( multiTargetTransformer->setNodeInterpolator( node, interpBlock ) ) {
+					multiTargetTransformer->start = start;
+					multiTargetTransformer->stop = stop;
+					multiTargetTransformer->phase = phase;
+					multiTargetTransformer->frequency = frequency;
+					continue;
+				}
+			}
+
+			QString propType = resolveStrField( QStringLiteral("Property Type"), QStringLiteral("Property Type Offset") );
+
+			if ( ctrlType == QStringLiteral("BSLightingShaderPropertyFloatController")
+				|| ctrlType == QStringLiteral("BSLightingShaderPropertyColorController")
+				|| ctrlType == QStringLiteral("BSEffectShaderPropertyFloatController")
+				|| ctrlType == QStringLiteral("BSEffectShaderPropertyColorController")
+				|| ctrlType == QStringLiteral("BSNiAlphaPropertyTestRefController") )
+			{
+				//qDebug() << node->name;
+
+				auto ctrl = node->findController( propType, controllerBlock );
+				if ( ctrl )
+					ctrl->setInterpolator( interpBlock );
+				continue;
+			}
+
+			QString var1 = resolveStrField( QStringLiteral("Controller ID"), QStringLiteral("Controller ID Offset") );
+			QString var2 = resolveStrField( QStringLiteral("Interpolator ID"), QStringLiteral("Interpolator ID Offset") );
+			Controller * ctrl = node->findController( propType, ctrlType, var1, var2 );
+			if ( ctrl ) {
+				ctrl->start = start;
+				ctrl->stop = stop;
+				ctrl->phase = phase;
+				ctrl->frequency = frequency;
+
+				ctrl->setInterpolator( interpBlock );
+			}
+		}
+	}
 }
 
 
-// `NiMultiTargetTransformController` blocks
+// TransformInterpolator class
 
-MultiTargetTransformController::MultiTargetTransformController( Node * node, const QModelIndex & index )
-	: Controller( index ), target( node )
+void TransformInterpolator::updateDataImpl()
 {
+	auto dataBlock = interpolatorBlock.child("Data").linkBlock("NiKeyframeData");
+	registerUpdateBlock( dataBlock );
+
+	rotation.updateData( dataBlock );
+	translation.updateData( dataBlock["Translations"] );
+	scale.updateData( dataBlock["Scales"] );
+}
+
+void TransformInterpolator::applyTransformImpl( float time )
+{
+	Transform & transform = target()->local;
+
+	rotation.interpolate( transform.rotation, time );
+	translation.interpolate( transform.translation, time );
+	scale.interpolate( transform.scale, time );
+}
+
+
+// BSplineInterpolator class
+
+/*********************************************************************
+Simple b-spline curve algorithm
+
+Copyright 1994 by Keith Vertanen (vertankd@cda.mrs.umn.edu)
+
+Released to the public domain (your mileage may vary)
+
+Found at: Programmers Heaven (www.programmersheaven.com/zone3/cat415/6660.htm)
+Modified by: Theo
+- reformat and convert doubles to floats
+- removed point structure in favor of arbitrary sized float array
+**********************************************************************/
+
+// Used to enable static arrays to be members of vectors
+struct SplineArraySlice
+{
+	SplineArraySlice( NifFieldConst _arrayRoot, uint _off = 0 )
+		: arrayRoot( _arrayRoot ), off( _off )
+	{
+	}
+	SplineArraySlice( const SplineArraySlice & other, uint _off = 0 )
+		: arrayRoot( other.arrayRoot ), off( other.off + _off )
+	{
+	}
+
+	short operator[]( uint index ) const
+	{
+		return arrayRoot[index + off].value<short>();
+	}
+
+	NifFieldConst arrayRoot;
+	uint off;
+};
+
+template <typename T>
+struct SplineTraits
+{
+	// Zero data
+	static T & Init( T & v )
+	{
+		v = T();
+		return v;
+	}
+
+	// Number of control points used
+	static int CountOf()
+	{
+		return ( sizeof(T) / sizeof(float) );
+	}
+
+	// Compute point from short array and mult/bias
+	static T & Compute( T & v, SplineArraySlice & c, float mult )
+	{
+		float * vf = (float *)&v; // assume default data is a vector of floats. specialize if necessary.
+
+		for ( int i = 0; i < CountOf(); ++i )
+			vf[i] = vf[i] + ( float(c[i]) / float(SHRT_MAX) ) * mult;
+
+		return v;
+	}
+	static T & Adjust( T & v, float mult, float bias )
+	{
+		float * vf = (float *)&v;  // assume default data is a vector of floats. specialize if necessary.
+
+		for ( int i = 0; i < CountOf(); ++i )
+			vf[i] = vf[i] * mult + bias;
+
+		return v;
+	}
+};
+
+template <> struct SplineTraits<Quat>
+{
+	static Quat & Init( Quat & v )
+	{
+		v = Quat(); v[0] = 0.0f; return v;
+	}
+	static int CountOf() { return 4; }
+	static Quat & Compute( Quat & v, SplineArraySlice & c, float mult )
+	{
+		for ( int i = 0; i < CountOf(); ++i )
+			v[i] = v[i] + ( float(c[i]) / float(SHRT_MAX) ) * mult;
+
+		return v;
+	}
+	static Quat & Adjust( Quat & v, float mult, float bias )
+	{
+		for ( int i = 0; i < CountOf(); ++i )
+			v[i] = v[i] * mult + bias;
+
+		return v;
+	}
+};
+
+// calculate the blending value
+static float blend( int k, int t, int * u, float v )
+{
+	float value;
+
+	if ( t == 1 ) {
+		// base case for the recursion
+		value = ( ( u[k] <= v ) && ( v < u[k + 1] ) ) ? 1.0f : 0.0f;
+	} else {
+		if ( ( u[k + t - 1] == u[k] ) && ( u[k + t] == u[k + 1] ) ) // check for divide by zero
+			value = 0;
+		else if ( u[k + t - 1] == u[k] )                            // if a term's denominator is zero,use just the other
+			value = ( u[k + t] - v) / ( u[k + t] - u[k + 1] ) * blend( k + 1, t - 1, u, v );
+		else if ( u[k + t] == u[k + 1] )
+			value = (v - u[k]) / (u[k + t - 1] - u[k]) * blend( k, t - 1, u, v );
+		else
+			value = ( v - u[k] ) / ( u[k + t - 1] - u[k] ) * blend( k, t - 1, u, v )
+			+ ( u[k + t] - v ) / ( u[k + t] - u[k + 1] ) * blend( k + 1, t - 1, u, v );
+	}
+
+	return value;
+}
+
+// figure out the knots
+static void compute_intervals( int * u, int n, int t )
+{
+	for ( int j = 0; j <= n + t; j++ ) {
+		if ( j < t )
+			u[j] = 0;
+		else if ( ( t <= j ) && ( j <= n ) )
+			u[j] = j - t + 1;
+		else if ( j > n )
+			u[j] = n - t + 2;  // if n-t=-2 then we're screwed, everything goes to 0
+	}
+}
+
+template <typename T>
+static void compute_point( int * u, int n, int t, float v, SplineArraySlice & control, T & output, float mult, float bias )
+{
+	// initialize the variables that will hold our output
+	int l = SplineTraits<T>::CountOf();
+	SplineTraits<T>::Init( output );
+
+	for ( int k = 0; k <= n; k++ ) {
+		SplineArraySlice qa( control, k * l );
+		SplineTraits<T>::Compute( output, qa, blend( k, t, u, v ) );
+	}
+
+	SplineTraits<T>::Adjust( output, mult, bias );
+}
+
+void BSplineInterpolator::updateDataImpl()
+{
+	startTime = interpolatorBlock["Start Time"].value<float>();
+	stopTime  = interpolatorBlock["Stop Time"].value<float>();
+
+	rotateVars.off  = interpolatorBlock["Rotation Handle"].value<uint>();
+	rotateVars.mult = interpolatorBlock["Rotation Half Range"].value<float>();
+	rotateVars.bias = interpolatorBlock["Rotation Offset"].value<float>();
+
+	translationVars.off  = interpolatorBlock["Translation Handle"].value<uint>();
+	translationVars.mult = interpolatorBlock["Translation Half Range"].value<float>();
+	translationVars.bias = interpolatorBlock["Translation Offset"].value<float>();
+
+	scaleVars.off  = interpolatorBlock["Scale Handle"].value<uint>();
+	scaleVars.mult = interpolatorBlock["Scale Half Range"].value<float>();
+	scaleVars.bias = interpolatorBlock["Scale Offset"].value<float>();
+
+	auto splineBlock = interpolatorBlock["Spline Data"].linkBlock("NiBSplineData");
+	registerUpdateBlock( splineBlock );
+	controlPointsRoot = splineBlock.child("Compact Control Points");
+
+	auto basisBlock = interpolatorBlock["Basis Data"].linkBlock("NiBSplineBasisData");
+	registerUpdateBlock( basisBlock );
+	nControlPoints = basisBlock["Num Control Points"].value<uint>();
+}
+
+void BSplineInterpolator::applyTransformImpl( float time )
+{
+	Transform & transform = target()->local;
+
+	float interval = ( ( time - startTime ) / ( stopTime - startTime ) ) * float(nControlPoints - degree);
+
+	Quat q = transform.rotation.toQuat();
+	if ( interpolateValue<Quat>( q, interval, rotateVars ) )
+		transform.rotation.fromQuat( q );
+
+	interpolateValue<Vector3>( transform.translation, interval, translationVars );
+	interpolateValue<float>( transform.scale, interval, scaleVars );
+}
+
+template <typename T>
+bool BSplineInterpolator::interpolateValue( T & value, float interval, const SplineVars & vars ) const
+{
+	if ( vars.off == USHRT_MAX )
+		return false;
+
+	SplineArraySlice subArray( controlPointsRoot, vars.off );
+	int t = degree + 1;
+	int n = nControlPoints - 1;
+	int l = SplineTraits<T>::CountOf();
+
+	if ( interval >= float(nControlPoints - degree) ) {
+		SplineTraits<T>::Init( value );
+		SplineArraySlice sa( subArray, n * l );
+		SplineTraits<T>::Compute( value, sa, 1.0f );
+		SplineTraits<T>::Adjust( value, vars.mult, vars.bias );
+	} else {
+		int * u = new int[ n + t + 1 ];
+		compute_intervals( u, n, t );
+		compute_point( u, n, t, interval, subArray, value, vars.mult, vars.bias );
+		delete [] u;
+	}
+
+	return true;
+}
+
+
+// ITransformInterpolator class
+
+static inline ITransformInterpolator * createTransformInterpolator( NifFieldConst interpolatorBlock, Node * target, Controller * parentController )
+{
+	if ( interpolatorBlock.hasName("NiBSplineCompTransformInterpolator") )
+		return new BSplineInterpolator( interpolatorBlock, target, parentController );
+
+	if ( interpolatorBlock.hasName("NiTransformInterpolator", "NiKeyframeController") )
+		return new TransformInterpolator( interpolatorBlock, target, parentController );
+
+	// TODO: Report invalid type
+	return nullptr;
+}
+
+ITransformInterpolator * TransformController::createInterpolator( NifFieldConst interpolatorBlock )
+{
+	return createTransformInterpolator( interpolatorBlock, target, this );
+}
+
+
+// MultiTargetTransformController class
+
+MultiTargetTransformController::MultiTargetTransformController( Node * node, NifFieldConst ctrlBlock )
+	: Controller( ctrlBlock ), parent( node )
+{
+	Q_ASSERT( !parent.isNull() );
 }
 
 void MultiTargetTransformController::updateTime( float time )
 {
-	if ( !(active && target) )
-		return;
-
-	time = ctrlTime( time );
-
-	for ( const TransformTarget& tt : extraTargets ) {
-		if ( tt.first && tt.second ) {
-			tt.second->updateTransform( tt.first->local, time );
-		}
+	if ( active && transforms.count() > 0 ) {
+		time = ctrlTime( time );
+		for ( auto t : transforms )
+			t->applyTransform( time );
 	}
 }
 
-bool MultiTargetTransformController::update( const NifModel * nif, const QModelIndex & index )
+void MultiTargetTransformController::updateImpl( NifFieldConst changedBlock )
 {
-	if ( Controller::update( nif, index ) ) {
-		if ( target ) {
-			Scene * scene = target->scene;
-			extraTargets.clear();
+	Controller::updateImpl( changedBlock );
 
-			QVector<qint32> lTargets = nif->getLinkArray( index, "Extra Targets" );
-			for ( const auto l : lTargets ) {
-				Node * node = scene->getNode( nif, nif->getBlockIndex( l ) );
+	if ( changedBlock == block && hasParent() ) {
+		targetNodes.clear();
+		Scene * scene = parent->scene;
+		for ( auto extraEntry : block.child("Extra Targets").iter() )
+			targetNodes.add( scene->getNode( extraEntry.linkBlock() ) );
 
-				if ( node ) {
-					extraTargets.append( TransformTarget( node, 0 ) );
-				}
-			}
+		// Remove transforms of obsolete nodes
+		for ( int i = transforms.count() - 1; i >= 0; i-- ) {
+			if ( !targetNodes.has( transforms[i]->target() ) )
+				removeTransformAt( i );
 		}
+	}
+
+	for ( auto t : transforms )
+		t->updateData( changedBlock );
+}
+
+bool MultiTargetTransformController::setNodeInterpolator( Node * node, NifFieldConst interpolatorBlock )
+{
+	if ( interpolatorBlock && targetNodes.has( node ) ) {
+		for ( int i = transforms.count() - 1; i >= 0; i-- ) {
+			if ( transforms[i]->target() == node )
+				removeTransformAt( i );
+		}
+
+		auto t = createTransformInterpolator( interpolatorBlock, node, nullptr );
+		t->updateData( interpolatorBlock );
+		transforms.append( t );
 
 		return true;
 	}
 
-	for ( const TransformTarget& tt : extraTargets ) {
-		// TODO: update the interpolators
-	}
-
 	return false;
 }
 
-bool MultiTargetTransformController::setInterpolatorNode( Node * node, const QModelIndex & idx )
+void MultiTargetTransformController::clearTransforms()
 {
-	auto nif = NifModel::fromValidIndex(idx);
-	if ( !nif )
-		return false;
+	qDeleteAll( transforms );
+	transforms.clear();
+}
 
-	QMutableListIterator<TransformTarget> it( extraTargets );
-
-	while ( it.hasNext() ) {
-		it.next();
-
-		auto& val = it.value();
-		if ( val.first == node ) {
-			if ( val.second ) {
-				delete val.second;
-				val.second = 0;
-			}
-
-			if ( nif->isNiBlock( idx, "NiBSplineCompTransformInterpolator" ) ) {
-				val.second = new BSplineTransformInterpolator( this );
-			} else if ( nif->isNiBlock( idx, "NiTransformInterpolator" ) ) {
-				val.second = new TransformInterpolator( this );
-			}
-
-			if ( val.second ) {
-				val.second->update( nif, idx );
-			}
-
-			return true;
-		}
-	}
-
-	return false;
+void MultiTargetTransformController::removeTransformAt( int i )
+{
+	delete transforms[i];
+	transforms.removeAt( i );
 }
 
 
-// `NiVisController` blocks
+// VisibilityInterpolator and VisibilityController classes
 
-VisibilityController::VisibilityController( Node * node, const QModelIndex & index )
-	: Controller( index ), target( node ), visLast( 0 )
+void VisibilityInterpolator::updateDataImpl()
 {
+	auto dataBlock = getDataBlock();
+	registerUpdateBlock( dataBlock );
+	interpolator.updateData( dataBlock["Data"] );
 }
 
-void VisibilityController::updateTime( float time )
+void VisibilityInterpolator::applyTransformImpl( float time )
 {
-	if ( !(active && target) )
-		return;
-
-	time = ctrlTime( time );
-
 	bool isVisible;
+	if ( interpolator.interpolate( isVisible, time ) )
+		target()->flags.node.hidden = !isVisible;
+}
 
-	if ( interpolate( isVisible, iData, "Data", time, visLast ) ) {
-		target->flags.node.hidden = !isVisible;
+VisibilityInterpolator * VisibilityController::createInterpolator( NifFieldConst interpolatorBlock )
+{
+	return new VisibilityInterpolator( interpolatorBlock, target, this );
+}
+
+
+// MorphInterpolator and MorphController classes
+
+MorphInterpolator::MorphInterpolator( NifFieldConst _interpolatorBlock, Shape * shape, Controller * _parentController, NifFieldConst _morphDataEntry, NifFieldConst vertsRoot )
+	:  IControllerInterpolatorTyped<Shape>( _interpolatorBlock, shape, _parentController ),
+	morphDataEntry( _morphDataEntry ),
+	verts( vertsRoot.array<Vector3>() )
+{
+}
+
+void MorphInterpolator::updateDataImpl()
+{
+	if ( interpolatorBlock.inherits("NiMorphData") ) {
+		interpolator.updateData( morphDataEntry );
+	} else {
+		auto dataBlock = interpolatorBlock.child("Data").linkBlock("NiFloatData");
+		registerUpdateBlock( dataBlock );
+		interpolator.updateData( dataBlock["Data"] );
 	}
 }
 
-bool VisibilityController::update( const NifModel * nif, const QModelIndex & index )
+void MorphInterpolator::applyTransformImpl( float time )
 {
-	if ( Controller::update( nif, index ) ) {
-		return true;
+	float x;
+	if ( interpolator.interpolate( x, time ) ) {
+		if ( x > 0.0f ) {
+			if ( x > 1.0f )
+				x = 1.0f;
+
+			auto & outVerts = target()->verts;
+			for ( int i = 0, nVerts = std::min( verts.count(), outVerts.count() ); i < nVerts; i++ )
+				outVerts[i] += verts[i] * x;
+		}
 	}
-
-	return false;
 }
 
-
-// `NiGeomMorpherController` blocks
-
-MorphController::MorphController( Shape * mesh, const QModelIndex & index )
-	: Controller( index ), target( mesh )
+MorphController::MorphController( Shape * shape, NifFieldConst ctrlBlock )
+	: Controller( ctrlBlock ), target( shape )
 {
-}
-
-MorphController::~MorphController()
-{
-	qDeleteAll( morph );
+	Q_ASSERT( hasTarget() );
 }
 
 void MorphController::updateTime( float time )
 {
-	if ( !(target && iData.isValid() && active && morph.count() > 1) )
-		return;
+	if ( active && hasTarget() && morphs.count() > 0 ) {
+		if ( target->verts.count() != verts.count() )
+			return; // TODO: report error
 
-	time = ctrlTime( time );
+		time = ctrlTime( time );
+		target->verts = verts;
+		for ( auto m : morphs )
+			m->applyTransform( time );
+		target->needUpdateBounds = true;
+	}
+}
 
-	if ( target->verts.count() != morph[0]->verts.count() )
-		return;
+void MorphController::updateImpl( NifFieldConst changedBlock )
+{
+	Controller::updateImpl( changedBlock );
 
-	target->verts = morph[0]->verts;
+	if ( ( changedBlock == block || changedBlock == dataBlock ) && hasTarget() ) {
+		clearMorphs();
+		verts.clear();
 
-	float x;
+		NifFieldConst interpolatorsRoot;
+		auto interpolatorWeightsRoot = block.child("Interpolator Weights");
+		int iInterpolatorField = -1;
+		if ( interpolatorWeightsRoot ) {
+			if ( interpolatorWeightsRoot.childCount() > 0 )
+				iInterpolatorField = interpolatorWeightsRoot[0]["Interpolator"].row();
+		} else {
+			interpolatorsRoot = block.child("Interpolators");
+		}
 
-	for ( int i = 1; i < morph.count(); i++ ) {
-		MorphKey * key = morph[i];
+		dataBlock = block["Data"].linkBlock("NiMorphData");
+		auto morphDataRoot = dataBlock.child("Morphs");
+		int nMorphs = morphDataRoot.childCount();
+		if ( nMorphs > 1 ) {
+			auto firstMorphVertsRoot = morphDataRoot[0].child("Vectors");
+			verts = firstMorphVertsRoot.array<Vector3>();
 
-		if ( interpolate( x, key->iFrames, time, key->index ) ) {
-			if ( x < 0 )
-				x = 0;
-			if ( x > 1 )
-				x = 1;
+			morphs.reserve( nMorphs - 1 );
+			for ( int i = 1; i < nMorphs; i++ ) {
+				NifFieldConst interpolatorBlock;
+				if ( interpolatorWeightsRoot ) {
+					interpolatorBlock = interpolatorWeightsRoot[i].child(iInterpolatorField).linkBlock("NiFloatInterpolator");
+				} else if ( interpolatorsRoot ) {
+					interpolatorBlock = interpolatorsRoot[i].linkBlock("NiFloatInterpolator");
+				} else {
+					interpolatorBlock = dataBlock;
+				}
 
-			if ( x != 0 && target->verts.count() == key->verts.count() ) {
-				for ( int v = 0; v < target->verts.count(); v++ )
-					target->verts[v] += key->verts[v] * x;
+				auto morphEntry = morphDataRoot[i];
+				auto morphVertsRoot = morphEntry.child( firstMorphVertsRoot.row() );
+				IControllable::reportFieldCountMismatch( morphVertsRoot, firstMorphVertsRoot, dataBlock );
+
+				if ( interpolatorBlock && morphVertsRoot.childCount() > 0 )
+					morphs.append( new MorphInterpolator( interpolatorBlock, target, this, morphEntry, morphVertsRoot ) );
 			}
 		}
 	}
 
-	target->needUpdateBounds = true;
+	for ( auto morphManager : morphs )
+		morphManager->updateData( changedBlock );
 }
 
-bool MorphController::update( const NifModel * nif, const QModelIndex & index )
+void MorphController::clearMorphs()
 {
-	if ( Controller::update( nif, index ) ) {
-		qDeleteAll( morph );
-		morph.clear();
-
-		QModelIndex midx = nif->getIndex( iData, "Morphs" );
-
-		for ( int r = 0; r < nif->rowCount( midx ); r++ ) {
-			QModelIndex iInterpolators, iInterpolatorWeights;
-
-			if ( nif->checkVersion( 0, 0x14000005 ) ) {
-				iInterpolators = nif->getIndex( iBlock, "Interpolators" );
-			} else if ( nif->checkVersion( 0x14010003, 0 ) ) {
-				iInterpolatorWeights = nif->getIndex( iBlock, "Interpolator Weights" );
-			}
-
-			QModelIndex iKey = midx.child( r, 0 );
-
-			MorphKey * key = new MorphKey;
-			key->index = 0;
-
-			// this is ugly...
-			if ( iInterpolators.isValid() ) {
-				key->iFrames = nif->getIndex( nif->getBlockIndex( nif->getLink( nif->getBlockIndex( nif->getLink( iInterpolators.child( r, 0 ) ), "NiFloatInterpolator" ), "Data" ), "NiFloatData" ), "Data" );
-			} else if ( iInterpolatorWeights.isValid() ) {
-				key->iFrames = nif->getIndex( nif->getBlockIndex( nif->getLink( nif->getBlockIndex( nif->getLink( iInterpolatorWeights.child( r, 0 ), "Interpolator" ), "NiFloatInterpolator" ), "Data" ), "NiFloatData" ), "Data" );
-			} else {
-				key->iFrames = iKey;
-			}
-
-			key->verts = nif->getArray<Vector3>( nif->getIndex( iKey, "Vectors" ) );
-
-			morph.append( key );
-		}
-
-		return true;
-	}
-
-	return false;
+	qDeleteAll( morphs );
+	morphs.clear();
 }
 
 
-// `NiUVController` blocks
+// UVInterpolator and UVController classes
 
-UVController::UVController( Shape * mesh, const QModelIndex & index )
-	: Controller( index ), target( mesh )
+void UVInterpolator::updateDataImpl()
 {
+	auto dataBlock = interpolatorBlock["Data"].linkBlock("NiUVData");
+	registerUpdateBlock( dataBlock );
+
+	auto groupRoot = dataBlock["UV Groups"];
+	for ( int i = 0; i < UV_GROUPS_COUNT; i++ )
+		interpolators[i].updateData( groupRoot[i] );
 }
 
-UVController::~UVController()
+void UVInterpolator::applyTransformImpl( float time )
 {
-}
-
-void UVController::updateTime( float time )
-{
-	auto nif = NifModel::fromIndex( iData );
-	QModelIndex uvGroups = nif->getIndex( iData, "UV Groups" );
-
 	// U trans, V trans, U scale, V scale
 	// see NiUVData compound in nif.xml
-	float val[4] = { 0.0, 0.0, 1.0, 1.0 };
+	float val[UV_GROUPS_COUNT] = { 0.0, 0.0, 1.0, 1.0 };
+	for ( int i = 0; i < UV_GROUPS_COUNT; i++ )
+		interpolators[i].interpolate( val[i], time );
 
-	if ( uvGroups.isValid() ) {
-		for ( int i = 0; i < 4 && i < nif->rowCount( uvGroups ); i++ ) {
-			interpolate( val[i], uvGroups.child( i, 0 ), ctrlTime( time ), luv );
-		}
+	for ( auto & uv : target()->coords[0] ) {
+		// scaling/tiling applied before translation
+		// Note that scaling is relative to center!
+		// Gavrant: -val[0] for uv[0] and +val[1] for uv[1] were in the prev. version of the code
+		uv[0] = ( uv[0] - 0.5f ) * val[2] + 0.5f - val[0];
+		uv[1] = ( uv[1] - 0.5f ) * val[3] + 0.5f + val[1];
+	}
 
-		// adjust coords; verified in SceneImmerse
-		for ( int i = 0; i < target->coords[0].size(); i++ ) {
-			// operating on pointers makes this too complicated, so we don't
-			Vector2 current = target->coords[0][i];
-			// scaling/tiling applied before translation
-			// Note that scaling is relative to center!
-			current += Vector2( -0.5, -0.5 );
-			current = Vector2( current[0] * val[2], current[1] * val[3] );
-			current += Vector2( -val[0], val[1] );
-			current += Vector2( 0.5, 0.5 );
-			target->coords[0][i] = current;
+	target()->needUpdateData = true; // TODO (Gavrant): it's probably wrong (because the target shape would reset its UV map then)
+}
+
+UVInterpolator * UVController::createInterpolator( NifFieldConst interpolatorBlock )
+{
+	return new UVInterpolator( interpolatorBlock, target, this );
+}
+
+
+// ParticleInterpolator and ParticleController classes
+
+ParticleInterpolator::Gravity::Gravity( NifFieldConst block )
+	: force( block["Force"].value<float>() ),
+	type( block["Type"].value<int>() ),
+	position( block["Position"].value<Vector3>() ),
+	direction( block["Direction"].value<Vector3>() )
+{
+}
+
+void ParticleInterpolator::updateDataImpl()
+{
+	auto ctrlBlock = controllerBlock();
+	registerUpdateBlock( ctrlBlock );
+
+	emitNode   = target()->scene->getNode( ctrlBlock["Emitter"].linkBlock() );
+	emitStart  = ctrlBlock["Emit Start Time"].value<float>();
+	emitStop   = ctrlBlock["Emit Stop Time"].value<float>();
+	emitRate   = ctrlBlock.child("Birth Rate").value<float>();
+	emitRadius = ctrlBlock["Emitter Dimensions"].value<Vector3>();
+	emitAccu   = 0;
+	emitLast   = emitStart;
+
+	spd = ctrlBlock.child("Speed").value<float>();
+	spdRnd = ctrlBlock["Speed Variation"].value<float>();
+
+	ttl = ctrlBlock["Lifetime"].value<float>();
+	ttlRnd = ctrlBlock["Lifetime Variation"].value<float>();
+
+	inc = ctrlBlock["Declination"].value<float>();
+	incRnd = ctrlBlock["Declination Variation"].value<float>();
+
+	dec = ctrlBlock["Planar Angle"].value<float>();
+	decRnd = ctrlBlock["Planar Angle Variation"].value<float>();
+
+	size = ctrlBlock["Initial Size"].value<float>();
+
+	// Particles
+	float emitMax = ctrlBlock.child("Num Particles").value<int>();
+	
+	particles.clear();
+	auto particlesRoot = ctrlBlock.child("Particles");
+	int nParticles = std::min( particlesRoot.childCount(), ctrlBlock.child("Num Valid").value<int>() );
+	if ( nParticles > 0 ) {
+		auto firstParticle = particlesRoot[0];
+		int iVelocityField   = firstParticle["Velocity"].row();
+		int iAgeField        = firstParticle["Age"].row();
+		int iLifeSpanField   = firstParticle["Life Span"].row();
+		int iLastUpdateField = firstParticle["Last Update"].row();
+		int iCodeField       = firstParticle["Code"].row();
+
+		particles.reserve( nParticles );
+		for ( int i = 0; i < nParticles; i++ ) {
+			Particle particle;
+			auto entry = particlesRoot[i];
+			particle.velocity = entry.child(iVelocityField).value<Vector3>();
+			particle.lifetime = entry.child(iAgeField).value<float>();
+			particle.lifespan = entry.child(iLifeSpanField).value<float>();
+			particle.lasttime = entry.child(iLastUpdateField).value<float>();
+			particle.vertex   = entry.child(iCodeField).value<ushort>();
+			// Display saved particle start on initial load
+			particles.append( particle );
 		}
 	}
 
-	target->needUpdateData = true; // TODO (Gavrant): it's probably wrong (because the target shape would reset its UV map then)
-}
-
-bool UVController::update( const NifModel * nif, const QModelIndex & index )
-{
-	if ( Controller::update( nif, index ) ) {
-		// do stuff here
-		return true;
+	if ( ctrlBlock.child("Use Birth Rate").value<bool>() == false ) {
+		emitRate = emitMax / (ttl + ttlRnd * 0.5f);
 	}
 
-	return false;
-}
+	// Modfiers
+	grow = 0.0;
+	fade = 0.0;
+	colorInterpolator.clear();
+	gravities.clear();
 
+	auto modifierBlock = ctrlBlock["Particle Modifier"].linkBlock("NiParticleModifier");
+	while ( modifierBlock ) {
+		registerUpdateBlock( modifierBlock );
 
-float random( float r )
-{
-	return r * rand() / RAND_MAX;
-}
+		if ( modifierBlock.hasName("NiParticleGrowFade") ) {
+			grow = modifierBlock["Grow"].value<float>();
+			fade = modifierBlock["Fade"].value<float>();
 
-Vector3 random( Vector3 v )
-{
-	v[0] *= random( 1.0 );
-	v[1] *= random( 1.0 );
-	v[2] *= random( 1.0 );
-	return v;
-}
+		} else if ( modifierBlock.hasName("NiParticleColorModifier") ) {
+			auto colorDataBlock = modifierBlock["Color Data"].linkBlock("NiColorData");
+			registerUpdateBlock( colorDataBlock );
+			colorInterpolator.updateData( colorDataBlock["Data"] );
 
-
-// `NiParticleSystemController` and other blocks
-
-ParticleController::ParticleController( Particles * particles, const QModelIndex & index )
-	: Controller( index ), target( particles )
-{
-}
-
-bool ParticleController::update( const NifModel * nif, const QModelIndex & index )
-{
-	if ( !target )
-		return false;
-
-	if ( Controller::update( nif, index ) || (index.isValid() && iExtras.contains( index )) ) {
-		emitNode = target->scene->getNode( nif, nif->getBlockIndex( nif->getLink( iBlock, "Emitter" ) ) );
-		emitStart = nif->get<float>( iBlock, "Emit Start Time" );
-		emitStop = nif->get<float>( iBlock, "Emit Stop Time" );
-		emitRate = nif->get<float>( iBlock, "Birth Rate" );
-		emitRadius = nif->get<Vector3>( iBlock, "Emitter Dimensions" );
-		emitAccu = 0;
-		emitLast = emitStart;
-
-		spd = nif->get<float>( iBlock, "Speed" );
-		spdRnd = nif->get<float>( iBlock, "Speed Variation" );
-
-		ttl = nif->get<float>( iBlock, "Lifetime" );
-		ttlRnd = nif->get<float>( iBlock, "Lifetime Variation" );
-
-		inc = nif->get<float>( iBlock, "Declination" );
-		incRnd = nif->get<float>( iBlock, "Declination Variation" );
-
-		dec = nif->get<float>( iBlock, "Planar Angle" );
-		decRnd = nif->get<float>( iBlock, "Planar Angle Variation" );
-
-		size = nif->get<float>( iBlock, "Initial Size" );
-		grow = 0.0;
-		fade = 0.0;
-
-		list.clear();
-
-		QModelIndex iParticles = nif->getIndex( iBlock, "Particles" );
-
-		if ( iParticles.isValid() ) {
-			emitMax = nif->get<int>( iBlock, "Num Particles" );
-			int numValid = nif->get<int>( iBlock, "Num Valid" );
-
-			//iParticles = nif->getIndex( iParticles, "Particles" );
-			//if ( iParticles.isValid() )
-			//{
-			for ( int p = 0; p < numValid && p < nif->rowCount( iParticles ); p++ ) {
-				Particle particle;
-				particle.velocity = nif->get<Vector3>( iParticles.child( p, 0 ), "Velocity" );
-				particle.lifetime = nif->get<float>( iParticles.child( p, 0 ), "Age" );
-				particle.lifespan = nif->get<float>( iParticles.child( p, 0 ), "Life Span" );
-				particle.lasttime = nif->get<float>( iParticles.child( p, 0 ), "Last Update" );
-				particle.vertex = nif->get<int>( iParticles.child( p, 0 ), "Code" );
-				// Display saved particle start on initial load
-				list.append( particle );
-			}
-
-			//}
+		} else if ( modifierBlock.hasName("NiGravity") ) {
+			gravities.append( Gravity( modifierBlock ) );
 		}
 
-		if ( nif->get<bool>( iBlock, "Use Birth Rate" ) == 0 ) {
-			emitRate = emitMax / (ttl + ttlRnd / 2);
-		}
-
-		iExtras.clear();
-		grav.clear();
-		iColorKeys = QModelIndex();
-		QModelIndex iExtra = nif->getBlockIndex( nif->getLink( iBlock, "Particle Modifier" ) );
-
-		while ( iExtra.isValid() ) {
-			iExtras.append( iExtra );
-
-			QString name = nif->itemName( iExtra );
-
-			if ( name == "NiParticleGrowFade" ) {
-				grow = nif->get<float>( iExtra, "Grow" );
-				fade = nif->get<float>( iExtra, "Fade" );
-			} else if ( name == "NiParticleColorModifier" ) {
-				iColorKeys = nif->getIndex( nif->getBlockIndex( nif->getLink( iExtra, "Color Data" ), "NiColorData" ), "Data" );
-			} else if ( name == "NiGravity" ) {
-				Gravity g;
-				g.force = nif->get<float>( iExtra, "Force" );
-				g.type = nif->get<int>( iExtra, "Type" );
-				g.position = nif->get<Vector3>( iExtra, "Position" );
-				g.direction = nif->get<Vector3>( iExtra, "Direction" );
-				grav.append( g );
-			}
-
-			iExtra = nif->getBlockIndex( nif->getLink( iExtra, "Next Modifier" ) );
-		}
-
-		return true;
+		modifierBlock = modifierBlock["Next Modifier"].linkBlock("NiParticleModifier");
 	}
-
-	return false;
 }
 
-void ParticleController::updateTime( float time )
+void ParticleInterpolator::applyTransformImpl( float time )
 {
-	if ( !(target && active) )
-		return;
+	auto & targetVerts = target()->verts;
 
-	localtime = ctrlTime( time );
+	// TODO: rework the code below for the particles list to survive more than one loop of animations
 
-	int n = 0;
+	for ( int i = 0; i < particles.count(); ) {
+		Particle & p = particles[i];
 
-	while ( n < list.count() ) {
-		Particle & p = list[n];
-
-		float deltaTime = (localtime > p.lasttime ? localtime - p.lasttime : 0); //( stop - start ) - p.lasttime + localtime );
-
+		float deltaTime = (time > p.lasttime ? time - p.lasttime : 0); //( stop - start ) - p.lasttime + localtime );
 		p.lifetime += deltaTime;
 
-		if ( p.lifetime < p.lifespan && p.vertex < target->verts.count() ) {
-			p.position = target->verts[p.vertex];
+		if ( p.lifetime < p.lifespan && p.vertex < targetVerts.count() ) {
+			p.position = targetVerts[p.vertex];
 
-			for ( int i = 0; i < 4; i++ )
-				moveParticle( p, deltaTime / 4 );
+			for ( int j = 0; j < 4; j++ )
+				moveParticle( p, deltaTime / 4.0f );
 
-			p.lasttime = localtime;
-			n++;
+			p.lasttime = time;
+			i++;
 		} else {
-			list.remove( n );
+			particles.removeAt( i );
 		}
 	}
 
-	if ( emitNode && emitNode->isVisible() && localtime >= emitStart && localtime <= emitStop ) {
-		float emitDelta = (localtime > emitLast ? localtime - emitLast : 0);
-		emitLast = localtime;
+	if ( emitNode && emitNode->isVisible() && time >= emitStart && time <= emitStop ) {
+		float emitDelta = (time > emitLast ? time - emitLast : 0);
+		emitLast = time;
 
 		emitAccu += emitDelta * emitRate;
 
 		int num = int( emitAccu );
-
 		if ( num > 0 ) {
 			emitAccu -= num;
 
-			while ( num-- > 0 && list.count() < target->verts.count() ) {
+			while ( num-- > 0 && particles.count() < targetVerts.count() ) {
 				Particle p;
-				startParticle( p );
-				list.append( p );
+				startParticle( p, time );
+				particles.append( p );
 			}
 		}
 	}
 
-	n = 0;
+	auto & targetSizes = target()->sizes;
+	auto & targetColors = target()->colors;
+	for ( int i = 0; i < particles.count(); i++ ) {
+		Particle & p = particles[i];
+		p.vertex = i;
+		targetVerts[i] = p.position;
 
-	while ( n < list.count() ) {
-		Particle & p = list[n];
-		p.vertex = n;
-		target->verts[n] = p.position;
+		if ( i < targetSizes.count() )
+			sizeParticle( p, targetSizes[i] );
 
-		if ( n < target->sizes.count() )
-			sizeParticle( p, target->sizes[n] );
-
-		if ( n < target->colors.count() )
-			colorParticle( p, target->colors[n] );
-
-		n++;
+		if ( i < targetColors.count() )
+			colorParticle( p, targetColors[i] );
 	}
 
-	target->active = list.count();
-	target->size = size;
+	target()->active = particles.count();
+	target()->size = size;
 }
 
-void ParticleController::startParticle( Particle & p )
+static inline float randomFloat( float r )
 {
-	p.position = random( emitRadius * 2 ) - emitRadius;
-	p.position += target->worldTrans().rotation.inverted() * (emitNode->worldTrans().translation - target->worldTrans().translation);
+	return ( float( rand() ) / float( RAND_MAX ) ) * r;
+}
 
-	float i = inc + random( incRnd );
-	float d = dec + random( decRnd );
+static inline Vector3 randomVector( const Vector3 & v )
+{
+	return Vector3( v[0] * randomFloat( 1.0 ), v[1] * randomFloat( 1.0 ), v[2] * randomFloat( 1.0 ) );
+}
+
+void ParticleInterpolator::startParticle( Particle & p, float localTime )
+{
+	const auto & targetWorldTrans = target()->worldTrans();
+	const auto & emitWorldTrans = emitNode->worldTrans();
+
+	p.position = randomVector( emitRadius * 2 ) - emitRadius;
+	p.position += targetWorldTrans.rotation.inverted() * ( emitWorldTrans.translation - targetWorldTrans.translation );
+
+	float i = inc + randomFloat( incRnd );
+	float d = dec + randomFloat( decRnd );
 
 	p.velocity = Vector3( rand() & 1 ? sin( i ) : -sin( i ), 0, cos( i ) );
 
 	Matrix m; m.fromEuler( 0, 0, rand() & 1 ? d : -d );
 	p.velocity = m * p.velocity;
 
-	p.velocity = p.velocity * (spd + random( spdRnd ));
-	p.velocity = target->worldTrans().rotation.inverted() * emitNode->worldTrans().rotation * p.velocity;
+	p.velocity = p.velocity * (spd + randomFloat( spdRnd ));
+	p.velocity = targetWorldTrans.rotation.inverted() * emitWorldTrans.rotation * p.velocity;
 
 	p.lifetime = 0;
-	p.lifespan = ttl + random( ttlRnd );
-	p.lasttime = localtime;
+	p.lifespan = ttl + randomFloat( ttlRnd );
+	p.lasttime = localTime;
 }
 
-void ParticleController::moveParticle( Particle & p, float deltaTime )
+void ParticleInterpolator::moveParticle( Particle & p, float deltaTime )
 {
-	for ( Gravity g : grav ) {
+	for ( const Gravity & g : gravities ) {
 		switch ( g.type ) {
 		case 0:
-			p.velocity += g.direction * (g.force * deltaTime);
+			p.velocity += g.direction * ( g.force * deltaTime );
 			break;
 		case 1:
 		{
-			Vector3 dir = (g.position - p.position);
+			Vector3 dir = ( g.position - p.position );
 			dir.normalize();
-			p.velocity += dir * (g.force * deltaTime);
-		}
-		break;
+			p.velocity += dir * ( g.force * deltaTime );
+		} break;
+		default:
+			// TODO: report unsupported value of g.type?
+			break;
 		}
 	}
 	p.position += p.velocity * deltaTime;
 }
 
-void ParticleController::sizeParticle( Particle & p, float & sz )
+void ParticleInterpolator::sizeParticle( Particle & p, float & sz )
 {
 	sz = 1.0;
 
@@ -768,389 +888,405 @@ void ParticleController::sizeParticle( Particle & p, float & sz )
 		sz *= (p.lifespan - p.lifetime) / fade;
 }
 
-void ParticleController::colorParticle( Particle & p, Color4 & color )
+void ParticleInterpolator::colorParticle( Particle & p, Color4 & color )
 {
-	if ( iColorKeys.isValid() ) {
-		int i = 0;
-		interpolate( color, iColorKeys, p.lifetime / p.lifespan, i );
-	}
+	colorInterpolator.interpolate( color, p.lifetime / p.lifespan );
+}
+
+ParticleInterpolator * ParticleController::createInterpolator( NifFieldConst interpolatorBlock )
+{
+	return new ParticleInterpolator( interpolatorBlock, target, this );
 }
 
 
-// `BSNiAlphaPropertyTestRefController`
+// AlphaInterpolator_Material and AlphaController_Material classes
 
-AlphaController::AlphaController( AlphaProperty * prop, const QModelIndex & index )
-	: Controller( index ), alphaProp( prop )
+void AlphaInterpolator_Material::updateDataImpl()
 {
+	auto dataBlock = getDataBlock();
+	registerUpdateBlock( dataBlock );
+	interpolator.updateData( dataBlock["Data"] );
 }
 
-// `NiAlphaController`
-
-AlphaController::AlphaController( MaterialProperty * prop, const QModelIndex & index )
-	: Controller( index ), materialProp( prop )
+void AlphaInterpolator_Material::applyTransformImpl( float time )
 {
-}
-
-void AlphaController::updateTime( float time )
-{
-	if ( !(active) )
-		return;
-
-	if ( materialProp ) {
-		interpolate( materialProp->alpha, iData, "Data", ctrlTime( time ), lAlpha );
-
-		if ( materialProp->alpha < 0 )
-			materialProp->alpha = 0;
-
-		if ( materialProp->alpha > 1 )
-			materialProp->alpha = 1;
-	} else if ( alphaProp ) {
-		float threshold;
-
-		if ( interpolate( threshold, iData, "Data", ctrlTime( time ), lAlpha ) )
-			alphaProp->alphaThreshold = threshold / 255.0f;
-	}
-}
-
-
-// `NiMaterialColorController`
-
-MaterialColorController::MaterialColorController( MaterialProperty * prop, const QModelIndex & index )
-	: Controller( index ), target( prop )
-{
-}
-
-void MaterialColorController::updateTime( float time )
-{
-	if ( !(active && target) )
-		return;
-
-	Vector3 v3;
-	interpolate( v3, iData, "Data", ctrlTime( time ), lColor );
-
-	Color4 color( Color3( v3 ), 1.0 );
-
-	switch ( tColor ) {
-	case tAmbient:
-		target->ambient = color;
-		break;
-	case tDiffuse:
-		target->diffuse = color;
-		break;
-	case tSpecular:
-		target->specular = color;
-		break;
-	case tSelfIllum:
-		target->emissive = color;
-		break;
-	}
-}
-
-bool MaterialColorController::update( const NifModel * nif, const QModelIndex & index )
-{
-	if ( Controller::update( nif, index ) ) {
-		if ( nif->checkVersion( 0x0A010000, 0 ) ) {
-			tColor = nif->get<int>( iBlock, "Target Color" );
-		} else {
-			tColor = ((nif->get<int>( iBlock, "Flags" ) >> 4) & 7);
-		}
-
-		return true;
-	}
-
-	return false;
-}
-
-
-// `NiFlipController`
-
-TexFlipController::TexFlipController( TexturingProperty * prop, const QModelIndex & index )
-	: Controller( index ), target( prop )
-{
-}
-
-TexFlipController::TexFlipController( TextureProperty * prop, const QModelIndex & index )
-	: Controller( index ), oldTarget( prop )
-{
-}
-
-void TexFlipController::updateTime( float time )
-{
-	auto nif = NifModel::fromValidIndex(iSources);
-	if ( !((target || oldTarget) && active && nif) )
-		return;
-
-	float r = 0;
-
-	if ( iData.isValid() )
-		interpolate( r, iData, "Data", ctrlTime( time ), flipLast );
-	else if ( flipDelta > 0 )
-		r = ctrlTime( time ) / flipDelta;
-
-	// TexturingProperty
-	if ( target ) {
-		target->textures[flipSlot & 7].iSource = nif->getBlockIndex( nif->getLink( iSources.child( (int)r, 0 ) ), "NiSourceTexture" );
-	} else if ( oldTarget ) {
-		auto iImage = nif->getBlockIndex( nif->getLink( iSources.child( (int)r, 0 ) ), "NiImage" );
-		oldTarget->imageBlock = nif->field( iImage ); 
-	}
-}
-
-bool TexFlipController::update( const NifModel * nif, const QModelIndex & index )
-{
-	if ( Controller::update( nif, index ) ) {
-		flipDelta = nif->get<float>( iBlock, "Delta" );
-		flipSlot = nif->get<int>( iBlock, "Texture Slot" );
-
-		if ( nif->checkVersion( 0x04000000, 0 ) ) {
-			iSources = nif->getIndex( iBlock, "Sources" );
-		} else {
-			iSources = nif->getIndex( iBlock, "Images" );
-		}
-
-		return true;
-	}
-
-	return false;
-}
-
-
-// `NiTextureTransformController`
-
-TexTransController::TexTransController( TexturingProperty * prop, const QModelIndex & index )
-	: Controller( index ), target( prop )
-{
-}
-
-void TexTransController::updateTime( float time )
-{
-	if ( !(target && active) )
-		return;
-
-	TexturingProperty::TexDesc * tex = &target->textures[texSlot & 7];
-
 	float val;
+	if ( interpolator.interpolate( val, time ) )
+		target()->alpha = std::clamp( val, 0.0f, 1.0f );
+}
 
-	if ( interpolate( val, iData, "Data", ctrlTime( time ), lX ) ) {
+AlphaInterpolator_Material * AlphaController_Material::createInterpolator( NifFieldConst interpolatorBlock )
+{
+	return new AlphaInterpolator_Material( interpolatorBlock, target, this );
+}
+
+
+// AlphaInterpolator_Alpha and AlphaController_Alpha classes
+
+void AlphaInterpolator_Alpha::updateDataImpl()
+{
+	auto dataBlock = getDataBlock();
+	registerUpdateBlock( dataBlock );
+	interpolator.updateData( dataBlock["Data"] );
+}
+
+void AlphaInterpolator_Alpha::applyTransformImpl( float time )
+{
+	float val;
+	if ( interpolator.interpolate( val, time ) )
+		target()->alphaThreshold = std::clamp( val / 255.0f, 0.0f, 1.0f );
+}
+
+AlphaInterpolator_Alpha * AlphaController_Alpha::createInterpolator( NifFieldConst interpolatorBlock )
+{
+	return new AlphaInterpolator_Alpha( interpolatorBlock, target, this );
+}
+
+
+// MaterialColorInterpolator and MaterialColorController classes
+
+void MaterialColorInterpolator::updateDataImpl()
+{
+	auto ctrlBlock = controllerBlock();
+	registerUpdateBlock( ctrlBlock );
+
+	auto fieldColor = ctrlBlock.child("Target Color");
+	if ( fieldColor ) {
+		colorType = ColorType( fieldColor.value<int>() );
+	} else {
+		colorType = ColorType( ( ctrlBlock["Flags"].value<int>() >> 4 ) & 7 );
+	}
+	// TODO: validate colorType value?
+
+	auto dataBlock = getDataBlock();
+	registerUpdateBlock( dataBlock );
+	interpolator.updateData( dataBlock["Data"] );
+}
+
+void MaterialColorInterpolator::applyTransformImpl( float time )
+{
+	Color3 val;
+	if ( interpolator.interpolate( val, time ) ) {
+		Color4 color( val, 1.0 );
+		switch ( colorType ) {
+		case ColorType::Ambient:
+			target()->ambient = color;
+			break;
+		case ColorType::Diffuse:
+			target()->diffuse = color;
+			break;
+		case ColorType::Specular:
+			target()->specular = color;
+			break;
+		case ColorType::SelfIllum:
+			target()->emissive = color;
+			break;
+		}
+	}
+}
+
+MaterialColorInterpolator * MaterialColorController::createInterpolator( NifFieldConst interpolatorBlock )
+{
+	return new MaterialColorInterpolator( interpolatorBlock, target, this );
+}
+
+
+// TextureFlipData struct
+
+void TextureFlipData::updateData( IControllerInterpolator * ctrlInterpolator, const QString & sourcesName, const QString & sourceBlockType )
+{
+	auto ctrlBlock = ctrlInterpolator->controllerBlock();
+	ctrlInterpolator->registerUpdateBlock( ctrlBlock );
+	slot = ctrlBlock["Texture Slot"].value<int>();
+
+	auto deltaField = ctrlBlock.child("Delta");
+	hasDelta = deltaField.isValid();
+	delta = deltaField.value<float>();
+
+	sources.clear();
+	auto sourcesRoot = ctrlBlock[sourcesName];
+	sources.reserve( sourcesRoot.childCount() );
+	for ( auto entry : sourcesRoot.iter() )
+		sources.append( entry.linkBlock(sourceBlockType) );
+
+	auto dataBlock = ctrlInterpolator->getDataBlock();
+	ctrlInterpolator->registerUpdateBlock( dataBlock );
+	interpolator.updateData( dataBlock["Data"] );
+}
+
+void TextureFlipData::interpolate( NifFieldConst & sourceBlock, float time )
+{
+	if ( hasDelta ) {
+		if ( delta > 0.0f )
+			sourceBlock = sources[time / delta];
+	} else {
+		float r = 0;
+		if ( interpolator.interpolate( r, time ) )
+			sourceBlock = sources[r];
+	}
+}
+
+
+// TextureFlipInterpolator_Texturing and TextureFlipController_Texturing classes
+
+void TextureFlipInterpolator_Texturing::updateDataImpl()
+{
+	data.updateData( this, QStringLiteral("Sources"), QStringLiteral("NiSourceTexture") );
+}
+
+void TextureFlipInterpolator_Texturing::applyTransformImpl( float time )
+{
+	data.interpolate( target()->textures[data.slot & 7].sourceBlock, time );
+}
+
+TextureFlipInterpolator_Texturing * TextureFlipController_Texturing::createInterpolator( NifFieldConst interpolatorBlock )
+{
+	return new TextureFlipInterpolator_Texturing( interpolatorBlock, target, this );
+}
+
+
+// TextureFlipInterpolator_Texture and TextureFlipController_Texture classes
+
+void TextureFlipInterpolator_Texture::updateDataImpl()
+{
+	data.updateData( this, QStringLiteral("Images"), QStringLiteral("NiImage") );
+}
+
+void TextureFlipInterpolator_Texture::applyTransformImpl( float time )
+{
+	data.interpolate( target()->imageBlock, time );
+}
+
+TextureFlipInterpolator_Texture * TextureFlipController_Texture::createInterpolator( NifFieldConst interpolatorBlock )
+{
+	return new TextureFlipInterpolator_Texture( interpolatorBlock, target, this );
+}
+
+
+// TextureTransformInterpolator and TextureTransformController classes
+
+void TextureTransformInterpolator::updateDataImpl()
+{
+	auto ctrlBlock = controllerBlock();
+	registerUpdateBlock( ctrlBlock );
+	operationType = OperationType( ctrlBlock["Operation"].value<int>() );
+	// TODO: validate operationType value?
+	textureSlot = ctrlBlock["Texture Slot"].value<int>();
+
+	auto dataBlock = getDataBlock();
+	registerUpdateBlock( dataBlock );
+	interpolator.updateData( dataBlock["Data"] );
+}
+
+void TextureTransformInterpolator::applyTransformImpl( float time )
+{
+	float val;
+	if ( interpolator.interpolate( val, time ) ) {
+		TexturingProperty::TexDesc * tex = target()->textures + (textureSlot & 7);
+
 		// If desired, we could force display even if texture transform was disabled:
 		// tex->hasTransform = true;
 		// however "Has Texture Transform" doesn't exist until 10.1.0.0, and neither does
 		// NiTextureTransformController - so we won't bother
-		switch ( texOP ) {
-		case 0:
+		switch ( operationType ) {
+		case OperationType::TranslateU:
 			tex->translation[0] = val;
 			break;
-		case 1:
+		case OperationType::TranslateV:
 			tex->translation[1] = val;
 			break;
-		case 2:
+		case OperationType::Rotate:
 			tex->rotation = val;
 			break;
-		case 3:
+		case OperationType::ScaleU:
 			tex->tiling[0] = val;
 			break;
-		case 4:
+		case OperationType::ScaleV:
 			tex->tiling[1] = val;
 			break;
 		}
 	}
 }
 
-bool TexTransController::update( const NifModel * nif, const QModelIndex & index )
+TextureTransformInterpolator * TextureTransformController::createInterpolator( NifFieldConst interpolatorBlock )
 {
-	if ( Controller::update( nif, index ) ) {
-		texSlot = nif->get<int>( iBlock, "Texture Slot" );
-		texOP = nif->get<int>( iBlock, "Operation" );
-		return true;
-	}
-
-	return false;
+	return new TextureTransformInterpolator( interpolatorBlock, target, this );
 }
 
 
+// EffectFloatInterpolator and EffectFloatController classes
 
-EffectFloatController::EffectFloatController( BSEffectShaderProperty * prop, const QModelIndex & index )
-	: Controller( index ), target( prop )
+void EffectFloatInterpolator::updateDataImpl()
 {
+	auto ctrlBlock = controllerBlock();
+	registerUpdateBlock( ctrlBlock );
+	valueType = ValueType( ctrlBlock["Controlled Variable"].value<int>() );
+	// TODO: validate valueType value?
+
+	auto dataBlock = getDataBlock();
+	registerUpdateBlock( dataBlock );
+	interpolator.updateData( dataBlock["Data"] );
 }
 
-void EffectFloatController::updateTime( float time )
+void EffectFloatInterpolator::applyTransformImpl( float time )
 {
-	if ( !(target && active) )
-		return;
-
 	float val;
-
-	int lIdx;
-
-	if ( interpolate( val, iData, "Data", ctrlTime( time ), lIdx ) ) {
-		switch ( variable ) {
-		case EffectFloat::Emissive_Multiple:
-			target->emissiveMult = val;
+	if ( interpolator.interpolate( val, time ) ) {
+		switch ( valueType ) {
+		case ValueType::Emissive_Multiple:
+			target()->emissiveMult = val;
 			break;
-		case EffectFloat::Falloff_Start_Angle:
-			target->falloff.startAngle = val;
+		case ValueType::Falloff_Start_Angle:
+			target()->falloff.startAngle = val;
 			break;
-		case EffectFloat::Falloff_Stop_Angle:
-			target->falloff.stopAngle = val;
+		case ValueType::Falloff_Stop_Angle:
+			target()->falloff.stopAngle = val;
 			break;
-		case EffectFloat::Falloff_Start_Opacity:
-			target->falloff.startOpacity = val;
+		case ValueType::Falloff_Start_Opacity:
+			target()->falloff.startOpacity = val;
 			break;
-		case EffectFloat::Falloff_Stop_Opacity:
-			target->falloff.stopOpacity = val;
+		case ValueType::Falloff_Stop_Opacity:
+			target()->falloff.stopOpacity = val;
 			break;
-		case EffectFloat::Alpha:
-			target->emissiveColor.setAlpha( val );
+		case ValueType::Alpha:
+			target()->emissiveColor.setAlpha( val );
 			break;
-		case EffectFloat::U_Offset:
-			target->uvOffset.x = val;
+		case ValueType::U_Offset:
+			target()->uvOffset.x = val;
 			break;
-		case EffectFloat::U_Scale:
-			target->uvScale.x = val;
+		case ValueType::U_Scale:
+			target()->uvScale.x = val;
 			break;
-		case EffectFloat::V_Offset:
-			target->uvOffset.y = val;
+		case ValueType::V_Offset:
+			target()->uvOffset.y = val;
 			break;
-		case EffectFloat::V_Scale:
-			target->uvScale.y = val;
-			break;
-		default:
+		case ValueType::V_Scale:
+			target()->uvScale.y = val;
 			break;
 		}
 	}
 }
 
-bool EffectFloatController::update( const NifModel * nif, const QModelIndex & index )
+EffectFloatInterpolator * EffectFloatController::createInterpolator( NifFieldConst interpolatorBlock )
 {
-	if ( Controller::update( nif, index ) ) {
-		variable = EffectFloat::Variable( nif->get<int>( iBlock, "Controlled Variable" ) );
-		return true;
-	}
-
-	return false;
+	return new EffectFloatInterpolator( interpolatorBlock, target, this );
 }
 
 
-EffectColorController::EffectColorController( BSEffectShaderProperty * prop, const QModelIndex & index )
-	: Controller( index ), target( prop )
+// EffectColorInterpolator and EffectColorController classes
+
+void EffectColorInterpolator::updateDataImpl()
 {
+	auto ctrlBlock = controllerBlock();
+	registerUpdateBlock( ctrlBlock );
+	colorType = ctrlBlock["Controlled Color"].value<int>();
+	// TODO: validate variable value?
+
+	auto dataBlock = getDataBlock();
+	registerUpdateBlock( dataBlock );
+	interpolator.updateData( dataBlock["Data"] );
 }
 
-void EffectColorController::updateTime( float time )
+void EffectColorInterpolator::applyTransformImpl( float time )
 {
-	if ( !(target && active) )
-		return;
-
 	Vector3 val;
-
-	int lIdx;
-
-	if ( interpolate( val, iData, "Data", ctrlTime( time ), lIdx ) ) {
-		switch ( variable ) {
+	if ( interpolator.interpolate( val, time ) ) {
+		switch ( colorType ) {
 		case 0:
-			target->emissiveColor = Color4( val[0], val[1], val[2], target->emissiveColor.alpha() );
-			break;
-		default:
+			target()->emissiveColor = Color4( val[0], val[1], val[2], target()->emissiveColor.alpha() );
 			break;
 		}
 	}
 }
 
-bool EffectColorController::update( const NifModel * nif, const QModelIndex & index )
+EffectColorInterpolator * EffectColorController::createInterpolator( NifFieldConst interpolatorBlock )
 {
-	if ( Controller::update( nif, index ) ) {
-		variable = nif->get<int>( iBlock, "Controlled Color" );
-		return true;
-	}
-
-	return false;
+	return new EffectColorInterpolator( interpolatorBlock, target, this );
 }
 
 
-LightingFloatController::LightingFloatController( BSLightingShaderProperty * prop, const QModelIndex & index )
-	: Controller( index ), target( prop )
+// LightingFloatInterpolator and LightingFloat LightingFloatController classes
+
+void LightingFloatInterpolator::updateDataImpl()
 {
+	auto ctrlBlock = controllerBlock();
+	registerUpdateBlock( ctrlBlock );
+	valueType = ValueType( ctrlBlock["Controlled Variable"].value<int>() );
+	// TODO: validate valueType value?
+
+	auto dataBlock = getDataBlock();
+	registerUpdateBlock( dataBlock );
+	interpolator.updateData( dataBlock["Data"] );
 }
 
-void LightingFloatController::updateTime( float time )
+void LightingFloatInterpolator::applyTransformImpl( float time )
 {
-	if ( !(target && active) )
-		return;
-
 	float val;
-
-	int lIdx;
-
-	if ( interpolate( val, iData, "Data", ctrlTime( time ), lIdx ) ) {
-		switch ( variable ) {
-		case LightingFloat::Refraction_Strength:
+	if ( interpolator.interpolate( val, time ) ) {
+		switch ( valueType ) {
+		case ValueType::Refraction_Strength:
 			break;
-		case LightingFloat::Reflection_Strength:
-			target->environmentReflection = val;
+		case ValueType::Reflection_Strength:
+			target()->environmentReflection = val;
 			break;
-		case LightingFloat::Glossiness:
-			target->specularGloss = val;
+		case ValueType::Glossiness:
+			target()->specularGloss = val;
 			break;
-		case LightingFloat::Specular_Strength:
-			target->specularStrength = val;
+		case ValueType::Specular_Strength:
+			target()->specularStrength = val;
 			break;
-		case LightingFloat::Emissive_Multiple:
-			target->emissiveMult = val;
+		case ValueType::Emissive_Multiple:
+			target()->emissiveMult = val;
 			break;
-		case LightingFloat::Alpha:
-			target->alpha = val;
+		case ValueType::Alpha:
+			target()->alpha = val;
 			break;
-		case LightingFloat::U_Offset:
-			target->uvOffset.x = val;
+		case ValueType::U_Offset:
+			target()->uvOffset.x = val;
 			break;
-		case LightingFloat::U_Scale:
-			target->uvScale.x = val;
+		case ValueType::U_Scale:
+			target()->uvScale.x = val;
 			break;
-		case LightingFloat::V_Offset:
-			target->uvOffset.y = val;
+		case ValueType::V_Offset:
+			target()->uvOffset.y = val;
 			break;
-		case LightingFloat::V_Scale:
-			target->uvScale.y = val;
-			break;
-		default:
+		case ValueType::V_Scale:
+			target()->uvScale.y = val;
 			break;
 		}
 	}
 }
 
-bool LightingFloatController::update( const NifModel * nif, const QModelIndex & index )
+LightingFloatInterpolator * LightingFloatController::createInterpolator( NifFieldConst interpolatorBlock )
 {
-	if ( Controller::update( nif, index ) ) {
-		variable = LightingFloat::Variable(nif->get<int>( iBlock, "Controlled Variable" ));
-		return true;
-	}
-
-	return false;
+	return new LightingFloatInterpolator( interpolatorBlock, target, this );
 }
 
 
-LightingColorController::LightingColorController( BSLightingShaderProperty * prop, const QModelIndex & index )
-	: Controller( index ), target( prop )
+// LightingColorInterpolator and LightingColorController classes
+
+void LightingColorInterpolator::updateDataImpl()
 {
+	auto ctrlBlock = controllerBlock();
+	registerUpdateBlock( ctrlBlock );
+	colorType = ctrlBlock["Controlled Color"].value<int>();
+	// TODO: validate colorType value?
+
+	auto dataBlock = getDataBlock();
+	registerUpdateBlock( dataBlock );
+	interpolator.updateData( dataBlock["Data"] );
 }
 
-void LightingColorController::updateTime( float time )
+void LightingColorInterpolator::applyTransformImpl( float time )
 {
-	if ( !(target && active) )
-		return;
-
 	Vector3 val;
-
-	int lIdx;
-
-	if ( interpolate( val, iData, "Data", ctrlTime( time ), lIdx ) ) {
-		switch ( variable ) {
+	if ( interpolator.interpolate( val, time ) ) {
+		switch ( colorType ) {
 		case 0:
-			target->specularColor = { val[0], val[1], val[2] };
+			target()->specularColor = { val[0], val[1], val[2] };
 			break;
 		case 1:
-			target->emissiveColor = { val[0], val[1], val[2] };
+			target()->emissiveColor = { val[0], val[1], val[2] };
 			break;
 		default:
 			break;
@@ -1158,12 +1294,7 @@ void LightingColorController::updateTime( float time )
 	}
 }
 
-bool LightingColorController::update( const NifModel * nif, const QModelIndex & index )
+LightingColorInterpolator * LightingColorController::createInterpolator( NifFieldConst interpolatorBlock )
 {
-	if ( Controller::update( nif, index ) ) {
-		variable = nif->get<int>( iBlock, "Controlled Color" );
-		return true;
-	}
-
-	return false;
+	return new LightingColorInterpolator( interpolatorBlock, target, this );
 }

@@ -211,13 +211,12 @@ void AlphaProperty::updateImpl( const NifModel * nif, const QModelIndex & index 
 	}
 }
 
-void AlphaProperty::setController( const NifModel * nif, const QModelIndex & controller )
+Controller * AlphaProperty::createController( NifFieldConst controllerBlock )
 {
-	auto contrName = nif->itemName(controller);
-	if ( contrName == "BSNiAlphaPropertyTestRefController" ) {
-		Controller * ctrl = new AlphaController( this, controller );
-		registerController(nif, ctrl);
-	}
+	if ( controllerBlock.hasName("BSNiAlphaPropertyTestRefController") )
+		return new AlphaController_Alpha( this, controllerBlock );
+
+	return nullptr;
 }
 
 void glProperty( AlphaProperty * p )
@@ -304,11 +303,11 @@ void TexturingProperty::updateImpl( const NifModel * nif, const QModelIndex & in
 		for ( int t = 0; t < NUM_TEXTURES; t++ ) {
 			auto texEntry = block.child( FIELD_NAMES[t] );
 			if ( !texEntry ) {
-				textures[t].iSource = QModelIndex();
+				textures[t].sourceBlock = NifFieldConst();
 				continue;
 			}
 
-			textures[t].iSource  = texEntry.child("Source").linkBlock("NiSourceTexture").toIndex();
+			textures[t].sourceBlock = texEntry.child("Source").linkBlock("NiSourceTexture");
 			textures[t].coordset = texEntry.child("UV Set").value<int>();
 				
 			int filterMode = 0, clampMode = 0;
@@ -405,7 +404,7 @@ bool TexturingProperty::bind( int id, const QString & fname )
 		if ( !fname.isEmpty() )
 			mipmaps = scene->bindTexture( fname );
 		else
-			mipmaps = scene->bindTexture( textures[ id ].iSource );
+			mipmaps = scene->bindTexture( textures[id].sourceBlock.toIndex() );
 
 		if ( mipmaps == 0 )
 			return false;
@@ -460,13 +459,8 @@ bool TexturingProperty::bind( int id, const QVector<QVector<Vector2> > & texcoor
 
 QString TexturingProperty::fileName( int id ) const
 {
-	if ( id >= 0 && id < NUM_TEXTURES ) {
-		QModelIndex iSource = textures[id].iSource;
-		auto nif = NifModel::fromValidIndex(iSource);
-		if ( nif ) {
-			return nif->get<QString>( iSource, "File Name" );
-		}
-	}
+	if ( id >= 0 && id < NUM_TEXTURES )
+		return textures[id].sourceBlock.child("File Name").value<QString>();
 
 	return QString();
 }
@@ -480,18 +474,15 @@ int TexturingProperty::coordSet( int id ) const
 	return -1;
 }
 
-
-//! Set the appropriate Controller
-void TexturingProperty::setController( const NifModel * nif, const QModelIndex & iController )
+Controller * TexturingProperty::createController( NifFieldConst controllerBlock )
 {
-	auto contrName = nif->itemName(iController);
-	if ( contrName == "NiFlipController" ) {
-		Controller * ctrl = new TexFlipController( this, iController );
-		registerController(nif, ctrl);
-	} else if ( contrName == "NiTextureTransformController" ) {
-		Controller * ctrl = new TexTransController( this, iController );
-		registerController(nif, ctrl);
-	}
+	if ( controllerBlock.hasName("NiFlipController") )
+		return new TextureFlipController_Texturing( this, controllerBlock );
+
+	if ( controllerBlock.hasName("NiTextureTransformController") )
+		return new TextureTransformController( this, controllerBlock );
+
+	return nullptr;
 }
 
 int TexturingProperty::getId( const QString & texname )
@@ -568,13 +559,12 @@ QString TextureProperty::fileName() const
 }
 
 
-void TextureProperty::setController( const NifModel * nif, const QModelIndex & iController )
+Controller * TextureProperty::createController( NifFieldConst controllerBlock )
 {
-	auto contrName = nif->itemName(iController);
-	if ( contrName == "NiFlipController" ) {
-		Controller * ctrl = new TexFlipController( this, iController );
-		registerController(nif, ctrl);
-	}
+	if ( controllerBlock.hasName("NiFlipController") )
+		return new TextureFlipController_Texture( this, controllerBlock );
+
+	return nullptr;
 }
 
 void glProperty( TextureProperty * p )
@@ -605,16 +595,15 @@ void MaterialProperty::updateImpl( const NifModel * nif, const QModelIndex & ind
 	}
 }
 
-void MaterialProperty::setController( const NifModel * nif, const QModelIndex & iController )
+Controller * MaterialProperty::createController( NifFieldConst controllerBlock )
 {
-	auto contrName = nif->itemName(iController);
-	if ( contrName == "NiAlphaController" ) {
-		Controller * ctrl = new AlphaController( this, iController );
-		registerController(nif, ctrl);
-	} else if ( contrName == "NiMaterialColorController" ) {
-		Controller * ctrl = new MaterialColorController( this, iController );
-		registerController(nif, ctrl);
-	}
+	if ( controllerBlock.hasName("NiAlphaController") )
+		return new AlphaController_Material( this, controllerBlock );
+
+	if ( controllerBlock.hasName("NiMaterialColorController") )
+		return new MaterialColorController( this, controllerBlock );
+
+	return nullptr;
 }
 
 
@@ -1776,16 +1765,15 @@ void BSLightingShaderProperty::updateData()
 	}
 }
 
-void BSLightingShaderProperty::setController( const NifModel * nif, const QModelIndex & iController )
+Controller * BSLightingShaderProperty::createController( NifFieldConst controllerBlock )
 {
-	auto contrName = nif->itemName(iController);
-	if ( contrName == "BSLightingShaderPropertyFloatController" ) {
-		Controller * ctrl = new LightingFloatController( this, iController );
-		registerController(nif, ctrl);
-	} else if ( contrName == "BSLightingShaderPropertyColorController" ) {
-		Controller * ctrl = new LightingColorController( this, iController );
-		registerController(nif, ctrl);
-	}
+	if ( controllerBlock.hasName("BSLightingShaderPropertyFloatController") )
+		return new LightingFloatController( this, controllerBlock );
+
+	if ( controllerBlock.hasName("BSLightingShaderPropertyColorController") )
+		return new LightingColorController( this, controllerBlock );
+
+	return nullptr;
 }
 
 /*
@@ -1932,16 +1920,15 @@ void BSEffectShaderProperty::updateData()
 	}
 }
 
-void BSEffectShaderProperty::setController( const NifModel * nif, const QModelIndex & iController )
+Controller * BSEffectShaderProperty::createController( NifFieldConst controllerBlock )
 {
-	auto contrName = nif->itemName(iController);
-	if ( contrName == "BSEffectShaderPropertyFloatController" ) {
-		Controller * ctrl = new EffectFloatController( this, iController );
-		registerController(nif, ctrl);
-	} else if ( contrName == "BSEffectShaderPropertyColorController" ) {
-		Controller * ctrl = new EffectColorController( this, iController );
-		registerController(nif, ctrl);
-	}
+	if ( controllerBlock.hasName("BSEffectShaderPropertyFloatController") )
+		return new EffectFloatController( this, controllerBlock );
+
+	if ( controllerBlock.hasName("BSEffectShaderPropertyColorController") )
+		return new EffectColorController( this, controllerBlock );
+
+	return nullptr;
 }
 
 /*

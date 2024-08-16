@@ -79,15 +79,12 @@ void Particles::updateImpl( const NifModel * nif, const QModelIndex & index )
 		updateData = true;
 }
 
-void Particles::setController( const NifModel * nif, const QModelIndex & index )
+Controller * Particles::createController( NifFieldConst controllerBlock )
 {
-	auto contrName = nif->itemName(index);
-	if ( contrName == "NiParticleSystemController" || contrName == "NiBSPArrayController" ) {
-		Controller * ctrl = new ParticleController( this, index );
-		registerController(nif, ctrl);
-	} else {
-		Node::setController( nif, index );
-	}
+	if ( controllerBlock.hasName("NiParticleSystemController", "NiBSPArrayController") )
+		return new ParticleController( this, controllerBlock );
+
+	return Node::createController( controllerBlock );
 }
 
 void Particles::transform()

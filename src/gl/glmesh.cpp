@@ -452,7 +452,7 @@ void Mesh::updateData_NiTriShape()
 
 	auto normalsField = dataBlock.child("Normals");
 	if ( normalsField ) {
-		reportCountMismatch( normalsField, mainVertexRoot, dataBlock );
+		reportFieldCountMismatch( normalsField, mainVertexRoot, dataBlock );
 		hasVertexNormals = true;
 		norms = normalsField.array<Vector3>();
 		addVertexSelection( normalsField, VertexSelectionType::NORMALS );
@@ -473,7 +473,7 @@ void Mesh::updateData_NiTriShape()
 		auto extraDataRoot = extraTangents["Binary Data"];
 		QByteArray extraData = extraDataRoot.value<QByteArray>();
 		int nExtraCount = extraData.count() / ( sizeof(Vector3) * 2 );
-		reportCountMismatch(extraDataRoot, nExtraCount, mainVertexRoot, numVerts, block );
+		reportFieldCountMismatch(extraDataRoot, nExtraCount, mainVertexRoot, numVerts, block );
 		tangents.resize(nExtraCount);
 		bitangents.resize(nExtraCount);
 		Vector3 * t = (Vector3 *) extraData.data();
@@ -485,7 +485,7 @@ void Mesh::updateData_NiTriShape()
 	} else {
 		auto tangentsField = dataBlock.child("Tangents");
 		if ( tangentsField ) {
-			reportCountMismatch( tangentsField, mainVertexRoot, dataBlock );
+			reportFieldCountMismatch( tangentsField, mainVertexRoot, dataBlock );
 			hasVertexTangents = true;
 			tangents = tangentsField.array<Vector3>();
 			addVertexSelection( tangentsField, VertexSelectionType::TANGENTS );
@@ -493,7 +493,7 @@ void Mesh::updateData_NiTriShape()
 
 		auto bitangentsField = dataBlock.child("Bitangents");
 		if ( bitangentsField ) {
-			reportCountMismatch( tangentsField, mainVertexRoot, dataBlock );
+			reportFieldCountMismatch( tangentsField, mainVertexRoot, dataBlock );
 			hasVertexBitangents = true;
 			bitangents = bitangentsField.array<Vector3>();
 			addVertexSelection( bitangentsField, VertexSelectionType::BITANGENTS );
@@ -504,7 +504,7 @@ void Mesh::updateData_NiTriShape()
 	if ( uvSetsRoot ) {
 		hasVertexUVs = true;
 		for ( auto uvSetField : uvSetsRoot.iter() ) {
-			reportCountMismatch( uvSetField, mainVertexRoot, dataBlock );
+			reportFieldCountMismatch( uvSetField, mainVertexRoot, dataBlock );
 			coords.append( uvSetField.array<Vector2>() );
 			addVertexSelection( uvSetField, VertexSelectionType::VERTICES );
 		}
@@ -513,7 +513,7 @@ void Mesh::updateData_NiTriShape()
 
 	auto colorsField = dataBlock.child("Vertex Colors");
 	if ( colorsField ) {
-		reportCountMismatch( colorsField, mainVertexRoot, dataBlock );
+		reportFieldCountMismatch( colorsField, mainVertexRoot, dataBlock );
 		hasVertexColors = true;
 		colors = colorsField.array<Color4>();
 		addVertexSelection( colorsField, VertexSelectionType::VERTICES );
@@ -585,10 +585,10 @@ void Mesh::updateData_NiTriShape()
 				int weightsPerVertex = partEntry.child("Num Weights Per Vertex").value<int>();
 				auto boneIndicesRoot = partEntry.child("Bone Indices");
 				auto weightsRoot = partEntry.child("Vertex Weights");
-				reportCountMismatch( boneIndicesRoot, weightsRoot, partEntry );
+				reportFieldCountMismatch( boneIndicesRoot, weightsRoot, partEntry );
 				int nDataVerts = std::min( boneIndicesRoot.childCount(), weightsRoot.childCount() );
 				if ( nPartMappedVertices > 0 ) {
-					reportCountMismatch( boneIndicesRoot, vertexMapRoot, partEntry );
+					reportFieldCountMismatch( boneIndicesRoot, vertexMapRoot, partEntry );
 					if ( nPartMappedVertices < nDataVerts )
 						nDataVerts = nPartMappedVertices;
 					addVertexSelection( boneIndicesRoot, VertexSelectionType::VERTICES, vertexMapRoot );
