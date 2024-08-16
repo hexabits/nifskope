@@ -1131,22 +1131,22 @@ public:
 		return child( QLatin1String(name), reportErrors );
 	}
 
-	//! Get a child field by its index. Same as field(...) with with reportErrors = true.
+	//! Get a child field by its index. Same as field(...) with reportErrors = true.
 	NifFieldTemplate operator [] ( int childIndex ) const
 	{
 		return child( childIndex, true );
 	}
-	//! Get a child field by its name. Same as field(...) with with reportErrors = true.
+	//! Get a child field by its name. Same as field(...) with reportErrors = true.
 	NifFieldTemplate operator [] ( const QString & childName ) const
 	{
 		return child( childName, true );
 	}
-	//! Get a child field by its name. Same as field(...) with with reportErrors = true.
+	//! Get a child field by its name. Same as field(...) with reportErrors = true.
 	NifFieldTemplate operator [] ( const QLatin1String & childName ) const
 	{
 		return child( childName, true );
 	}
-	//! Get a child field by its name. Same as field(...) with with reportErrors = true.
+	//! Get a child field by its name. Same as field(...) with reportErrors = true.
 	NifFieldTemplate operator [] ( const char * childName ) const
 	{
 		return child( QLatin1String(childName), true );
