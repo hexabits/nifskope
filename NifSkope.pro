@@ -2,8 +2,12 @@
 ## BUILD OPTIONS
 ###############################
 
-TEMPLATE = vcapp
-TARGET   = NifSkope
+*msvc* {
+	TEMPLATE = vcapp
+} else {
+	TEMPLATE = app
+}
+TARGET = NifSkope
 
 QT += xml opengl network widgets
 
