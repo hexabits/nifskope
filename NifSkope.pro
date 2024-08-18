@@ -352,6 +352,7 @@ gli {
 zlib {
 	macx {
         DEFINES += Z_HAVE_UNISTD_H
+        QMAKE_CFLAGS += -fno-define-target-os-macros
     }
     !*msvc*:QMAKE_CFLAGS += -isystem ../nifskope/lib/zlib
     !*msvc*:QMAKE_CXXFLAGS += -isystem ../nifskope/lib/zlib
