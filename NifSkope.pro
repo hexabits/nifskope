@@ -427,9 +427,9 @@ win32 {
 }
 
 
-# MinGW, GCC
+# MinGW, GCC, clang
 #  Recommended: GCC 4.8.1+
-*-g++ {
+*-g++|*-clang {
 
 	# COMPILER FLAGS
 
