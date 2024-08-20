@@ -1070,9 +1070,6 @@ void GLView::setViewMode( GLView::ViewState newView )
 	case ViewWalk:
 		center();
 		break;
-	case ViewUser:
-		loadUserView();
-		break;
 	}
 
 	emit viewModeChanged();
@@ -1288,6 +1285,8 @@ void GLView::saveUserView()
 	settings.setValue( "Dist", Dist );
 	settings.endGroup();
 	settings.endGroup();
+
+	setViewMode( ViewUser );
 }
 
 void GLView::loadUserView()
@@ -1300,6 +1299,8 @@ void GLView::loadUserView()
 	setDistance( settings.value( "Dist" ).toDouble() );
 	settings.endGroup();
 	settings.endGroup();
+
+	setViewMode( ViewUser );
 }
 
 void GLView::advanceGears()

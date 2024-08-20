@@ -1465,7 +1465,7 @@ void NifSkope::on_aViewUserSave_triggered( [[maybe_unused]] bool checked )
 void NifSkope::on_aViewUser_toggled( bool checked )
 {
 	if ( checked )
-		ogl->setViewMode( GLView::ViewUser );
+		ogl->loadUserView();
 }
 
 void NifSkope::on_aSettings_triggered()
