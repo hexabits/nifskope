@@ -676,29 +676,29 @@ public:
 	inline bool hasStrType( const char * testType ) const { return itemData.type() == QLatin1String(testType); }
 
 	//! Set the name
-	inline void setName( const QString & name ) {   itemData.setName( name );   }
+	inline void setName( const QString & name ) { itemData.setName( name ); }
 	//! Set the string type
 	inline void setStrType( const QString & type ) { itemData.setType( type ); }
 	//! Set the template type
 	inline void setTempl( const QString & temp ) { itemData.setTempl( temp ); }
 	//! Set the argument attribute
-	inline void setArg( const QString & arg )   {   itemData.setArg( arg );     }
+	inline void setArg( const QString & arg ) { itemData.setArg( arg ); }
 	//! Set the first array length
-	inline void setArr1( const QString & arr1 ) {   itemData.setArr1( arr1 );   }
+	inline void setArr1( const QString & arr1 ) { itemData.setArr1( arr1 ); }
 	//! Set the second array length
-	inline void setArr2( const QString & arr2 ) {   itemData.setArr2( arr2 );   }
+	inline void setArr2( const QString & arr2 ) { itemData.setArr2( arr2 ); }
 	//! Set the condition attribute
-	inline void setCond( const QString & cond ) {   itemData.setCond( cond );   }
+	inline void setCond( const QString & cond ) { itemData.setCond( cond ); }
 
 	//! Set the earliest version attribute
-	inline void setVer1( int v1 ) {   itemData.setVer1( v1 );     }
+	inline void setVer1( int v1 ) { itemData.setVer1( v1 ); }
 	//! Set the latest version attribute
-	inline void setVer2( int v2 ) {   itemData.setVer2( v2 );     }
+	inline void setVer2( int v2 ) { itemData.setVer2( v2 ); }
 
 	//! Set the description text
-	inline void setText( const QString & text )    {   itemData.setText( text );    }
+	inline void setText( const QString & text ) { itemData.setText( text ); }
 	//! Set the version condition attribute
-	inline void setVerCond( const QString & cond ) {   itemData.setVerCond( cond ); }
+	inline void setVerCond( const QString & cond ) { itemData.setVerCond( cond ); }
 
 	inline void setIsConditionless( bool flag ) { itemData.setIsConditionless( flag ); }
 
