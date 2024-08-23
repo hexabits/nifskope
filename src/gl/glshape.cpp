@@ -535,8 +535,8 @@ void Shape::applyRigidTransforms()
 
 void Shape::applyColorTransforms( float alphaBlend )
 {
-	auto shaderColorMode = bssp ? bssp->vertexColorMode : ShaderColorMode::FROM_DATA;
-	bool doVCs = ( shaderColorMode == ShaderColorMode::FROM_DATA ) ? hasVertexColors : ( shaderColorMode == ShaderColorMode::YES );
+	auto shaderColorMode = bssp ? bssp->vertexColorMode : ShaderColorMode::FromData;
+	bool doVCs = ( shaderColorMode == ShaderColorMode::FromData ) ? hasVertexColors : ( shaderColorMode == ShaderColorMode::Yes );
 
 	if ( doVCs && numVerts > 0 ) {
 		transColors = colors;
@@ -611,19 +611,18 @@ void Shape::resetBlockData()
 
 void Shape::updateShader()
 {
-	if ( bslsp )
-		translucent = (bslsp->alpha < 1.0) || bslsp->hasRefraction;
-	else if ( bsesp )
-		translucent = (bsesp->getAlpha() < 1.0) && !alphaProperty;
-	else
-		translucent = false;
+	if ( bslsp ) {
+		translucent = bslsp->isTranslucent();
+	} else {
+		translucent = !alphaProperty && bssp && bssp->isTranslucent();
+	}
 
 	drawInSecondPass = false;
-	if ( translucent )
+	if ( translucent ) {
 		drawInSecondPass = true;
-	else if ( alphaProperty && (alphaProperty->hasAlphaBlend() || alphaProperty->hasAlphaTest()) )
+	} else if ( alphaProperty && (alphaProperty->hasAlphaBlend() || alphaProperty->hasAlphaTest()) ) {
 		drawInSecondPass = true;
-	else if ( bssp ) {
+	} else if ( bssp ) {
 		Material * mat = bssp->getMaterial();
 		if ( mat && (mat->hasAlphaBlend() || mat->hasAlphaTest() || mat->hasDecal()) )
 			drawInSecondPass = true;

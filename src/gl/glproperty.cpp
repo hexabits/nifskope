@@ -44,7 +44,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //! @file glproperty.cpp Encapsulation of NiProperty blocks defined in nif.xml
 
 //! Helper function that checks texture sets
-bool checkSet( int s, const QVector<QVector<Vector2> > & texcoords )
+static inline bool checkSet( int s, const QVector<QVector<Vector2> > & texcoords )
 {
 	return s >= 0 && s < texcoords.count() && texcoords[s].count();
 }
@@ -52,6 +52,26 @@ bool checkSet( int s, const QVector<QVector<Vector2> > & texcoords )
 Property * Property::create( Scene * scene, const NifModel * nif, const QModelIndex & index )
 {
 	Property * property = nullptr;
+
+	static const QSet<QString> oldShaderTypes = {
+		// Fallout 3 - lighting shaders
+		QStringLiteral("BSShaderLightingProperty"),
+		QStringLiteral("BSShaderNoLightingProperty"),
+		QStringLiteral("BSShaderPPLightingProperty"),
+		QStringLiteral("Lighting30ShaderProperty"),
+		QStringLiteral("SkyShaderProperty"),
+		QStringLiteral("TileShaderProperty"),
+
+		// Fallout 3 - other shaders
+		QStringLiteral("WaterShaderProperty"),
+		QStringLiteral("TallGrassShaderProperty"),
+
+		// Other ancient shaders from nif.xml
+		QStringLiteral("DistantLODShaderProperty"),
+		QStringLiteral("HairShaderProperty"),
+		QStringLiteral("BSDistantTreeShaderProperty"),
+		QStringLiteral("VolumetricFogShaderProperty"),
+	};
 
 	auto block = nif->field( index );
 	if ( !block ) {
@@ -93,11 +113,11 @@ Property * Property::create( Scene * scene, const NifModel * nif, const QModelIn
 	} else if ( block.hasName("BSEffectShaderProperty") ) {
 		property = new BSEffectShaderProperty( scene, block );
 
-	} else if ( block.hasName("BSWaterShaderProperty") ) {
-		property = new BSWaterShaderProperty( scene, block );
+	} else if ( block.hasName("BSWaterShaderProperty", "BSSkyShaderProperty") ) {
+		property = new SkyrimSimpleShaderProperty( scene, block );
 
-	} else if ( block.inherits("BSShaderLightingProperty") ) {
-		property = new BSShaderLightingProperty( scene, block );
+	} else if ( oldShaderTypes.contains( block.name() ) ) {
+		property = new BSShaderProperty( scene, block );
 
 	} else {
 		nif->reportError( tr("Property::create: Could not create Property from a block of type '%1'.").arg( block.name() ) );
@@ -108,6 +128,9 @@ Property * Property::create( Scene * scene, const NifModel * nif, const QModelIn
 
 	return property;
 }
+
+
+// PropertyList class
 
 PropertyList::~PropertyList()
 {
@@ -176,6 +199,8 @@ Property * PropertyList::get( const QModelIndex & iPropBlock ) const
 }
 
 
+// AlphaProperty class
+
 void AlphaProperty::updateImpl( const NifModel * nif, const QModelIndex & index )
 {
 	Property::updateImpl( nif, index );
@@ -236,6 +261,9 @@ void glProperty( AlphaProperty * p )
 	}
 }
 
+
+// ZBufferProperty class
+
 void ZBufferProperty::updateImpl( const NifModel * nif, const QModelIndex & index )
 {
 	Property::updateImpl( nif, index );
@@ -278,9 +306,8 @@ void glProperty( ZBufferProperty * p )
 	}
 }
 
-/*
-    TexturingProperty
-*/
+
+// TexturingProperty class
 
 void TexturingProperty::updateImpl( const NifModel * nif, const QModelIndex & index )
 {
@@ -510,9 +537,8 @@ void glProperty( TexturingProperty * p )
 	}
 }
 
-/*
-    TextureProperty
-*/
+
+// TextureProperty
 
 void TextureProperty::updateImpl( const NifModel * nif, const QModelIndex & index )
 {
@@ -558,7 +584,6 @@ QString TextureProperty::fileName() const
 	return imageBlock.child("File Name").value<QString>();
 }
 
-
 Controller * TextureProperty::createController( NifFieldConst controllerBlock )
 {
 	if ( controllerBlock.hasName("NiFlipController") )
@@ -574,9 +599,8 @@ void glProperty( TextureProperty * p )
 	}
 }
 
-/*
-    MaterialProperty
-*/
+
+// MaterialProperty and SpecularProperty classes
 
 void MaterialProperty::updateImpl( const NifModel * nif, const QModelIndex & index )
 {
@@ -606,6 +630,14 @@ Controller * MaterialProperty::createController( NifFieldConst controllerBlock )
 	return nullptr;
 }
 
+void SpecularProperty::updateImpl( const NifModel * nif, const QModelIndex & index )
+{
+	Property::updateImpl( nif, index );
+
+	if ( index == iBlock ) {
+		spec = block["Flags"].value<int>() != 0;
+	}
+}
 
 void glProperty( MaterialProperty * p, SpecularProperty * s )
 {
@@ -632,14 +664,8 @@ void glProperty( MaterialProperty * p, SpecularProperty * s )
 	}
 }
 
-void SpecularProperty::updateImpl( const NifModel * nif, const QModelIndex & index )
-{
-	Property::updateImpl( nif, index );
 
-	if ( index == iBlock ) {
-		spec = block["Flags"].value<int>() != 0;
-	}
-}
+// WireframeProperty class
 
 void WireframeProperty::updateImpl( const NifModel * nif, const QModelIndex & index )
 {
@@ -659,6 +685,9 @@ void glProperty( WireframeProperty * p )
 		glPolygonMode( GL_FRONT_AND_BACK, GL_FILL );
 	}
 }
+
+
+// VertexColorProperty class
 
 void VertexColorProperty::updateImpl( const NifModel * nif, const QModelIndex & index )
 {
@@ -720,6 +749,9 @@ void glProperty( VertexColorProperty * p, bool vertexcolors )
 		glColorMaterial( GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE );
 	}
 }
+
+
+// StencilProperty class
 
 void StencilProperty::updateImpl( const NifModel * nif, const QModelIndex & index )
 {
@@ -798,11 +830,409 @@ void glProperty( StencilProperty * p )
 	}
 }
 
-/*
-    BSShaderProperty
-*/
 
-typedef uint64_t ShaderFlagsType;
+// Shader flags
+
+typedef uint32_t ShaderFlagsType;
+
+
+// Fallout 3 shader flags
+
+enum class Fallout3_ShaderFlags1 : ShaderFlagsType // BSShaderFlags in nif.xml
+{
+	Specular = 1u << 0,
+	Skinned = 1u << 1,
+	LowDetail = 1u << 2,
+	VertexAlpha = 1u << 3,
+	Unknown4 = 1u << 4,
+	SinglePass = 1u << 5,
+	Empty = 1u << 6,
+	EnvMap = 1u << 7,
+	AlphaTexture = 1u << 8,
+	Unknown9 = 1u << 9,
+	FaceGen = 1u << 10,
+	Parallax15 = 1u << 11,
+	Unknown12 = 1u << 12,
+	NonProjectiveShadows = 1u << 13,
+	Unknown14 = 1u << 14,
+	Refraction = 1u << 15,
+	FireRefraction = 1u << 16,
+	EyeEnvMap = 1u << 17,
+	Hair = 1u << 18,
+	DynamicAlpha = 1u << 19,
+	LocalMapHideSecret = 1u << 20,
+	WindowEnvMap = 1u << 21,
+	TreeBillboard = 1u << 22,
+	ShadowFrustrum = 1u << 23,
+	MultipleTextures = 1u << 24,
+	RemappableTextures = 1u << 25,
+	DecalSinglePass = 1u << 26,
+	DynamicDecalSinglePass = 1u << 27,
+	ParallaxOcclusion = 1u << 28,
+	ExternalEmittance = 1u << 29,
+	ShadowMap = 1u << 30,
+	ZBufferTest = 1u << 31,
+};
+
+enum class Fallout3_ShaderFlags2 : ShaderFlagsType // BSShaderFlags2 in nif.xml
+{
+	ZBufferWrite = 1u << 0,
+	LODLandscape = 1u << 1,
+	LODBuilding = 1u << 2,
+	NoFade = 1u << 3,
+	RefractionTint = 1u << 4,
+	VertexColors = 1u << 5,
+	Unknown6 = 1u << 6,
+	FirstLightIsPointLight = 1u << 7,
+	SecondLight = 1u << 8,
+	ThirdLight = 1u << 9,
+	VertexLighting = 1u << 10,
+	UniformScale = 1u << 11,
+	FitSlope = 1u << 12,
+	BillboardAndEnvMapLightFade = 1u << 13,
+	NoLODLandBlend = 1u << 14,
+	EnvMapLightFade = 1u << 15,
+	Wireframe = 1u << 16,
+	VATSSelection = 1u << 17,
+	ShowInLocalMap = 1u << 18,
+	PremultAlpha = 1u << 19,
+	SkipNormalMaps = 1u << 20,
+	AlphaDecal = 1u << 21,
+	NoTraansparencyMultisampling = 1u << 22,
+	Unknown23 = 1u << 23,
+	Unknown24 = 1u << 24,
+	Unknown25 = 1u << 25,
+	Unknown26 = 1u << 26,
+	Unknown27 = 1u << 27,
+	Unknown28 = 1u << 28,
+	Unknown29 = 1u << 29,
+	Unknown30 = 1u << 30,
+	Unknown31 = 1u << 31,
+};
+
+class Fallout3_ShaderFlags
+{
+public:
+	ShaderFlagsType flags1 = 0x82000000;
+	ShaderFlagsType flags2 = 0x1;
+
+private:
+	bool has( Fallout3_ShaderFlags1 f ) const { return flags1 & ShaderFlagsType(f); }
+	bool has( Fallout3_ShaderFlags2 f ) const { return flags2 & ShaderFlagsType(f); }
+public:
+	bool vertexColors() const { return has( Fallout3_ShaderFlags2::VertexColors ); }
+	bool vertexAlpha() const { return has( Fallout3_ShaderFlags1::VertexAlpha ); }
+	bool depthTest() const { return has( Fallout3_ShaderFlags1::ZBufferTest ); }
+	bool depthWrite() const { return has( Fallout3_ShaderFlags2::ZBufferWrite ); }
+};
+
+
+// New shader flags (Skyrim and FO4)
+
+enum class Skyrim_ShaderFlags1 : ShaderFlagsType // SkyrimShaderPropertyFlags1 in nif.xml
+{
+	Specular = 1u << 0,
+	Skinned = 1u << 1,
+	TempRefraction = 1u << 2,
+	VertexAlpha = 1u << 3,
+	GreyscaleToPaletteColor = 1u << 4,
+	GreyscaleToPaletteAlpha = 1u << 5,
+	UseFalloff = 1u << 6,
+	EnvMap = 1u << 7,
+	RecieveShadows = 1u << 8,
+	CastShadows = 1u << 9,
+	FaceGenDetailMap = 1u << 10,
+	Parallax = 1u << 11,
+	ModelSpaceNormals = 1u << 12,
+	NonProjectiveShadows = 1u << 13,
+	Landscape = 1u << 14,
+	Refraction = 1u << 15,
+	FireRefraction = 1u << 16,
+	EyeEnvMap = 1u << 17,
+	HairSoftLighting = 1u << 18,
+	ScreendoorAlphaFade = 1u << 19,
+	LocalMapHideSecret = 1u << 20,
+	FaceGenRGBTint = 1u << 21,
+	OwnEmit = 1u << 22,
+	ProjectedUV = 1u << 23,
+	MultipleTextures = 1u << 24,
+	RemappableTextures = 1u << 25,
+	Decal = 1u << 26,
+	DynamicDecal = 1u << 27,
+	ParallaxOcclusion = 1u << 28,
+	ExternalEmittance = 1u << 29,
+	SoftEffect = 1u << 30,
+	ZBufferTest = 1u << 31,
+};
+
+enum class Skyrim_ShaderFlags2 : ShaderFlagsType // SkyrimShaderPropertyFlags2 in nif.xml
+{
+	ZBufferWrite = 1u << 0,
+	LODLandscape = 1u << 1,
+	LODObjects = 1u << 2,
+	NoFade = 1u << 3,
+	DoubleSided = 1u << 4,
+	VertexColors = 1u << 5,
+	GlowMap = 1u << 6,
+	AssumeShadowMask = 1u << 7,
+	PackedTangent = 1u << 8,
+	MultiIndexSnow = 1u << 9,
+	VertexLighting = 1u << 10,
+	UniformScale = 1u << 11,
+	FitSlope = 1u << 12,
+	Billboard = 1u << 13,
+	NoLODLandBlend = 1u << 14,
+	EnvMapLightFade = 1u << 15,
+	Wireframe = 1u << 16,
+	WeaponBlood = 1u << 17,
+	HideOnLocalMap = 1u << 18,
+	PremultAlpha = 1u << 19,
+	CloudLOD = 1u << 20,
+	AnisotropicLighting = 1u << 21,
+	NoTraansparencyMultisampling = 1u << 22,
+	Unused23 = 1u << 23,
+	MultiLayerParallax = 1u << 24,
+	SoftLighting = 1u << 25,
+	RimLighting = 1u << 26,
+	BackLighting = 1u << 27,
+	Unused28 = 1u << 28,
+	TreeAnim = 1u << 29,
+	EffectLighting = 1u << 30,
+	HiDefLODObjects = 1u << 31,
+};
+
+enum class Fallout4_ShaderFlags1 : ShaderFlagsType // Fallout4ShaderPropertyFlags1 in nif.xml
+{
+	Specular = 1u << 0,
+	Skinned = 1u << 1,
+	TempRefraction = 1u << 2,
+	VertexAlpha = 1u << 3,
+	GreyscaleToPaletteColor = 1u << 4,
+	GreyscaleToPaletteAlpha = 1u << 5,
+	UseFalloff = 1u << 6,
+	EnvMap = 1u << 7,
+	RGBFalloff = 1u << 8,
+	CastShadows = 1u << 9,
+	Face = 1u << 10,
+	UIMaskRects = 1u << 11,
+	ModelSpaceNormals = 1u << 12,
+	NonProjectiveShadows = 1u << 13,
+	Landscape = 1u << 14,
+	Refraction = 1u << 15,
+	FireRefraction = 1u << 16,
+	EyeEnvMap = 1u << 17,
+	Hair = 1u << 18,
+	ScreendoorAlphaFade = 1u << 19,
+	LocalMapHideSecret = 1u << 20,
+	SkinTint = 1u << 21,
+	OwnEmit = 1u << 22,
+	ProjectedUV = 1u << 23,
+	MultipleTextures = 1u << 24,
+	Tessellate = 1u << 25,
+	Decal = 1u << 26,
+	DynamicDecal = 1u << 27,
+	CharacterLighting = 1u << 28,
+	ExternalEmittance = 1u << 29,
+	SoftEffect = 1u << 30,
+	ZBufferTest = 1u << 31,
+};
+
+enum class Fallout4_ShaderFlags2 : ShaderFlagsType // Fallout4ShaderPropertyFlags2 in nif.xml
+{
+	ZBufferWrite = 1u << 0,
+	LODLandscape = 1u << 1,
+	LODObjects = 1u << 2,
+	NoFade = 1u << 3,
+	DoubleSided = 1u << 4,
+	VertexColors = 1u << 5,
+	GlowMap = 1u << 6,
+	TransformChanged = 1u << 7,
+	DismembermentMeatcuff = 1u << 8,
+	Tint = 1u << 9,
+	GrassVertexLighting = 1u << 10,
+	GrassUniformScale = 1u << 11,
+	GrassFitSlope = 1u << 12,
+	GrassBillboard = 1u << 13,
+	NoLODLandBlend = 1u << 14,
+	Dismemberment = 1u << 15,
+	Wireframe = 1u << 16,
+	WeaponBlood = 1u << 17,
+	HideOnLocalMap = 1u << 18,
+	PremultAlpha = 1u << 19,
+	VATSTarget = 1u << 20,
+	AnisotropicLighting = 1u << 21,
+	SkewSpecularAlpha = 1u << 22,
+	MenuScreen = 1u << 23,
+	MultiLayerParallax = 1u << 24,
+	AlphaTest = 1u << 25,
+	GradientRemap = 1u << 26,
+	VATSTargetDrawAll = 1u << 27,
+	PipboyScreen = 1u << 28,
+	TreeAnim = 1u << 29,
+	EffectLighting = 1u << 30,
+	RefractionWritesDepth = 1u << 31,
+};
+
+class NewShaderFlags
+{
+public:
+	bool isFO4 = false;
+	ShaderFlagsType flags1 = 0;
+	ShaderFlagsType flags2 = 0;
+
+	void setFO4( bool _isFO4, bool isEffectsShader );
+
+private:
+	bool has( Skyrim_ShaderFlags1 f ) const { return ( flags1 & ShaderFlagsType(f) ); }
+	bool has( Skyrim_ShaderFlags2 f ) const { return ( flags2 & ShaderFlagsType(f) ); }
+	bool has( Fallout4_ShaderFlags1 f ) const { return ( flags1 & ShaderFlagsType(f) ); }
+	bool has( Fallout4_ShaderFlags2 f ) const { return ( flags2 & ShaderFlagsType(f) ); }
+
+	bool has( Skyrim_ShaderFlags1 f_sky, Fallout4_ShaderFlags1 f_fo4) const { return isFO4 ? has(f_fo4) : has(f_sky); }
+	bool has( Skyrim_ShaderFlags2 f_sky, Fallout4_ShaderFlags2 f_fo4) const { return isFO4 ? has(f_fo4) : has(f_sky); }
+
+public:
+	bool vertexColors() const { return has( Skyrim_ShaderFlags2::VertexColors, Fallout4_ShaderFlags2::VertexColors ); }
+	bool vertexAlpha() const { return has( Skyrim_ShaderFlags1::VertexAlpha, Fallout4_ShaderFlags1::VertexAlpha ); }
+	bool treeAnim() const { return has( Skyrim_ShaderFlags2::TreeAnim, Fallout4_ShaderFlags2::TreeAnim ); }
+	bool doubleSided() const { return has( Skyrim_ShaderFlags2::DoubleSided, Fallout4_ShaderFlags2::DoubleSided ); }
+	bool depthTest() const { return has( Skyrim_ShaderFlags1::ZBufferTest, Fallout4_ShaderFlags1::ZBufferTest ); }
+	bool depthWrite() const { return has( Skyrim_ShaderFlags2::ZBufferWrite, Fallout4_ShaderFlags2::ZBufferWrite ); }
+	bool specular() const { return has( Skyrim_ShaderFlags1::Specular, Fallout4_ShaderFlags1::Specular ); }
+	bool ownEmit() const { return has( Skyrim_ShaderFlags1::OwnEmit, Fallout4_ShaderFlags1::OwnEmit ); }
+	bool envMap() const { return has( Skyrim_ShaderFlags1::EnvMap, Fallout4_ShaderFlags1::EnvMap ); }
+	bool eyeEnvMap() const { return has( Skyrim_ShaderFlags1::EyeEnvMap, Fallout4_ShaderFlags1::EyeEnvMap ); }
+	bool glowMap() const { return has( Skyrim_ShaderFlags2::GlowMap, Fallout4_ShaderFlags2::GlowMap ); }
+	bool skyrimParallax() const { return ( !isFO4 && has( Skyrim_ShaderFlags1::Parallax ) ); }
+	bool skyrimBackLighting() const { return ( !isFO4 && has( Skyrim_ShaderFlags2::BackLighting ) ); }
+	bool skyrimRimLighting() const { return ( !isFO4 && has( Skyrim_ShaderFlags2::RimLighting ) ); }
+	bool skyrimSoftLighting() const { return ( !isFO4 && has( Skyrim_ShaderFlags2::SoftLighting ) ); }
+	bool skyrimMultiLayerParalax() const { return ( !isFO4 && has( Skyrim_ShaderFlags2::MultiLayerParallax ) ); }
+	bool refraction() const { return has( Skyrim_ShaderFlags1::Refraction, Fallout4_ShaderFlags1::Refraction ); }
+	bool greyscaleToPaletteColor() const { return has( Skyrim_ShaderFlags1::GreyscaleToPaletteColor, Fallout4_ShaderFlags1::GreyscaleToPaletteColor ); }
+	bool greyscaleToPaletteAlpha() const { return has( Skyrim_ShaderFlags1::GreyscaleToPaletteAlpha, Fallout4_ShaderFlags1::GreyscaleToPaletteAlpha ); }
+	bool useFalloff() const { return has( Skyrim_ShaderFlags1::UseFalloff, Fallout4_ShaderFlags1::UseFalloff ); }
+	bool rgbFalloff() const { return ( isFO4 && has( Fallout4_ShaderFlags1::RGBFalloff ) ); }
+	bool weaponBlood() const { return has( Skyrim_ShaderFlags2::WeaponBlood, Fallout4_ShaderFlags2::WeaponBlood ); }
+	bool effectLighting() const { return has( Skyrim_ShaderFlags2::EffectLighting, Fallout4_ShaderFlags2::EffectLighting ); }
+};
+
+void NewShaderFlags::setFO4( bool _isFO4, bool isEffectsShader )
+{
+	isFO4 = _isFO4;
+	if ( isEffectsShader ) {
+		flags1 = 0x80000000; 
+		flags2 = 0x20;
+	} else if ( isFO4 ) {
+		flags1 = 0x80400201;
+		flags2 = 1;
+	} else {
+		flags1 = 0x82400301;
+		flags2 = 0x8021;
+	}
+}
+
+static const QMap<uint32_t, uint64_t> Fallout4_CRCFlagMap = {
+	// SF1
+	{ 1563274220u, uint64_t(Fallout4_ShaderFlags1::CastShadows) },
+	{ 1740048692u, uint64_t(Fallout4_ShaderFlags1::ZBufferTest) },
+	{ 3744563888u, uint64_t(Fallout4_ShaderFlags1::Skinned) },
+	{ 2893749418u, uint64_t(Fallout4_ShaderFlags1::EnvMap) },
+	{ 2333069810u, uint64_t(Fallout4_ShaderFlags1::VertexAlpha) },
+	{ 314919375u,  uint64_t(Fallout4_ShaderFlags1::Face) },
+	{ 442246519u,  uint64_t(Fallout4_ShaderFlags1::GreyscaleToPaletteColor) },
+	{ 2901038324u, uint64_t(Fallout4_ShaderFlags1::GreyscaleToPaletteAlpha) },
+	{ 3849131744u, uint64_t(Fallout4_ShaderFlags1::Decal) },
+	{ 1576614759u, uint64_t(Fallout4_ShaderFlags1::DynamicDecal) },
+	{ 2262553490u, uint64_t(Fallout4_ShaderFlags1::OwnEmit) },
+	{ 1957349758u, uint64_t(Fallout4_ShaderFlags1::Refraction) },
+	{ 1483897208u, uint64_t(Fallout4_ShaderFlags1::SkinTint) },
+	{ 3448946507u, uint64_t(Fallout4_ShaderFlags1::RGBFalloff) },
+	{ 2150459555u, uint64_t(Fallout4_ShaderFlags1::ExternalEmittance) },
+	{ 2548465567u, uint64_t(Fallout4_ShaderFlags1::ModelSpaceNormals) },
+	{ 3980660124u, uint64_t(Fallout4_ShaderFlags1::UseFalloff) },
+	{ 3503164976u, uint64_t(Fallout4_ShaderFlags1::SoftEffect) },
+
+	// SF2
+	{ 3166356979u, uint64_t(Fallout4_ShaderFlags2::ZBufferWrite) << 32 },
+	{ 2399422528u, uint64_t(Fallout4_ShaderFlags2::GlowMap) << 32 },
+	{ 759557230u,  uint64_t(Fallout4_ShaderFlags2::DoubleSided) << 32 },
+	{ 348504749u,  uint64_t(Fallout4_ShaderFlags2::VertexColors) << 32 },
+	{ 2994043788u, uint64_t(Fallout4_ShaderFlags2::NoFade) << 32 },
+	{ 2078326675u, uint64_t(Fallout4_ShaderFlags2::WeaponBlood) << 32 },
+	{ 3196772338u, uint64_t(Fallout4_ShaderFlags2::TransformChanged) << 32 },
+	{ 3473438218u, uint64_t(Fallout4_ShaderFlags2::EffectLighting) << 32 },
+	{ 2896726515u, uint64_t(Fallout4_ShaderFlags2::LODObjects) << 32 },
+
+	// TODO
+	{ 731263983u, 0 }, // PBR
+	{ 902349195u, 0 }, // REFRACTION FALLOFF
+	{ 3030867718u, 0 }, // INVERTED_FADE_PATTERN
+	{ 1264105798u, 0 }, // HAIRTINT
+	{ 3707406987u, 0 }, //  NO_EXPOSURE
+};
+
+static void readNewShaderFlags( NewShaderFlags & flags, BSShaderProperty * prop, bool isEffectsShader )
+{
+	// Read flags fields
+	if ( prop->modelBSVersion() >= 151 ) {
+		flags.isFO4 = true;
+
+		auto sfs = prop->block["SF1"].array<ShaderFlagsType>() + prop->block["SF2"].array<ShaderFlagsType>();
+		uint64_t allFlags = 0;
+		for ( auto sf : sfs )
+			allFlags |= Fallout4_CRCFlagMap.value( sf, 0 );
+		flags.flags1 = allFlags & uint64_t(MAXUINT32);
+		flags.flags2 = allFlags >> 32;
+
+	} else { // bsVersion < 151
+		auto flagField1 = prop->block["Shader Flags 1"];
+		auto flagField2 = prop->block["Shader Flags 2"];
+
+		if ( flagField1.hasStrType("SkyrimShaderPropertyFlags1") ) {
+			flags.setFO4( false, isEffectsShader );
+			flags.flags1 = flagField1.value<ShaderFlagsType>();
+		} else if ( flagField1.hasStrType("Fallout4ShaderPropertyFlags1") ) {
+			flags.setFO4( true, isEffectsShader );
+			flags.flags1 = flagField1.value<ShaderFlagsType>();
+		} else {
+			if ( flagField1 )
+				flagField1.reportError( Property::tr("Unsupported value type '%1'.").arg( flagField1.strType() ) );
+			// Fallback setVersion
+			flags.setFO4( !flagField1 && flagField2.hasStrType("Fallout4ShaderPropertyFlags2"), isEffectsShader );
+		}
+
+		if ( flagField2.hasStrType("SkyrimShaderPropertyFlags2") ) {
+			if ( flags.isFO4 ) {
+				flagField2.reportError( Property::tr("Unexpected value type '%1'.").arg( flagField2.strType() ) );
+			} else {
+				flags.flags2 = flagField2.value<ShaderFlagsType>();
+			}
+		} else if ( flagField2.hasStrType("Fallout4ShaderPropertyFlags2") ) {
+			if ( flags.isFO4 ) {
+				flags.flags2 = flagField2.value<ShaderFlagsType>();
+			} else {
+				flagField2.reportError( Property::tr("Unexpected value type '%1'.").arg( flagField2.strType() ) );
+			}
+		} else if ( flagField2 ) {
+			flagField2.reportError( Property::tr("Unsupported value type '%1'.").arg( flagField2.strType() ) );
+		}
+	}
+
+	// Set common vertex flags in the property
+	if ( prop->modelBSVersion() >= 130 ) {
+		//  Always do vertex colors, incl. alphas, for FO4 and newer if colors present
+		prop->vertexColorMode = ShaderColorMode::FromData;
+		prop->hasVertexAlpha = true;
+	} else {
+		prop->vertexColorMode = flags.vertexColors() ? ShaderColorMode::Yes : ShaderColorMode::No;
+		prop->hasVertexAlpha = flags.vertexAlpha();
+	}
+	prop->isVertexAlphaAnimation = flags.treeAnim();
+}
+
+
+// BSShaderProperty class
 
 BSShaderProperty::~BSShaderProperty()
 {
@@ -810,90 +1240,43 @@ BSShaderProperty::~BSShaderProperty()
 		delete material;
 }
 
-void BSShaderProperty::updateImpl( const NifModel * nif, const QModelIndex & index )
-{
-	Property::updateImpl( nif, index );
-
-	if ( index == iBlock ) {
-		textureBlock = block.child("Texture Set").linkBlock("BSShaderTextureSet");
-		iTextureSet = textureBlock.toIndex();
-		hasRootMaterial = block.child("Root Material").isValid();
-	}
-}
-
-void BSShaderProperty::resetData()
-{
-	uvScale.reset();
-	uvOffset.reset();
-	clampMode = WRAP_S_WRAP_T;
-
-	vertexColorMode = ShaderColorMode::FROM_DATA;
-	hasVertexAlpha = false;
-
-	depthTest = false;
-	depthWrite = false;
-	isDoubleSided = false;
-	isVertexAlphaAnimation = false;
-}
-
-void glProperty( BSShaderProperty * p )
-{
-	if ( p && p->scene->hasOption(Scene::DoTexturing) && p->bind(0) ) {
-		glEnable( GL_TEXTURE_2D );
-	}
-}
-
 void BSShaderProperty::clear()
 {
 	Property::clear();
 
-	setMaterial(nullptr);
+	setMaterial( nullptr );
 }
 
-void BSShaderProperty::setMaterial( Material * newMaterial )
+bool BSShaderProperty::isTranslucent() const
 {
-	if (newMaterial && !newMaterial->isValid()) {
-		delete newMaterial;
-		newMaterial = nullptr;
-	}
-	if ( material && material != newMaterial ) {
-		delete material;
-	}
-	material = newMaterial;
+	return false;
 }
 
-bool BSShaderProperty::bind( int id, const QString & fname, TexClampMode mode )
+bool BSShaderProperty::bind( int id, const QString & fname, TextureClampMode mode )
 {
-	GLuint mipmaps = 0;
-
-	if ( !fname.isEmpty() )
-		mipmaps = scene->bindTexture( fname );
-	else
-		mipmaps = scene->bindTexture( this->fileName( id ) );
-
+	auto mipmaps = scene->bindTexture( fname.isEmpty() ? fileName(id) : fname );
 	if ( mipmaps == 0 )
 		return false;
 
-
 	switch ( mode )
 	{
-	case TexClampMode::CLAMP_S_CLAMP_T:
+	case TextureClampMode::ClampS_ClampT:
 		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP );
 		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP );
 		break;
-	case TexClampMode::CLAMP_S_WRAP_T:
+	case TextureClampMode::ClampS_WrapT:
 		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP );
 		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT );
 		break;
-	case TexClampMode::WRAP_S_CLAMP_T:
+	case TextureClampMode::WrapS_ClampT:
 		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT );
 		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP );
 		break;
-	case TexClampMode::MIRRORED_S_MIRRORED_T:
+	case TextureClampMode::MirrorS_MirrorT:
 		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_MIRRORED_REPEAT );
 		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_MIRRORED_REPEAT );
 		break;
-	case TexClampMode::WRAP_S_WRAP_T:
+	case TextureClampMode::WrapS_WrapT:
 	default:
 		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT );
 		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT );
@@ -915,7 +1298,7 @@ bool BSShaderProperty::bind( int id, const QVector<QVector<Vector2> > & texcoord
 	if ( checkSet( 0, texcoords ) && bind( id ) ) {
 		glEnable( GL_TEXTURE_2D );
 		glEnableClientState( GL_TEXTURE_COORD_ARRAY );
-		glTexCoordPointer( 2, GL_FLOAT, 0, texcoords[ 0 ].data() );
+		glTexCoordPointer( 2, GL_FLOAT, 0, texcoords[0].data() );
 		return true;
 	}
 
@@ -923,16 +1306,9 @@ bool BSShaderProperty::bind( int id, const QVector<QVector<Vector2> > & texcoord
 	return false;
 }
 
-bool BSShaderProperty::bindCube( int id, const QString & fname )
+bool BSShaderProperty::bindCube( const QString & fname )
 {
-	Q_UNUSED( id );
-
-	GLuint result = 0;
-
-	if ( !fname.isEmpty() )
-		result = scene->bindTexture( fname );
-
-	if ( result == 0 )
+	if ( fname.isEmpty() || scene->bindTexture( fname ) == 0 )
 		return false;
 
 	glEnable( GL_TEXTURE_CUBE_MAP_SEAMLESS );
@@ -949,288 +1325,147 @@ bool BSShaderProperty::bindCube( int id, const QString & fname )
 	return true;
 }
 
-enum
+void BSShaderProperty::setMaterial( Material * newMaterial )
 {
-	BGSM1_DIFFUSE = 0,
-	BGSM1_NORMAL,
-	BGSM1_SPECULAR,
-	BGSM1_G2P,
-	BGSM1_ENV,
-	BGSM20_GLOW = 4,
-	BGSM1_GLOW = 5,
-	BGSM1_ENVMASK = 5,
-	BGSM20_REFLECT,
-	BGSM20_LIGHTING,
-
-	BGSM1_MAX = 9,
-	BGSM20_MAX = 10
-};
-
-QString BSShaderProperty::fileName( int id ) const
-{
-	// Fallout 4
-	if ( hasRootMaterial ) {
-		// BSLSP
-		auto m = static_cast<ShaderMaterial *>(material);
-		if ( m && m->isValid() ) {
-			auto tex = m->textures();
-			if ( tex.count() >= BGSM1_MAX ) {
-				switch ( id ) {
-				case 0: // Diffuse
-					if ( !tex[BGSM1_DIFFUSE].isEmpty() )
-						return tex[BGSM1_DIFFUSE];
-					break;
-				case 1: // Normal
-					if ( !tex[BGSM1_NORMAL].isEmpty() )
-						return tex[BGSM1_NORMAL];
-					break;
-				case 2: // Glow
-					if ( tex.count() == BGSM1_MAX && m->bGlowmap && !tex[BGSM1_GLOW].isEmpty() )
-						return tex[BGSM1_GLOW];
-
-					if ( tex.count() == BGSM20_MAX && m->bGlowmap && !tex[BGSM20_GLOW].isEmpty() )
-						return tex[BGSM20_GLOW];
-					break;
-				case 3: // Greyscale
-					if ( m->bGrayscaleToPaletteColor && !tex[BGSM1_G2P].isEmpty() )
-						return tex[BGSM1_G2P];
-					break;
-				case 4: // Cubemap
-					if ( tex.count() == BGSM1_MAX && m->bEnvironmentMapping && !tex[BGSM1_ENV].isEmpty() )
-						return tex[BGSM1_ENV];
-					break;
-				case 5: // Env Mask
-					if ( m->bEnvironmentMapping && !tex[BGSM1_ENVMASK].isEmpty() )
-						return tex[BGSM1_ENVMASK];
-					break;
-				case 7: // Specular
-					if ( m->bSpecularEnabled && !tex[BGSM1_SPECULAR].isEmpty() )
-						return tex[BGSM1_SPECULAR];
-					break;
-				}
-			}
-			if ( tex.count() >= BGSM20_MAX ) {
-				switch ( id ) {
-				case 8:
-					if ( m->bSpecularEnabled && !tex[BGSM20_REFLECT].isEmpty() )
-						return tex[BGSM20_REFLECT];
-					break;
-				case 9:
-					if ( m->bSpecularEnabled && !tex[BGSM20_LIGHTING].isEmpty() )
-						return tex[BGSM20_LIGHTING];
-					break;
-				}
-			}
-		}
-
-		return QString();
+	if ( newMaterial && !newMaterial->isValid() ) {
+		delete newMaterial;
+		newMaterial = nullptr;
 	}
-
-	// From textureBlock
-	if ( textureBlock ) {
-		return textureBlock["Textures"].child( id ).value<QString>();
+	if ( material && material != newMaterial ) {
+		delete material;
 	}
-
-	// From material
-	auto m = static_cast<EffectMaterial*>(material);
-	if ( m ) {
-		if (m->isValid()) {
-			auto tex = m->textures();
-			return tex[id];
-		}
-
-		return QString();
-	}
-
-	// Handle niobject name="BSEffectShaderProperty...
-	switch ( id ) {
-	case 0:
-		return block.child("Source Texture").value<QString>();
-	case 1:
-		return block.child("Greyscale Texture").value<QString>();
-	case 2:
-		return block.child("Env Map Texture").value<QString>();
-	case 3:
-		return block.child("Normal Texture").value<QString>();
-	case 4:
-		return block.child("Env Mask Texture").value<QString>();
-	case 6:
-		return block.child("Reflectance Texture").value<QString>();
-	case 7:
-		return block.child("Lighting Texture").value<QString>();
-	}
-
-	return QString();
+	material = newMaterial;
 }
 
-int BSShaderProperty::getId( const QString & id )
+Material * BSShaderProperty::createMaterial()
 {
-	const static QHash<QString, int> hash{
-		{ QStringLiteral("base"),    0 },
-		{ QStringLiteral("dark"),    1 },
-		{ QStringLiteral("detail"),  2 },
-		{ QStringLiteral("gloss"),   3 },
-		{ QStringLiteral("glow"),    4 },
-		{ QStringLiteral("bumpmap"), 5 },
-		{ QStringLiteral("decal0"),  6 },
-		{ QStringLiteral("decal1"),  7 }
-	};
-
-	return hash.value( id, -1 );
+	return nullptr;
 }
 
-
-/*
-	BSShaderLightingProperty
-*/
-
-void BSShaderLightingProperty::updateImpl( const NifModel * nif, const QModelIndex & index )
+void BSShaderProperty::setTexturePath( int id, const QString & texPath )
 {
-	BSShaderProperty::updateImpl( nif, index );
+	Q_ASSERT( id >= 0 );
 
-	if ( index == iBlock || index == iTextureSet ) {
+	int nPaths = texturePaths.count();
+	if ( id < nPaths ) {
+		texturePaths[id] = texPath;
+	} else if ( !texPath.isEmpty() ) {
+		if ( id > nPaths )
+			texturePaths.resize( id ); // Get them up to (id) count so the next append would get (id) index
+		texturePaths.append( texPath );
+	}
+}
+
+void BSShaderProperty::setTexturePathsFromTextureBlock()
+{
+	texturePaths = textureBlock["Textures"].array<QString>();
+}
+
+void BSShaderProperty::updateImpl( const NifModel * nif, const QModelIndex & index )
+{
+	Property::updateImpl( nif, index );
+
+	if ( index == iBlock ) {
+		textureBlock = block.child("Texture Set").linkBlock("BSShaderTextureSet");
+		iTextureSet = textureBlock.toIndex();
+
+		setMaterial( createMaterial() );
+
+		resetData();
+		updateData();
+	
+	} else if ( index == iTextureSet ) {
+		resetData();
 		updateData();
 	}
 }
 
-enum class Fallout3_ShaderFlags1 : ShaderFlagsType // BSShaderFlags in nif.xml
+void BSShaderProperty::resetData()
 {
-	SPECULAR = 1u << 0,
-	SKINNED = 1u << 1,
-	LOWDETAIL = 1u << 2,
-	VERTEX_ALPHA = 1u << 3,
-	UNKNOWN_1 = 1u << 4,
-	SINGLE_PASS = 1u << 5,
-	EMPTY = 1u << 6,
-	ENVMAP = 1u << 7,
-	ALPHA_TEXTURE = 1u << 8,
-	UNKNOWN_2 = 1u << 9,
-	FACEGEN = 1u << 10,
-	PARALLAX_15 = 1u << 11,
-	UNKNOWN_3 = 1u << 12,
-	NON_PROJECTIVE_SHADOWS = 1u << 13,
-	UNKNOWN_4 = 1u << 14,
-	REFRACTION = 1u << 15,
-	FIRE_REFRACTION = 1u << 16,
-	EYE_ENVMAP = 1u << 17,
-	HAIR = 1u << 18,
-	DYNAMIC_ALPHA = 1u << 19,
-	LOCALMAP_HIDE_SECRET = 1u << 20,
-	WINDOW_ENVMAP = 1u << 21,
-	TREE_BILLBOARD = 1u << 22,
-	SHADOW_FRUSTUM = 1u << 23,
-	MULTIPLE_TEXTURES = 1u << 24,
-	REMAPPABLE_TEXTURES = 1u << 25,
-	DECAL_SINGLE_PASS = 1u << 26,
-	DYNAMIC_DECAL_SINGLE_PASS = 1u << 27,
-	PARALLAX_OCC = 1u << 28,
-	EXTERNAL_EMITTANCE = 1u << 29,
-	SHADOW_MAP = 1u << 30,
-	ZBUFFER_TEST = 1u << 31,
-};
+	uvScale.reset();
+	uvOffset.reset();
+	clampMode = TextureClampMode::WrapS_WrapT;
 
-enum class Fallout3_ShaderFlags2 : ShaderFlagsType // BSShaderFlags2 in nif.xml
+	vertexColorMode = ShaderColorMode::FromData;
+	hasVertexAlpha = false;
+
+	depthTest = false;
+	depthWrite = false;
+	isDoubleSided = false;
+	isVertexAlphaAnimation = false;
+
+	texturePaths.clear();
+}
+
+void BSShaderProperty::updateData()
 {
-	ZBUFFER_WRITE = 1u << 0,
-	LOD_LANDSCAPE = 1u << 1,
-	LOD_BUILDING = 1u << 2,
-	NO_FADE = 1u << 3,
-	REFRACTION_TINT = 1u << 4,
-	VERTEX_COLORS = 1u << 5,
-	UNKNOWN1 = 1u << 6,
-	FIRST_LIGHT_IS_POINT_LIGHT = 1u << 7,
-	SECOND_LIGHT = 1u << 8,
-	THIRD_LIGHT = 1u << 9,
-	VERTEX_LIGHTING = 1u << 10,
-	UNIFORM_SCALE = 1u << 11,
-	FIT_SLOPE = 1u << 12,
-	BILLBOARD_AND_ENVMAP_LIGHT_FADE = 1u << 13,
-	NO_LOD_LAND_BLEND = 1u << 14,
-	ENVMAP_LIGHT_FADE = 1u << 15,
-	WIREFRAME = 1u << 16,
-	VATS_SELECTION = 1u << 17,
-	SHOW_IN_LOCAL_MAP = 1u << 18,
-	PREMULT_ALPHA = 1u << 19,
-	SKIP_NORMAL_MAPS = 1u << 20,
-	ALPHA_DECAL = 1u << 21,
-	NO_TRANSPARENCY_MULTISAMPLING = 1u << 22,
-	UNKNOWN2 = 1u << 23,
-	UNKNOWN3 = 1u << 24,
-	UNKNOWN4 = 1u << 25,
-	UNKNOWN5 = 1u << 26,
-	UNKNOWN6 = 1u << 27,
-	UNKNOWN7 = 1u << 28,
-	UNKNOWN8 = 1u << 29,
-	UNKNOWN9 = 1u << 30,
-	UNKNOWN10 = 1u << 31,
-};
-
-class Fallout3_ShaderFlags
-{
-public:
-	ShaderFlagsType flags1 = 0x82000000;
-	ShaderFlagsType flags2 = 0x1;
-
-private:
-	bool has( Fallout3_ShaderFlags1 f ) const { return flags1 & ShaderFlagsType(f); }
-	bool has( Fallout3_ShaderFlags2 f ) const { return flags2 & ShaderFlagsType(f); }
-public:
-	bool vertexColors() const { return has( Fallout3_ShaderFlags2::VERTEX_COLORS ); }
-	bool vertexAlpha() const { return has( Fallout3_ShaderFlags1::VERTEX_ALPHA ); }
-	bool depthTest() const { return has( Fallout3_ShaderFlags1::ZBUFFER_TEST ); }
-	bool depthWrite() const { return has( Fallout3_ShaderFlags2::ZBUFFER_WRITE ); }
-};
-
-void BSShaderLightingProperty::updateData()
-{
-	resetData();
-
 	Fallout3_ShaderFlags flags;
 	NifFieldConst flagField;
 
-	flagField = block["Shader Flags"];
+	flagField = block.child("Shader Flags");
 	if ( flagField.hasStrType("BSShaderFlags") ) {
-		flags.flags1 = flagField.value<uint>();
+		flags.flags1 = flagField.value<ShaderFlagsType>();
 	} else if ( flagField ) {
 		flagField.reportError( tr("Unsupported value type '%1'.").arg( flagField.strType() ) );
 	}
 
-	flagField = block["Shader Flags 2"];
+	flagField = block.child("Shader Flags 2");
 	if ( flagField.hasStrType("BSShaderFlags2") ) {
-		flags.flags2 = flagField.value<uint>();
+		flags.flags2 = flagField.value<ShaderFlagsType>();
 	} else if ( flagField ) {
 		flagField.reportError( tr("Unsupported value type '%1'.").arg( flagField.strType() ) );
 	}
 
-	// Gavrant: judging by the amount of vanilla FO3 shapes with colors in the data and w/o SF2_FO3_VERTEX_COLORS in the shader flags,
-	// vertex colors are applied in the game even if SF2_FO3_VERTEX_COLORS is not set.
-	vertexColorMode = flags.vertexColors() ? ShaderColorMode::YES : ShaderColorMode::FROM_DATA;
-	hasVertexAlpha  = flags.vertexAlpha();
+	// Judging by the amount of vanilla FO3 shapes with colors in the data and w/o Fallout3_ShaderFlags2::VertexColors in the shader flags,
+	// vertex colors are applied in the game even if Fallout3_ShaderFlags2::VertexColors is not set.
+	vertexColorMode = flags.vertexColors() ? ShaderColorMode::Yes : ShaderColorMode::FromData;
+	
+	if ( block.inherits("WaterShaderProperty") ) {
+		hasVertexAlpha = true;
+	} else {
+		hasVertexAlpha = flags.vertexAlpha();
+	}
 
 	depthTest  = flags.depthTest();
 	depthWrite = flags.depthWrite();
 
-	auto clampField = block["Texture Clamp Mode"];
+	auto clampField = block.child("Texture Clamp Mode");
 	if ( clampField )
-		clampMode = TexClampMode( clampField.value<uint>() );
+		clampMode = TextureClampMode( clampField.value<uint>() );
+
+	// Textures
+	if ( textureBlock ) {
+		setTexturePathsFromTextureBlock();
+
+	} else if ( block.hasName("SkyShaderProperty", "TileShaderProperty", "TallGrassShaderProperty") ) {
+		setTexturePath( 0, block["File Name"] );
+
+	} else if ( block.hasName("BSShaderNoLightingProperty") ) {
+		setTexturePath( 2, block["File Name"] ); // The texture glow map
+	}	
+}
+
+void glProperty( BSShaderProperty * p )
+{
+	if ( p && p->scene->hasOption(Scene::DoTexturing) && p->bind(0) ) {
+		glEnable( GL_TEXTURE_2D );
+	}
 }
 
 
-/*
-	BSLightingShaderProperty
-*/
+// BSLightingShaderProperty class
 
-void BSLightingShaderProperty::updateImpl( const NifModel * nif, const QModelIndex & index )
+bool BSLightingShaderProperty::isTranslucent() const
 {
-	BSShaderProperty::updateImpl( nif, index );
+	return alpha < 1.0 || hasRefraction;
+}
 
-	if ( index == iBlock ) {
-		setMaterial(name.endsWith(".bgsm", Qt::CaseInsensitive) ? new ShaderMaterial(name, scene->getGame()) : nullptr);
-		updateData();
-	}
-	else if ( index == iTextureSet ) {
-		updateData();
-	}
+Material * BSLightingShaderProperty::createMaterial()
+{
+	if ( name.endsWith(".bgsm", Qt::CaseInsensitive) )
+		return new ShaderMaterial( name, scene->getGame() );
+
+	return nullptr;
 }
 
 void BSLightingShaderProperty::resetData()
@@ -1281,341 +1516,33 @@ void BSLightingShaderProperty::resetData()
 	backlightPower = 0.0;
 }
 
-enum class Skyrim_ShaderFlags1 : ShaderFlagsType // SkyrimShaderPropertyFlags1 in nif.xml
+enum class Skyrim_ShaderType : uint32_t // BSLightingShaderType in nif.xml
 {
-	SPECULAR = 1u << 0,
-	SKINNED = 1u << 1,
-	TEMP_REFRACTION = 1u << 2,
-	VERTEX_ALPHA = 1u << 3,
-	GREYSCALE_TO_PALETTE_COLOR = 1u << 4,
-	GREYSCALE_TO_PALETTE_ALPHA = 1u << 5,
-	USE_FALLOFF = 1u << 6,
-	ENVMAP = 1u << 7,
-	RECIEVE_SHADOWS = 1u << 8,
-	CAST_SHADOWS = 1u << 9,
-	FACEGEN_DETAIL_MAP = 1u << 10,
-	PARALLAX = 1u << 11,
-	MODEL_SPACE_NORMALS = 1u << 12,
-	NON_PROJECTIVE_SHADOWS = 1u << 13,
-	LANDSCAPE = 1u << 14,
-	REFRACTION = 1u << 15,
-	FIRE_REFRACTION = 1u << 16,
-	EYE_ENVMAP = 1u << 17,
-	HAIR_SOFT_LIGHTING = 1u << 18,
-	SCREENDOOR_ALPHA_FADE = 1u << 19,
-	LOCALMAP_HIDE_SECRET = 1u << 20,
-	FACEGEN_RGB_TINT = 1u << 21,
-	OWN_EMIT = 1u << 22,
-	PROJECTED_UV = 1u << 23,
-	MULTIPLE_TEXTURES = 1u << 24,
-	REMAPPABLE_TEXTURES = 1u << 25,
-	DECAL = 1u << 26,
-	DYNAMIC_DECAL = 1u << 27,
-	PARALLAX_OCCLUSION = 1u << 28,
-	EXTERNAL_EMITTANCE = 1u << 29,
-	SOFT_EFFECT = 1u << 30,
-	ZBUFFER_TEST = 1u << 31,
+	Default = 0,
+	EnvMap = 1,
+	Glow = 2,
+	HeightMap = 3,
+	FaceTint = 4,
+	SkinTint = 5,
+	HairTint = 6,
+	ParallaxOcclusion = 7,
+	MultiTextureLandscape = 8,
+	LODLandscape = 9,
+	Snow = 10,
+	MultiLayerParallax = 11,
+	TreeAnim = 12,
+	LODObjects = 13,
+	SnowSparkle = 14,
+	LODObjectsHD = 15,
+	EyeEnvMap = 16,
+	Cloud = 17,
+	LODLandscapeNoise = 18,
+	MultiTextureLandscapeLODBlend = 19,
+	Dismemberment = 20, // FO4
 };
-
-enum class Skyrim_ShaderFlags2 : ShaderFlagsType // SkyrimShaderPropertyFlags2 in nif.xml
-{
-	ZBUFFER_WRITE = 1u << 0,
-	LOD_LANDSCAPE = 1u << 1,
-	LOD_OBJECTS = 1u << 2,
-	NO_FADE = 1u << 3,
-	DOUBLE_SIDED = 1u << 4,
-	VERTEX_COLORS = 1u << 5,
-	GLOW_MAP = 1u << 6,
-	ASSUME_SHADOWMASK = 1u << 7,
-	PACKED_TANGENT = 1u << 8,
-	MULTI_INDEX_SNOW = 1u << 9,
-	VERTEX_LIGHTING = 1u << 10,
-	UNIFORM_SCALE = 1u << 11,
-	FIT_SLOPE = 1u << 12,
-	BILLBOARD = 1u << 13,
-	NO_LOD_LAND_BLEND = 1u << 14,
-	ENVMAP_LIGHT_FADE = 1u << 15,
-	WIREFRAME = 1u << 16,
-	WEAPON_BLOOD = 1u << 17,
-	HIDE_ON_LOCAL_MAP = 1u << 18,
-	PREMULT_ALPHA = 1u << 19,
-	CLOUD_LOD = 1u << 20,
-	ANISOTROPIC_LIGHTING = 1u << 21,
-	NO_TRANSPARENCY_MULTISAMPLING = 1u << 22,
-	UNUSED01 = 1u << 23,
-	MULTI_LAYER_PARALLAX = 1u << 24,
-	SOFT_LIGHTING = 1u << 25,
-	RIM_LIGHTING = 1u << 26,
-	BACK_LIGHTING = 1u << 27,
-	UNUSED02 = 1u << 28,
-	TREE_ANIM = 1u << 29,
-	EFFECT_LIGHTING = 1u << 30,
-	HD_LOD_OBJECTS = 1u << 31,
-};
-
-enum class Fallout4_ShaderFlags1 : ShaderFlagsType // Fallout4ShaderPropertyFlags1 in nif.xml
-{
-	SPECULAR = 1u << 0,
-	SKINNED = 1u << 1,
-	TEMP_REFRACTION = 1u << 2,
-	VERTEX_ALPHA = 1u << 3,
-	GREYSCALE_TO_PALETTE_COLOR = 1u << 4,
-	GREYSCALE_TO_PALETTE_ALPHA = 1u << 5,
-	USE_FALLOFF = 1u << 6,
-	ENVMAP = 1u << 7,
-	RGB_FALLOFF = 1u << 8,
-	CAST_SHADOWS = 1u << 9,
-	FACE = 1u << 10,
-	UI_MASK_RECTS = 1u << 11,
-	MODEL_SPACE_NORMALS = 1u << 12,
-	NON_PROJECTIVE_SHADOWS = 1u << 13,
-	LANDSCAPE = 1u << 14,
-	REFRACTION = 1u << 15,
-	FIRE_REFRACTION = 1u << 16,
-	EYE_ENVMAP = 1u << 17,
-	HAIR = 1u << 18,
-	SCREENDOOR_ALPHA_FADE = 1u << 19,
-	LOCALMAP_HIDE_SECRET = 1u << 20,
-	SKIN_TINT = 1u << 21,
-	OWN_EMIT = 1u << 22,
-	PROJECTED_UV = 1u << 23,
-	MULTIPLE_TEXTURES = 1u << 24,
-	TESSELLATE = 1u << 25,
-	DECAL = 1u << 26,
-	DYNAMIC_DECAL = 1u << 27,
-	CHARACTER_LIGHTING = 1u << 28,
-	EXTERNAL_EMITTANCE = 1u << 29,
-	SOFT_EFFECT = 1u << 30,
-	ZBUFFER_TEST = 1u << 31,
-};
-
-enum class Fallout4_ShaderFlags2 : ShaderFlagsType // Fallout4ShaderPropertyFlags2 in nif.xml
-{
-	ZBUFFER_WRITE = 1u << 0,
-	LOD_LANDSCAPE = 1u << 1,
-	LOD_OBJECTS = 1u << 2,
-	NO_FADE = 1u << 3,
-	DOUBLE_SIDED = 1u << 4,
-	VERTEX_COLORS = 1u << 5,
-	GLOW_MAP = 1u << 6,
-	TRANSFORM_CHANGED = 1u << 7,
-	DISMEMBERMENT_MEATCUFF = 1u << 8,
-	TINT = 1u << 9,
-	GRASS_VERTEX_LIGHTING = 1u << 10,
-	GRASS_UNIFORM_SCALE = 1u << 11,
-	GRASS_FIT_SLOPE = 1u << 12,
-	GRASS_BILLBOARD = 1u << 13,
-	NO_LOD_LAND_BLEND = 1u << 14,
-	DISMEMBERMENT = 1u << 15,
-	WIREFRAME = 1u << 16,
-	WEAPON_BLOOD = 1u << 17,
-	HIDE_ON_LOCAL_MAP = 1u << 18,
-	PREMULT_ALPHA = 1u << 19,
-	VATS_TARGET = 1u << 20,
-	ANISOTROPIC_LIGHTING = 1u << 21,
-	SKEW_SPECULAR_ALPHA = 1u << 22,
-	MENU_SCREEN = 1u << 23,
-	MULTI_LAYER_PARALLAX = 1u << 24,
-	ALPHA_TEST = 1u << 25,
-	GRADIENT_REMAP = 1u << 26,
-	VATS_TARGET_DRAW_ALL = 1u << 27,
-	PIPBOY_SCREEN = 1u << 28,
-	TREE_ANIM = 1u << 29,
-	EFFECT_LIGHTING = 1u << 30,
-	REFRACTION_WRITES_DEPTH = 1u << 31,
-};
-
-class NewShaderFlags
-{
-public:
-	bool isFO4 = false;
-	ShaderFlagsType flags1 = 0;
-	ShaderFlagsType flags2 = 0;
-
-	void setFO4( bool _isFO4, bool isEffectsShader );
-
-private:
-	bool has( Skyrim_ShaderFlags1 f ) const { return ( flags1 & ShaderFlagsType(f) ); }
-	bool has( Skyrim_ShaderFlags2 f ) const { return ( flags2 & ShaderFlagsType(f) ); }
-	bool has( Fallout4_ShaderFlags1 f ) const { return ( flags1 & ShaderFlagsType(f) ); }
-	bool has( Fallout4_ShaderFlags2 f ) const { return ( flags2 & ShaderFlagsType(f) ); }
-
-	bool has( Skyrim_ShaderFlags1 f_sky, Fallout4_ShaderFlags1 f_fo4) const { return isFO4 ? has(f_fo4) : has(f_sky); }
-	bool has( Skyrim_ShaderFlags2 f_sky, Fallout4_ShaderFlags2 f_fo4) const { return isFO4 ? has(f_fo4) : has(f_sky); }
-
-public:
-	bool vertexColors() const { return has( Skyrim_ShaderFlags2::VERTEX_COLORS, Fallout4_ShaderFlags2::VERTEX_COLORS ); }
-	bool vertexAlpha() const { return has( Skyrim_ShaderFlags1::VERTEX_ALPHA, Fallout4_ShaderFlags1::VERTEX_ALPHA ); }
-	bool treeAnim() const { return has( Skyrim_ShaderFlags2::TREE_ANIM, Fallout4_ShaderFlags2::TREE_ANIM ); }
-	bool doubleSided() const { return has( Skyrim_ShaderFlags2::DOUBLE_SIDED, Fallout4_ShaderFlags2::DOUBLE_SIDED ); }
-	bool depthTest() const { return has( Skyrim_ShaderFlags1::ZBUFFER_TEST, Fallout4_ShaderFlags1::ZBUFFER_TEST ); }
-	bool depthWrite() const { return has( Skyrim_ShaderFlags2::ZBUFFER_WRITE, Fallout4_ShaderFlags2::ZBUFFER_WRITE ); }
-	bool specular() const { return has( Skyrim_ShaderFlags1::SPECULAR, Fallout4_ShaderFlags1::SPECULAR ); }
-	bool ownEmit() const { return has( Skyrim_ShaderFlags1::OWN_EMIT, Fallout4_ShaderFlags1::OWN_EMIT ); }
-	bool envMap() const { return has( Skyrim_ShaderFlags1::ENVMAP, Fallout4_ShaderFlags1::ENVMAP ); }
-	bool eyeEnvMap() const { return has( Skyrim_ShaderFlags1::EYE_ENVMAP, Fallout4_ShaderFlags1::EYE_ENVMAP ); }
-	bool glowMap() const { return has( Skyrim_ShaderFlags2::GLOW_MAP, Fallout4_ShaderFlags2::GLOW_MAP ); }
-	bool skyrimParallax() const { return ( !isFO4 && has( Skyrim_ShaderFlags1::PARALLAX ) ); }
-	bool skyrimBackLighting() const { return ( !isFO4 && has( Skyrim_ShaderFlags2::BACK_LIGHTING ) ); }
-	bool skyrimRimLighting() const { return ( !isFO4 && has( Skyrim_ShaderFlags2::RIM_LIGHTING ) ); }
-	bool skyrimSoftLighting() const { return ( !isFO4 && has( Skyrim_ShaderFlags2::SOFT_LIGHTING ) ); }
-	bool skyrimMultiLayerParalax() const { return ( !isFO4 && has( Skyrim_ShaderFlags2::MULTI_LAYER_PARALLAX ) ); }
-	bool refraction() const { return has( Skyrim_ShaderFlags1::REFRACTION, Fallout4_ShaderFlags1::REFRACTION ); }
-	bool greyscaleToPaletteColor() const { return has( Skyrim_ShaderFlags1::GREYSCALE_TO_PALETTE_COLOR, Fallout4_ShaderFlags1::GREYSCALE_TO_PALETTE_COLOR ); }
-	bool greyscaleToPaletteAlpha() const { return has( Skyrim_ShaderFlags1::GREYSCALE_TO_PALETTE_ALPHA, Fallout4_ShaderFlags1::GREYSCALE_TO_PALETTE_ALPHA); }
-	bool useFalloff() const { return has( Skyrim_ShaderFlags1::USE_FALLOFF, Fallout4_ShaderFlags1::USE_FALLOFF ); }
-	bool rgbFalloff() const { return ( isFO4 && has( Fallout4_ShaderFlags1::RGB_FALLOFF ) ); }
-	bool weaponBlood() const { return has( Skyrim_ShaderFlags2::WEAPON_BLOOD, Fallout4_ShaderFlags2::WEAPON_BLOOD ); }
-	bool effectLighting() const { return has( Skyrim_ShaderFlags2::EFFECT_LIGHTING, Fallout4_ShaderFlags2::EFFECT_LIGHTING ); }
-};
-
-void NewShaderFlags::setFO4( bool _isFO4, bool isEffectsShader )
-{
-	isFO4 = _isFO4;
-	if ( isEffectsShader ) {
-		flags1 = 0x80000000; 
-		flags2 = 0x20;
-	} else if ( isFO4 ) {
-		flags1 = 0x80400201;
-		flags2 = 1;
-	} else {
-		flags1 = 0x82400301;
-		flags2 = 0x8021;
-	}
-}
-
-static const QMap<quint32, quint64> Fallout4_CRCFlagMap = {
-	// SF1
-	{ 1563274220u, quint64(Fallout4_ShaderFlags1::CAST_SHADOWS) },
-	{ 1740048692u, quint64(Fallout4_ShaderFlags1::ZBUFFER_TEST) },
-	{ 3744563888u, quint64(Fallout4_ShaderFlags1::SKINNED) },
-	{ 2893749418u, quint64(Fallout4_ShaderFlags1::ENVMAP) },
-	{ 2333069810u, quint64(Fallout4_ShaderFlags1::VERTEX_ALPHA) },
-	{ 314919375u,  quint64(Fallout4_ShaderFlags1::FACE) },
-	{ 442246519u,  quint64(Fallout4_ShaderFlags1::GREYSCALE_TO_PALETTE_COLOR) },
-	{ 2901038324u, quint64(Fallout4_ShaderFlags1::GREYSCALE_TO_PALETTE_ALPHA) },
-	{ 3849131744u, quint64(Fallout4_ShaderFlags1::DECAL) },
-	{ 1576614759u, quint64(Fallout4_ShaderFlags1::DYNAMIC_DECAL) },
-	{ 2262553490u, quint64(Fallout4_ShaderFlags1::OWN_EMIT) },
-	{ 1957349758u, quint64(Fallout4_ShaderFlags1::REFRACTION) },
-	{ 1483897208u, quint64(Fallout4_ShaderFlags1::SKIN_TINT) },
-	{ 3448946507u, quint64(Fallout4_ShaderFlags1::RGB_FALLOFF) },
-	{ 2150459555u, quint64(Fallout4_ShaderFlags1::EXTERNAL_EMITTANCE) },
-	{ 2548465567u, quint64(Fallout4_ShaderFlags1::MODEL_SPACE_NORMALS) },
-	{ 3980660124u, quint64(Fallout4_ShaderFlags1::USE_FALLOFF) },
-	{ 3503164976u, quint64(Fallout4_ShaderFlags1::SOFT_EFFECT) },
-
-	// SF2
-	{ 3166356979u, quint64(Fallout4_ShaderFlags2::ZBUFFER_WRITE) << 32 },
-	{ 2399422528u, quint64(Fallout4_ShaderFlags2::GLOW_MAP) << 32 },
-	{ 759557230u,  quint64(Fallout4_ShaderFlags2::DOUBLE_SIDED) << 32 },
-	{ 348504749u,  quint64(Fallout4_ShaderFlags2::VERTEX_COLORS) << 32 },
-	{ 2994043788u, quint64(Fallout4_ShaderFlags2::NO_FADE) << 32 },
-	{ 2078326675u, quint64(Fallout4_ShaderFlags2::WEAPON_BLOOD) << 32 },
-	{ 3196772338u, quint64(Fallout4_ShaderFlags2::TRANSFORM_CHANGED) << 32 },
-	{ 3473438218u, quint64(Fallout4_ShaderFlags2::EFFECT_LIGHTING) << 32 },
-	{ 2896726515u, quint64(Fallout4_ShaderFlags2::LOD_OBJECTS) << 32 },
-
-	// TODO
-	{ 731263983u, 0 }, // PBR
-	{ 902349195u, 0 }, // REFRACTION FALLOFF
-	{ 3030867718u, 0 }, // INVERTED_FADE_PATTERN
-	{ 1264105798u, 0 }, // HAIRTINT
-	{ 3707406987u, 0 }, //  NO_EXPOSURE
-};
-
-static void readNewShaderFlags( NewShaderFlags & flags, BSShaderProperty * prop, bool isEffectsShader)
-{
-	// Read flags fields
-	if ( prop->modelBSVersion() >= 151 ) {
-		flags.isFO4 = true;
-
-		auto sfs = prop->block["SF1"].array<quint32>() + prop->block["SF2"].array<quint32>();
-		quint64 allFlags = 0;
-		for ( auto sf : sfs )
-			allFlags |= Fallout4_CRCFlagMap.value( sf, 0 );
-		flags.flags1 = allFlags & quint64(MAXUINT32);
-		flags.flags2 = allFlags >> 32;
-
-	} else { // bsVersion < 151
-		auto flagField1 = prop->block["Shader Flags 1"];
-		auto flagField2 = prop->block["Shader Flags 2"];
-
-		if ( flagField1.hasStrType("SkyrimShaderPropertyFlags1") ) {
-			flags.setFO4( false, isEffectsShader );
-			flags.flags1 = flagField1.value<uint>();
-		} else if ( flagField1.hasStrType("Fallout4ShaderPropertyFlags1") ) {
-			flags.setFO4( true, isEffectsShader );
-			flags.flags1 = flagField1.value<uint>();
-		} else {
-			if ( flagField1 )
-				flagField1.reportError( Property::tr("Unsupported value type '%1'.").arg( flagField1.strType() ) );
-			// Fallback setVersion
-			flags.setFO4( !flagField1 && flagField2.hasStrType("Fallout4ShaderPropertyFlags2"), isEffectsShader );
-		}
-
-		if ( flagField2.hasStrType("SkyrimShaderPropertyFlags2") ) {
-			if ( flags.isFO4 ) {
-				flagField2.reportError( Property::tr("Unexpected value type '%1'.").arg( flagField2.strType() ) );
-			} else {
-				flags.flags2 = flagField2.value<uint>();
-			}
-		} else if ( flagField2.hasStrType("Fallout4ShaderPropertyFlags2") ) {
-			if ( flags.isFO4 ) {
-				flags.flags2 = flagField2.value<uint>();
-			} else {
-				flagField2.reportError( Property::tr("Unexpected value type '%1'.").arg( flagField2.strType() ) );
-			}
-		} else if ( flagField2 ) {
-			flagField2.reportError( Property::tr("Unsupported value type '%1'.").arg( flagField2.strType() ) );
-		}
-	}
-
-	// Set common vertex flags in the property
-	if ( prop->modelBSVersion() >= 130 ) {
-		//  Always do vertex colors, incl. alphas, for FO4 and newer if colors present
-		prop->vertexColorMode = ShaderColorMode::FROM_DATA;
-		prop->hasVertexAlpha = true;
-	} else {
-		prop->vertexColorMode = flags.vertexColors() ? ShaderColorMode::YES : ShaderColorMode::NO;
-		prop->hasVertexAlpha = flags.vertexAlpha();
-	}
-	prop->isVertexAlphaAnimation = flags.treeAnim();
-}
-
-
-enum Skyrim_ShaderType : unsigned int // BSLightingShaderType in nif.xml
-{
-	SKY_SHADER_DEFAULT,
-	SKY_SHADER_ENVMAP,
-	SKY_SHADER_GLOW,
-	SKY_SHADER_HEIGHTMAP,
-	SKY_SHADER_FACE_TINT,
-	SKY_SHADER_SKIN_TINT,
-	SKY_SHADER_HAIR_TINT,
-	SKY_SHADER_PARALLAX_OCC_MAT,
-	SKY_SHADER_WORLD_MULTITEXTURE,
-	SKY_SHADER_WORLDMAP1,
-	SKY_SHADER_SNOW,
-	SKY_SHADER_MULTILAYER_PARALLAX,
-	SKY_SHADER_TREE_ANIM,
-	SKY_SHADER_WORLDMAP2,
-	SKY_SHADER_SPARKLE_SNOW,
-	SKY_SHADER_WORLDMAP3,
-	SKY_SHADER_EYE_ENVMAP,
-	SKY_SHADER_CLOUD,
-	SKY_SHADER_WORLDMAP4,
-	SKY_SHADER_WORLD_LOD_MULTITEXTURE,
-	SKY_SHADER_DISMEMBERMENT, // FO4?
-
-	SKY_SHADER_END
-};
-
 
 void BSLightingShaderProperty::updateData()
 {
-	resetData();
-
 	NewShaderFlags flags;
 	readNewShaderFlags( flags, this, false );
 
@@ -1634,13 +1561,13 @@ void BSLightingShaderProperty::updateData()
 		emissiveMult = m->fEmittanceMult;
 
 		if ( m->bTileU && m->bTileV )
-			clampMode = TexClampMode::WRAP_S_WRAP_T;
+			clampMode = TextureClampMode::WrapS_WrapT;
 		else if ( m->bTileU )
-			clampMode = TexClampMode::WRAP_S_CLAMP_T;
+			clampMode = TextureClampMode::WrapS_ClampT;
 		else if ( m->bTileV )
-			clampMode = TexClampMode::CLAMP_S_WRAP_T;
+			clampMode = TextureClampMode::ClampS_WrapT;
 		else
-			clampMode = TexClampMode::CLAMP_S_CLAMP_T;
+			clampMode = TextureClampMode::ClampS_ClampT;
 
 		fresnelPower = m->fFresnelPower;
 		greyscaleColor = m->bGrayscaleToPaletteColor;
@@ -1669,23 +1596,21 @@ void BSLightingShaderProperty::updateData()
 
 		Skyrim_ShaderType shaderType;
 		if ( modelBSVersion() >= 151 ) {
-			shaderType = SKY_SHADER_ENVMAP;
+			shaderType = Skyrim_ShaderType::EnvMap;
 		} else {
-			shaderType = SKY_SHADER_DEFAULT;
+			shaderType = Skyrim_ShaderType::Default;
 			auto typeField = block["Shader Type"];
 			if ( typeField.hasStrType("BSLightingShaderType") ) { // Skyrim or newer shader type
-				auto v = typeField.value<uint>();
-				if ( v < SKY_SHADER_END )
-					shaderType = Skyrim_ShaderType( v );
-				else {
-					typeField.reportError( tr("Unsupported value %1.").arg( v ) );
-				}
+				shaderType = Skyrim_ShaderType( typeField.value<uint>() );
 			} else if ( typeField ) {
 				typeField.reportError( tr("Unsupported value type '%1'.").arg( typeField.strType() ) );
 			}
 		}
 
-		auto textures = textureBlock["Textures"].array<QString>();
+		auto texturesRoot = textureBlock["Textures"];
+		auto hasTexture = [texturesRoot](int index) -> bool {
+			return !texturesRoot.child( index ).value<QString>().isEmpty();
+		};
 		
 		isDoubleSided = flags.doubleSided();
 		depthTest = flags.depthTest();
@@ -1695,7 +1620,7 @@ void BSLightingShaderProperty::updateData()
 
 		uvScale.set( block["UV Scale"].value<Vector2>() );
 		uvOffset.set( block["UV Offset"].value<Vector2>() );
-		clampMode = TexClampMode( block["Texture Clamp Mode"].value<uint>() );
+		clampMode = TextureClampMode( block["Texture Clamp Mode"].value<uint>() );
 
 		// Specular
 		if ( flags.specular() ) {
@@ -1711,7 +1636,7 @@ void BSLightingShaderProperty::updateData()
 		emissiveMult = block["Emissive Multiple"].value<float>();
 
 		hasEmittance = flags.ownEmit();
-		hasGlowMap = ( shaderType == SKY_SHADER_GLOW ) && flags.glowMap() && !textures.value( 2, "" ).isEmpty();
+		hasGlowMap = ( shaderType == Skyrim_ShaderType::Glow ) && flags.glowMap() && hasTexture(2);
 
 		// Version Dependent settings
 		if ( modelBSVersion() < 130 ) {
@@ -1723,21 +1648,21 @@ void BSLightingShaderProperty::updateData()
 			outerReflectionStrength = block.child("Parallax Envmap Strength").value<float>();
 			innerTextureScale.set( block.child("Parallax Inner Layer Texture Scale").value<Vector2>() );
 
-			hasSpecularMap        = flags.specular() && !textures.value( 7, "" ).isEmpty();
-			hasHeightMap          = (shaderType == SKY_SHADER_HEIGHTMAP) && flags.skyrimParallax() && !textures.value( 3, "" ).isEmpty();
+			hasSpecularMap        = flags.specular() && hasTexture(7);
+			hasHeightMap          = (shaderType == Skyrim_ShaderType::HeightMap) && flags.skyrimParallax() && hasTexture(3);
 			hasBacklight          = flags.skyrimBackLighting();
 			hasRimlight           = flags.skyrimRimLighting();
 			hasSoftlight          = flags.skyrimSoftLighting();
 			hasMultiLayerParallax = flags.skyrimMultiLayerParalax();
 			hasRefraction         = flags.refraction();
 
-			hasTintMask = (shaderType == SKY_SHADER_FACE_TINT);
+			hasTintMask = (shaderType == Skyrim_ShaderType::FaceTint);
 			hasDetailMask = hasTintMask;
 
-			if ( shaderType == SKY_SHADER_HAIR_TINT ) {
+			if ( shaderType == Skyrim_ShaderType::HairTint ) {
 				hasTintColor = true;
 				tintColor = block["Hair Tint Color"].value<Color3>();
-			} else if ( shaderType == SKY_SHADER_SKIN_TINT ) {
+			} else if ( shaderType == Skyrim_ShaderType::SkinTint ) {
 				hasTintColor = true;
 				tintColor = block["Skin Tint Color"].value<Color3>();
 			}
@@ -1752,16 +1677,56 @@ void BSLightingShaderProperty::updateData()
 
 		// Environment Map, Mask and Reflection Scale
 		hasEnvironmentMap = 
-			( shaderType == SKY_SHADER_ENVMAP && flags.envMap() )
-			|| ( shaderType == SKY_SHADER_EYE_ENVMAP && flags.eyeEnvMap() )
+			( shaderType == Skyrim_ShaderType::EnvMap && flags.envMap() )
+			|| ( shaderType == Skyrim_ShaderType::EyeEnvMap && flags.eyeEnvMap() )
 			|| ( modelBSVersion() == 100 && hasMultiLayerParallax );
 		
-		useEnvironmentMask = hasEnvironmentMap && !textures.value( 5, "" ).isEmpty();
+		useEnvironmentMask = hasEnvironmentMap && hasTexture(5);
 
-		if ( shaderType == SKY_SHADER_ENVMAP )
+		if ( shaderType == Skyrim_ShaderType::EnvMap )
 			environmentReflection = block.child("Environment Map Scale").value<float>();
-		else if ( shaderType == SKY_SHADER_EYE_ENVMAP )
+		else if ( shaderType == Skyrim_ShaderType::EyeEnvMap )
 			environmentReflection = block["Eye Cubemap Scale"].value<float>();
+	}
+
+	// Textures
+	if ( block.child("Root Material") ) {
+		if ( m ) {
+			constexpr int BGSM1_MAX = 9;
+			constexpr int BGSM20_MAX = 10;
+
+			auto tex = m->textures();
+			auto nMatTextures = tex.count();
+			if ( nMatTextures >= BGSM1_MAX ) {
+				setTexturePath( 0, tex[0] ); // Diffuse
+				setTexturePath( 1, tex[1] ); // Normal
+				if ( m->bGlowmap ) {
+					if ( nMatTextures == BGSM1_MAX ) {
+						setTexturePath( 2, tex[5] ); // Glow
+					} else if ( nMatTextures == BGSM20_MAX ) {
+						setTexturePath( 2, tex[4] ); // Glow
+					}
+				}
+				if ( m->bGrayscaleToPaletteColor ) {
+					setTexturePath( 3, tex[3] ); // Greyscale
+				}
+				if ( m->bEnvironmentMapping ) {
+					if ( nMatTextures == BGSM1_MAX )
+						setTexturePath( 4, tex[4] ); // Cubemap
+					setTexturePath( 5, tex[5] ); // Env Mask
+				}
+				if ( m->bSpecularEnabled ) {
+					setTexturePath( 7, tex[2] ); // Specular
+					if ( nMatTextures >= BGSM20_MAX ) {
+						setTexturePath( 8, tex[6] ); // Reflect
+						setTexturePath( 9, tex[7] ); // Lighting
+					}
+				}
+			}
+		}
+
+	} else {
+		setTexturePathsFromTextureBlock();
 	}
 }
 
@@ -1776,20 +1741,20 @@ Controller * BSLightingShaderProperty::createController( NifFieldConst controlle
 	return nullptr;
 }
 
-/*
-	BSEffectShaderProperty
-*/
 
-void BSEffectShaderProperty::updateImpl( const NifModel * nif, const QModelIndex & index )
+// BSEffectShaderProperty class
+
+bool BSEffectShaderProperty::isTranslucent() const
 {
-	BSShaderProperty::updateImpl( nif, index );
+	return alpha() < 1.0;
+}
 
-	if ( index == iBlock ) {
-		setMaterial(name.endsWith(".bgem", Qt::CaseInsensitive) ? new EffectMaterial(name, scene->getGame()) : nullptr);
-		updateData();
-	}
-	else if ( index == iTextureSet )
-		updateData();
+Material * BSEffectShaderProperty::createMaterial()
+{
+	if ( name.endsWith(".bgem", Qt::CaseInsensitive) )
+		return new EffectMaterial( name, scene->getGame() );
+
+	return nullptr;
 }
 
 void BSEffectShaderProperty::resetData() 
@@ -1826,8 +1791,6 @@ void BSEffectShaderProperty::resetData()
 
 void BSEffectShaderProperty::updateData()
 {
-	resetData();
-
 	NewShaderFlags flags;
 	readNewShaderFlags( flags, this, true );
 
@@ -1856,13 +1819,13 @@ void BSEffectShaderProperty::updateData()
 		uvOffset.set(m->fUOffset, m->fVOffset);
 
 		if ( m->bTileU && m->bTileV )
-			clampMode = TexClampMode::WRAP_S_WRAP_T;
+			clampMode = TextureClampMode::WrapS_WrapT;
 		else if ( m->bTileU )
-			clampMode = TexClampMode::WRAP_S_CLAMP_T;
+			clampMode = TextureClampMode::WrapS_ClampT;
 		else if ( m->bTileV )
-			clampMode = TexClampMode::CLAMP_S_WRAP_T;
+			clampMode = TextureClampMode::ClampS_WrapT;
 		else
-			clampMode = TexClampMode::CLAMP_S_CLAMP_T;
+			clampMode = TextureClampMode::ClampS_ClampT;
 
 		emissiveColor = Color4(m->cBaseColor, m->fAlpha);
 		emissiveMult = m->fBaseColorScale;
@@ -1904,7 +1867,7 @@ void BSEffectShaderProperty::updateData()
 
 		uvScale.set( block["UV Scale"].value<Vector2>() );
 		uvOffset.set( block["UV Offset"].value<Vector2>() );
-		clampMode = TexClampMode( block["Texture Clamp Mode"].value<quint8>() );
+		clampMode = TextureClampMode( block["Texture Clamp Mode"].value<quint8>() );
 
 		emissiveColor = block["Base Color"].value<Color4>();
 		emissiveMult = block["Base Color Scale"].value<float>();
@@ -1917,6 +1880,20 @@ void BSEffectShaderProperty::updateData()
 		falloff.startOpacity = block["Falloff Start Opacity"].value<float>();
 		falloff.stopOpacity  = block["Falloff Stop Opacity"].value<float>();
 		falloff.softDepth    = block["Soft Falloff Depth"].value<float>();
+	}
+
+	// Textures
+	if ( material ) {
+		if ( m )
+			texturePaths = m->textures().toVector();
+	} else {
+		setTexturePath( 0, block["Source Texture"] );
+		setTexturePath( 1, block["Greyscale Texture"] );
+		setTexturePath( 2, block.child("Env Map Texture") );
+		setTexturePath( 3, block.child("Normal Texture") );
+		setTexturePath( 4, block.child("Env Mask Texture") );
+		setTexturePath( 6, block.child("Reflectance Texture") );
+		setTexturePath( 7, block.child("Lighting Texture") );
 	}
 }
 
@@ -1931,17 +1908,27 @@ Controller * BSEffectShaderProperty::createController( NifFieldConst controllerB
 	return nullptr;
 }
 
-/*
-	BSWaterShaderProperty
-*/
 
-unsigned int BSWaterShaderProperty::getWaterShaderFlags() const
+// SkyrimSimpleShaderProperty class
+
+bool SkyrimSimpleShaderProperty::isTranslucent() const
 {
-	return (unsigned int)waterShaderFlags;
+	return block.inherits("BSSkyShaderProperty");
 }
 
-void BSWaterShaderProperty::setWaterShaderFlags( unsigned int val )
+void SkyrimSimpleShaderProperty::updateData()
 {
-	waterShaderFlags = WaterShaderFlags::SF1( val );
-}
+	NewShaderFlags flags;
+	readNewShaderFlags( flags, this, false );
 
+	depthTest = flags.depthTest();
+	depthWrite = flags.depthWrite();
+	isDoubleSided = flags.doubleSided();
+
+	uvScale.set( block["UV Scale"].value<Vector2>() );
+	uvOffset.set( block["UV Offset"].value<Vector2>() );
+
+	if ( block.inherits("BSSkyShaderProperty") ) {
+		setTexturePath( 0, block["Source Texture"] );
+	}
+}

@@ -57,7 +57,7 @@ public:
 	bool hasAlphaBlend() const { return (bAlphaBlend != 0); }
 	bool hasAlphaTest() const { return (bAlphaTest != 0); }
 	bool hasDecal() const { return (bDecal != 0); }
-	QStringList textures() const;
+	const QStringList & textures() const { return textureList; }
 	QString getPath() const;
 
 protected:
