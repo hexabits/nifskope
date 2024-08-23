@@ -766,9 +766,8 @@ void GLView::setVisMode( Scene::VisMode mode, bool checked )
 
 typedef void (Scene::* DrawFunc)( void );
 
-int indexAt( /*GLuint *buffer,*/ NifModel * model, Scene * scene, QList<DrawFunc> drawFunc, int cycle, const QPoint & pos, int & furn )
+uint32_t indexAt( Scene * scene, const QList<DrawFunc> & drawFunc, const QPoint & pos )
 {
-	Q_UNUSED( model ); Q_UNUSED( cycle );
 	// Color Key O(1) selection
 	//	Open GL 3.0 says glRenderMode is deprecated
 	//	ATI OpenGL API implementation of GL_SELECT corrupts NifSkope memory
@@ -824,31 +823,8 @@ int indexAt( /*GLuint *buffer,*/ NifModel * model, Scene * scene, QList<DrawFunc
 	img.save( "fbo.png" );
 #endif
 
-	// Encode RGB to Int
-	int a = 0;
-	a |= pixel.red()   << 0;
-	a |= pixel.green() << 8;
-	a |= pixel.blue()  << 16;
-
-	// Decode:
-	// R = (id & 0x000000FF) >> 0
-	// G = (id & 0x0000FF00) >> 8
-	// B = (id & 0x00FF0000) >> 16
-
-	int choose = COLORKEY2ID( a );
-
-	// Pick BSFurnitureMarker
-	if ( choose > 0 ) {
-		auto furnBlock = model->getBlockIndex( model->index( 3, 0, model->getBlockIndex( choose & 0x0ffff ) ), "BSFurnitureMarker" );
-
-		if ( furnBlock.isValid() ) {
-			furn = choose >> 16;
-			choose &= 0x0ffff;
-		}
-	}
-
-	//qDebug() << "Key:" << a << " R" << pixel.red() << " G" << pixel.green() << " B" << pixel.blue();
-	return choose;
+	// Decode RGB to id
+	return ( pixel.blue() << 16 ) | ( pixel.green() << 8 ) | pixel.red();
 }
 
 QModelIndex GLView::indexAt( const QPoint & pos, int cycle )
@@ -882,8 +858,7 @@ QModelIndex GLView::indexAt( const QPoint & pos, int cycle )
 
 	df << &Scene::drawShapes;
 
-	int choose = -1, furn = -1;
-	choose = ::indexAt( model, scene, df, cycle, pos, /*out*/ furn );
+	uint32_t idColor = ::indexAt( scene, df, pos );
 
 	glPopAttrib();
 	glMatrixMode( GL_MODELVIEW );
@@ -893,22 +868,23 @@ QModelIndex GLView::indexAt( const QPoint & pos, int cycle )
 
 	QModelIndex chooseIndex;
 
-	if ( scene->isSelModeVertex() ) {
-		// Vertex
-		int block = choose >> 16;
-		int vert = choose - (block << 16);
+	if ( idColor != 0 ) {
+		int lowId  = idColor & 0xFFFF;
+		int highId = idColor >> 16;
 
-		auto shape = scene->shapes.value( block );
-		if ( shape )
-			chooseIndex = shape->vertexAt( vert );
-	} else if ( choose != -1 ) {
-		// Block Index
-		chooseIndex = model->getBlockIndex( choose );
-
-		if ( furn != -1 ) {
-			// Furniture Row @ Block Index
-			chooseIndex = model->index( furn, 0, model->index( 3, 0, chooseIndex ) );
-		}			
+		if ( scene->isSelModeVertex() ) {
+			if ( highId > 0 ) { // Shape vertex selection
+				auto shape = scene->shapes.value( highId - 1 );
+				if ( shape )
+					chooseIndex = shape->vertexAt( lowId );
+			}
+		} else {
+			if ( highId > 0 ) { // Furniture row selection
+				chooseIndex = model->block( lowId ).child("Positions").child( highId - 1 ).toIndex();
+			} else { // Block selection
+				chooseIndex = model->getBlockIndex( lowId - 1 );
+			}
+		}
 	}
 
 	return chooseIndex;

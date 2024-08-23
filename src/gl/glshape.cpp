@@ -205,10 +205,10 @@ void Shape::drawShapes( NodeList * secondPass, bool presort )
 		shader = scene->renderer->setupProgram( this, shader );
 	} else { // Selection rendering
 		if ( scene->isSelModeObject() ) {
-			int s_nodeId = ID2COLORKEY( nodeId );
-			glColor4ubv( (GLubyte *)&s_nodeId );
-		} else
+			glSelectionBufferColor( nodeId );
+		} else {
 			glColor4f( 0, 0, 0, 1 );
+		}
 
 		glDisable( GL_LIGHTING );
 		glDisable( GL_FRAMEBUFFER_SRGB );
@@ -246,8 +246,7 @@ void Shape::drawShapes( NodeList * secondPass, bool presort )
 
 		auto pVerts = transVerts.data();
 		for ( int i = 0; i < numVerts; i++, pVerts++ ) {
-			int id = ID2COLORKEY( (shapeNumber << 16) + i );
-			glColor4ubv( (GLubyte *) &id );
+			glSelectionBufferColor( shapeNumber, i );
 			glVertex( pVerts );
 		}
 

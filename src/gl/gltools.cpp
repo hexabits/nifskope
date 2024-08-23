@@ -1066,6 +1066,26 @@ void drawCMS( const NifModel * nif, const QModelIndex & iShape, bool solid )
 	}
 }
 
+void glSelectionBufferColor( int lowId )
+{
+	if ( lowId >= 0 && lowId < 0xFFFF ) {
+		uint32_t idColor = lowId + 1;
+		glColor3ubv( (GLubyte *) &idColor );
+	} else {
+		glColor4f( 0, 0, 0, 1 );
+	}
+}
+
+void glSelectionBufferColor( int highId, int lowId )
+{
+	if ( highId >= 0 && highId < 0xFF && lowId >= 0 && lowId <= 0xFFFF ) {
+		uint32_t idColor = ( (highId + 1) << 16 ) + lowId;
+		glColor3ubv( (GLubyte *) &idColor );
+	} else {
+		glColor4f( 0, 0, 0, 1 );
+	}
+}
+
 // Renders text using the font initialized in the primary view class
 void renderText( const Vector3 & c, const QString & str )
 {

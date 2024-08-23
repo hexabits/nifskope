@@ -61,10 +61,9 @@ void BSMesh::drawShapes(NodeList* secondPass, bool presort)
 
 	if ( Node::SELECTING ) {
 		if ( scene->isSelModeObject() ) {
-			int s_nodeId = ID2COLORKEY(nodeId);
-			glColor4ubv((GLubyte*)&s_nodeId);
+			glSelectionBufferColor( nodeId );
 		} else {
-			glColor4f(0, 0, 0, 1);
+			glColor4f( 0, 0, 0, 1 );
 		}
 	}
 
