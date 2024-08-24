@@ -146,8 +146,8 @@ public:
 	template <typename T> T * findProperty() const;
 	void activeProperties( PropertyList & list ) const;
 
-	Controller * findController( const QString & propType, const QString & ctrlType, const QString & var1, const QString & var2 ) const;
-	Controller * findController( const QString & propType, NifFieldConst ctrlBlock ) const;
+	Controller * findPropertyController( const QString & propType, const QString & ctrlType, const QString & var1, const QString & var2 ) const;
+	Controller * findPropertyController( const QString & propType, NifFieldConst ctrlBlock ) const;
 
 public slots:
 	void updateSettings();

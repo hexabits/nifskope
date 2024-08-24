@@ -1384,6 +1384,8 @@ public:
 	//! Constructor
 	explicit Color4( const Color3 & c, float alpha = 1.0 ) { rgba[0] = c[0]; rgba[1] = c[1]; rgba[2] = c[2]; rgba[3] = alpha; }
 	//! Constructor
+	explicit Color4( const Vector3 & c, float alpha = 1.0 ) { rgba[0] = c[0]; rgba[1] = c[1]; rgba[2] = c[2]; rgba[3] = alpha; }
+	//! Constructor
 	explicit Color4( const QColor & c ) { fromQColor( c ); }
 	//! Constructor
 	Color4( float r, float g, float b, float a ) { setRGBA( r, g, b, a ); }

@@ -75,6 +75,8 @@ public:
 	TransformInterpolator( NifFieldConst _interpolatorBlock, Node * node, Controller * _parentController )
 		: ITransformInterpolator( _interpolatorBlock, node, _parentController ) {}
 
+	bool isActive() const override final { return translation.isActive() || rotation.isActive() || scale.isActive(); }
+
 protected:
 	void updateDataImpl() override final;
 	void applyTransformImpl( float time ) override final;
@@ -90,6 +92,8 @@ class BSplineInterpolator final : public ITransformInterpolator
 		uint off = USHRT_MAX;
 		float mult = 0.0f;
 		float bias = 0.0f;
+
+		bool isActive() const { return off != USHRT_MAX; }
 	};
 	SplineVars rotateVars, translationVars, scaleVars;
 
@@ -100,6 +104,8 @@ class BSplineInterpolator final : public ITransformInterpolator
 public:
 	BSplineInterpolator( NifFieldConst _interpolatorBlock, Node * node, Controller * _parentController )
 		: ITransformInterpolator( _interpolatorBlock, node, _parentController ) {}
+
+	bool isActive() const override final { return rotateVars.isActive() || translationVars.isActive() || scaleVars.isActive(); }
 
 protected:
 	void updateDataImpl() override final;
@@ -148,6 +154,8 @@ public:
 	VisibilityInterpolator( NifFieldConst _interpolatorBlock, Node * node, Controller * _parentController )
 		: IControllerInterpolatorTyped( _interpolatorBlock, node, _parentController ) {}
 
+	bool isActive() const override final { return interpolator.isActive(); }
+
 protected:
 	void updateDataImpl() override final;
 	void applyTransformImpl( float time ) override final;
@@ -157,15 +165,19 @@ protected:
 DECLARE_INTERPOLATED_CONTROLLER( VisibilityController, Node, VisibilityInterpolator )
 
 
-// Interpolator  for `NiGeomMorpherController` blocks
+class MorphController;
+
+// Interpolator for `NiGeomMorpherController` blocks
 class MorphInterpolator final : public IControllerInterpolatorTyped<Shape>
 {
+	int verticesIndex;
 	const NifFieldConst morphDataEntry;
-	QVector<Vector3> verts;
 	ValueInterpolatorFloat interpolator;
 
 public:
-	MorphInterpolator( NifFieldConst _interpolatorBlock, Shape * shape, Controller * _parentController, NifFieldConst _morphDataEntry, NifFieldConst vertsRoot );
+	MorphInterpolator( int _verticesIndex, NifFieldConst _interpolatorBlock, Shape * shape, MorphController * _parentController, NifFieldConst _morphDataEntry );
+
+	bool isActive() const override final { return interpolator.isActive(); }
 
 protected:
 	void updateDataImpl() override final;
@@ -175,24 +187,30 @@ protected:
 // Controller for `NiGeomMorpherController` blocks
 class MorphController final : public Controller
 {
+	friend class MorphInterpolator;
+
 	QPointer<Shape> target;
 	NifFieldConst dataBlock;
-	QVector<MorphInterpolator *> morphs;
-	QVector<Vector3> verts;
+	QVector< QVector<Vector3> > morphVertices;
+	QVector<MorphInterpolator *> morphInterpolators;
 
 public:
 	MorphController( Shape * shape, NifFieldConst ctrlBlock );
-	virtual ~MorphController() { clearMorphs(); }
+	virtual ~MorphController() { clearMorphInterpolators(); }
 
 	bool hasTarget() const { return !target.isNull(); }
 
+	bool isActive() const;
+
 	void updateTime( float time ) override final;
+
+	void setMorphInterpolator( int morphIndex, NifFieldConst interpolarorBlock );
 
 protected:
 	void updateImpl( NifFieldConst changedBlock ) override final;
 
 private:
-	void clearMorphs();
+	void clearMorphInterpolators();
 };
 
 
@@ -206,6 +224,8 @@ class UVInterpolator final : public IControllerInterpolatorTyped<Shape>
 public:
 	UVInterpolator( NifFieldConst _interpolatorBlock, Shape * shape, Controller * _parentController )
 		: IControllerInterpolatorTyped( _interpolatorBlock, shape, _parentController ), interpolators( UV_GROUPS_COUNT ) {}
+
+	bool isActive() const override final { return true; }
 
 protected:
 	void updateDataImpl() override final;
@@ -263,6 +283,8 @@ public:
 	ParticleInterpolator( NifFieldConst _interpolatorBlock, Particles * particlesControllable, Controller * _parentController )
 		: IControllerInterpolatorTyped( _interpolatorBlock, particlesControllable, _parentController ) {}
 
+	bool isActive() const override final { return true; }
+
 protected:
 	void updateDataImpl() override final;
 	void applyTransformImpl( float time ) override final;
@@ -287,6 +309,8 @@ public:
 	AlphaInterpolator_Material( NifFieldConst _interpolatorBlock, MaterialProperty * prop, Controller * _parentController )
 		: IControllerInterpolatorTyped( _interpolatorBlock, prop, _parentController ) {}
 
+	bool isActive() const override final { return interpolator.isActive(); }
+
 protected:
 	void updateDataImpl() override final;
 	void applyTransformImpl( float time ) override final;
@@ -304,6 +328,8 @@ class AlphaInterpolator_Alpha final : public IControllerInterpolatorTyped<AlphaP
 public:
 	AlphaInterpolator_Alpha( NifFieldConst _interpolatorBlock, AlphaProperty * prop, Controller * _parentController )
 		: IControllerInterpolatorTyped( _interpolatorBlock, prop, _parentController ) {}
+
+	bool isActive() const override final { return interpolator.isActive(); }
 
 protected:
 	void updateDataImpl() override final;
@@ -326,11 +352,13 @@ class MaterialColorInterpolator final : public IControllerInterpolatorTyped<Mate
 	};
 	ColorType colorType = ColorType::Ambient; //!< The color slot being controlled
 
-	ValueInterpolatorColor3 interpolator;
+	ValueInterpolatorVector3 interpolator;
 
 public:
 	MaterialColorInterpolator( NifFieldConst _interpolatorBlock, MaterialProperty * prop, Controller * _parentController )
 		: IControllerInterpolatorTyped( _interpolatorBlock, prop, _parentController ) {}
+
+	bool isActive() const override final { return interpolator.isActive(); }
 
 protected:
 	void updateDataImpl() override final;
@@ -351,6 +379,8 @@ struct TextureFlipData
 	QVector<NifFieldConst> sources;
 	ValueInterpolatorFloat interpolator;
 
+	bool isActive() const { return hasDelta ? ( delta > 0.0f ) : interpolator.isActive(); }
+
 	void updateData( IControllerInterpolator * ctrlInterpolator, const QString & sourcesName, const QString & sourceBlockType );
 	void interpolate( NifFieldConst & sourceBlock, float time );
 };
@@ -363,6 +393,8 @@ class TextureFlipInterpolator_Texturing final : public IControllerInterpolatorTy
 public:
 	TextureFlipInterpolator_Texturing( NifFieldConst _interpolatorBlock, TexturingProperty * prop, Controller * _parentController )
 		: IControllerInterpolatorTyped( _interpolatorBlock, prop, _parentController ) {}
+
+	bool isActive() const override final { return data.isActive(); }
 
 protected:
 	void updateDataImpl() override final;
@@ -380,6 +412,8 @@ class TextureFlipInterpolator_Texture final : public IControllerInterpolatorType
 public:
 	TextureFlipInterpolator_Texture( NifFieldConst _interpolatorBlock, TextureProperty * prop, Controller * _parentController )
 		: IControllerInterpolatorTyped( _interpolatorBlock, prop, _parentController ) {}
+
+	bool isActive() const override final { return data.isActive(); }
 
 protected:
 	void updateDataImpl() override final;
@@ -409,6 +443,8 @@ class TextureTransformInterpolator final : public IControllerInterpolatorTyped<T
 public:
 	TextureTransformInterpolator( NifFieldConst _interpolatorBlock, TexturingProperty * prop, Controller * _parentController )
 		: IControllerInterpolatorTyped( _interpolatorBlock, prop, _parentController ) {}
+
+	bool isActive() const override final { return interpolator.isActive(); }
 
 protected:
 	void updateDataImpl() override final;
@@ -440,8 +476,10 @@ class EffectFloatInterpolator final : public IControllerInterpolatorTyped<BSEffe
 	ValueType valueType = ValueType::Emissive_Multiple;
 
 public:
-	EffectFloatInterpolator(  NifFieldConst _interpolatorBlock, BSEffectShaderProperty * prop, Controller * _parentController )
+	EffectFloatInterpolator( NifFieldConst _interpolatorBlock, BSEffectShaderProperty * prop, Controller * _parentController )
 		: IControllerInterpolatorTyped( _interpolatorBlock, prop, _parentController ) {}
+
+	bool isActive() const override final { return interpolator.isActive(); }
 
 protected:
 	void updateDataImpl() override final;
@@ -461,6 +499,8 @@ class EffectColorInterpolator final : public IControllerInterpolatorTyped<BSEffe
 public:
 	EffectColorInterpolator( NifFieldConst _interpolatorBlock, BSEffectShaderProperty * prop, Controller * _parentController )
 		: IControllerInterpolatorTyped( _interpolatorBlock, prop, _parentController ) {}
+
+	bool isActive() const override final { return interpolator.isActive(); }
 
 protected:
 	void updateDataImpl() override final;
@@ -495,6 +535,8 @@ public:
 	LightingFloatInterpolator( NifFieldConst _interpolatorBlock, BSLightingShaderProperty * prop, Controller * _parentController )
 		: IControllerInterpolatorTyped( _interpolatorBlock, prop, _parentController ) {}
 
+	bool isActive() const override final { return interpolator.isActive(); }
+
 protected:
 	void updateDataImpl() override final;
 	void applyTransformImpl( float time ) override final;
@@ -505,7 +547,7 @@ DECLARE_INTERPOLATED_CONTROLLER( LightingFloatController, BSLightingShaderProper
 
 
 // Interpolator for 'BSLightingShaderPropertyColorController' blocks
-class LightingColorInterpolator final : public  IControllerInterpolatorTyped<BSLightingShaderProperty>
+class LightingColorInterpolator final : public IControllerInterpolatorTyped<BSLightingShaderProperty>
 {
 	ValueInterpolatorVector3 interpolator;
 	int colorType = 0;
@@ -513,6 +555,8 @@ class LightingColorInterpolator final : public  IControllerInterpolatorTyped<BSL
 public:
 	LightingColorInterpolator( NifFieldConst _interpolatorBlock, BSLightingShaderProperty * prop, Controller * _parentController )
 		: IControllerInterpolatorTyped( _interpolatorBlock, prop, _parentController ) {}
+
+	bool isActive() const override final { return interpolator.isActive(); }
 
 protected:
 	void updateDataImpl() override final;

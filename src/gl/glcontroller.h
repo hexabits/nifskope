@@ -132,6 +132,8 @@ class ValueInterpolator final
 public:
 	void clear();
 
+	bool isActive() const { return keys.count() > 0; }
+
 	void updateData( NifFieldConst keyGroup );
 	bool interpolate( T & value, float time );
 
@@ -156,6 +158,8 @@ class ValueInterpolatorMatrix final
 
 public:
 	void clear();
+
+	bool isActive() const;
 
 	void updateData( NifFieldConst keyGroup );
 	bool interpolate( Matrix & value, float time );
@@ -216,6 +220,8 @@ public:
 		: IControllerInterpolator( _interpolatorBlock, _targetControllable, _parentController ) {}
 
 	ControllableType * target() const { return static_cast<ControllableType *>( targetControllable.data() ); }
+
+	virtual bool isActive() const = 0;
 };
 
 
@@ -239,6 +245,8 @@ public:
 
 	bool hasTarget() const { return !target.isNull(); }
 
+	bool isActive() const { return active && hasTarget() && hasValidInterpolator() && interpolator->isActive(); }
+
 	void setInterpolator( NifFieldConst newInterpolatorBlock ) override final
 	{
 		setInterpolatorImpl( newInterpolatorBlock, true );
@@ -246,13 +254,15 @@ public:
 
 	void updateTime( float time ) override final
 	{
-		if ( active && hasValidInterpolator() )
+		if ( isActive() )
 			interpolator->applyTransform( ctrlTime( time ) );
 	}
 
 protected:
 	void updateImpl( NifFieldConst changedBlock ) override final
 	{
+		bool oldActive = isActive();
+
 		Controller::updateImpl( changedBlock );
 
 		if ( changedBlock == block && hasTarget() )
@@ -260,6 +270,11 @@ protected:
 
 		if ( hasValidInterpolator() )
 			interpolator->updateData( changedBlock );
+
+		// Force data update for the target if the controller goes from active to inactive.
+		// This reverts all the changes that have been made by the controller.
+		if ( oldActive && !isActive() && hasTarget() )
+			target->update();
 	}
 
 	void clearInterpolator()

@@ -81,6 +81,9 @@ void ControllerManager::setSequence( const QString & seqName )
 		}
 	}
 
+	MorphController * curMorphController = nullptr;
+	int nextMorphIndex = 0;
+
 	// TODO: All of the below does not work well with block updates
 	for ( auto seqEntry : block.child("Controller Sequences").iter() ) {
 		auto seqBlock = seqEntry.linkBlock("NiControllerSequence");
@@ -137,6 +140,19 @@ void ControllerManager::setSequence( const QString & seqName )
 				}
 			}
 
+			if ( ctrlType == QStringLiteral("NiGeomMorpherController") ) {
+				auto ctrl = node->findController( controllerBlock );
+				if ( ctrl && ctrl->typeId() == ctrlType ) {
+					if ( ctrl != curMorphController ) {
+						curMorphController = static_cast<MorphController *>( ctrl );
+						nextMorphIndex = 0;
+					}
+					curMorphController->setMorphInterpolator( nextMorphIndex, interpBlock );
+					nextMorphIndex++;
+				}
+				continue;
+			}
+
 			QString propType = resolveStrField( QStringLiteral("Property Type"), QStringLiteral("Property Type Offset") );
 
 			if ( ctrlType == QStringLiteral("BSLightingShaderPropertyFloatController")
@@ -145,9 +161,7 @@ void ControllerManager::setSequence( const QString & seqName )
 				|| ctrlType == QStringLiteral("BSEffectShaderPropertyColorController")
 				|| ctrlType == QStringLiteral("BSNiAlphaPropertyTestRefController") )
 			{
-				//qDebug() << node->name;
-
-				auto ctrl = node->findController( propType, controllerBlock );
+				auto ctrl = node->findPropertyController( propType, controllerBlock );
 				if ( ctrl )
 					ctrl->setInterpolator( interpBlock );
 				continue;
@@ -155,7 +169,7 @@ void ControllerManager::setSequence( const QString & seqName )
 
 			QString var1 = resolveStrField( QStringLiteral("Controller ID"), QStringLiteral("Controller ID Offset") );
 			QString var2 = resolveStrField( QStringLiteral("Interpolator ID"), QStringLiteral("Interpolator ID Offset") );
-			Controller * ctrl = node->findController( propType, ctrlType, var1, var2 );
+			Controller * ctrl = node->findPropertyController( propType, ctrlType, var1, var2 );
 			if ( ctrl ) {
 				ctrl->start = start;
 				ctrl->stop = stop;
@@ -381,7 +395,7 @@ void BSplineInterpolator::applyTransformImpl( float time )
 template <typename T>
 bool BSplineInterpolator::interpolateValue( T & value, float interval, const SplineVars & vars ) const
 {
-	if ( vars.off == USHRT_MAX )
+	if ( !vars.isActive() )
 		return false;
 
 	SplineArraySlice subArray( controlPointsRoot, vars.off );
@@ -518,10 +532,10 @@ VisibilityInterpolator * VisibilityController::createInterpolator( NifFieldConst
 
 // MorphInterpolator and MorphController classes
 
-MorphInterpolator::MorphInterpolator( NifFieldConst _interpolatorBlock, Shape * shape, Controller * _parentController, NifFieldConst _morphDataEntry, NifFieldConst vertsRoot )
-	:  IControllerInterpolatorTyped<Shape>( _interpolatorBlock, shape, _parentController ),
-	morphDataEntry( _morphDataEntry ),
-	verts( vertsRoot.array<Vector3>() )
+MorphInterpolator::MorphInterpolator( int _verticesIndex, NifFieldConst _interpolatorBlock, Shape * shape, MorphController * _parentController, NifFieldConst _morphDataEntry )
+	: IControllerInterpolatorTyped<Shape>( _interpolatorBlock, shape, _parentController ),
+	verticesIndex( _verticesIndex ),
+	morphDataEntry( _morphDataEntry )
 {
 }
 
@@ -544,9 +558,10 @@ void MorphInterpolator::applyTransformImpl( float time )
 			if ( x > 1.0f )
 				x = 1.0f;
 
+			const auto & inVerts = static_cast<MorphController *>( controller )->morphVertices[verticesIndex];
 			auto & outVerts = target()->verts;
-			for ( int i = 0, nVerts = std::min( verts.count(), outVerts.count() ); i < nVerts; i++ )
-				outVerts[i] += verts[i] * x;
+			for ( int i = 0, nVerts = std::min( inVerts.count(), outVerts.count() ); i < nVerts; i++ )
+				outVerts[i] += inVerts[i] * x;
 		}
 	}
 }
@@ -557,27 +572,66 @@ MorphController::MorphController( Shape * shape, NifFieldConst ctrlBlock )
 	Q_ASSERT( hasTarget() );
 }
 
+bool MorphController::isActive() const
+{
+	if ( active && hasTarget() ) {
+		for ( auto m : morphInterpolators ) {
+			if ( m && m->isActive() )
+				return true;
+		}
+	}
+
+	return false;
+}
+
 void MorphController::updateTime( float time )
 {
-	if ( active && hasTarget() && morphs.count() > 0 ) {
-		if ( target->verts.count() != verts.count() )
+	if ( isActive() ) {
+		const auto & firstVerts = morphVertices[0];
+		if ( target->verts.count() != firstVerts.count() )
 			return; // TODO: report error
 
 		time = ctrlTime( time );
-		target->verts = verts;
-		for ( auto m : morphs )
-			m->applyTransform( time );
+		target->verts = firstVerts;
+		for ( auto m : morphInterpolators ) {
+			if ( m )
+				m->applyTransform( time );
+		}
 		target->needUpdateBounds = true;
+	}
+}
+
+void MorphController::setMorphInterpolator( int morphIndex, NifFieldConst interpolatorBlock )
+{
+	morphIndex -= 1;
+	if ( morphIndex >= 0 && morphIndex < morphInterpolators.count() ) {
+		MorphInterpolator * interpolator;
+		
+		// Delete previous interpolator
+		interpolator = morphInterpolators[morphIndex];
+		if ( interpolator )
+			delete interpolator;
+
+		// Init new interpolator
+		if ( interpolatorBlock ) {
+			interpolator = new MorphInterpolator( morphIndex + 1, interpolatorBlock, target, this, NifFieldConst() );
+			interpolator->updateData( interpolatorBlock );
+		} else {
+			interpolator = nullptr;
+		}
+		morphInterpolators[morphIndex] = interpolator;
 	}
 }
 
 void MorphController::updateImpl( NifFieldConst changedBlock )
 {
+	bool oldActive = isActive();
+
 	Controller::updateImpl( changedBlock );
 
 	if ( ( changedBlock == block || changedBlock == dataBlock ) && hasTarget() ) {
-		clearMorphs();
-		verts.clear();
+		morphVertices.clear();
+		clearMorphInterpolators();
 
 		NifFieldConst interpolatorsRoot;
 		auto interpolatorWeightsRoot = block.child("Interpolator Weights");
@@ -593,11 +647,17 @@ void MorphController::updateImpl( NifFieldConst changedBlock )
 		auto morphDataRoot = dataBlock.child("Morphs");
 		int nMorphs = morphDataRoot.childCount();
 		if ( nMorphs > 1 ) {
+			morphVertices.reserve( nMorphs );
 			auto firstMorphVertsRoot = morphDataRoot[0].child("Vectors");
-			verts = firstMorphVertsRoot.array<Vector3>();
+			morphVertices.append( firstMorphVertsRoot.array<Vector3>() );
 
-			morphs.reserve( nMorphs - 1 );
+			morphInterpolators.reserve( nMorphs - 1 );
 			for ( int i = 1; i < nMorphs; i++ ) {
+				auto morphEntry = morphDataRoot[i];
+				auto morphVertsRoot = morphEntry.child( firstMorphVertsRoot.row() );
+				IControllable::reportFieldCountMismatch( morphVertsRoot, firstMorphVertsRoot, dataBlock );
+				morphVertices.append( morphVertsRoot.array<Vector3>() );
+
 				NifFieldConst interpolatorBlock;
 				if ( interpolatorWeightsRoot ) {
 					interpolatorBlock = interpolatorWeightsRoot[i].child(iInterpolatorField).linkBlock("NiFloatInterpolator");
@@ -607,24 +667,33 @@ void MorphController::updateImpl( NifFieldConst changedBlock )
 					interpolatorBlock = dataBlock;
 				}
 
-				auto morphEntry = morphDataRoot[i];
-				auto morphVertsRoot = morphEntry.child( firstMorphVertsRoot.row() );
-				IControllable::reportFieldCountMismatch( morphVertsRoot, firstMorphVertsRoot, dataBlock );
-
-				if ( interpolatorBlock && morphVertsRoot.childCount() > 0 )
-					morphs.append( new MorphInterpolator( interpolatorBlock, target, this, morphEntry, morphVertsRoot ) );
+				if ( interpolatorBlock ) {
+					morphInterpolators.append( new MorphInterpolator( i, interpolatorBlock, target, this, morphEntry ) );
+				} else {
+					morphInterpolators.append( nullptr );
+				}
 			}
 		}
 	}
 
-	for ( auto morphManager : morphs )
-		morphManager->updateData( changedBlock );
+	for ( auto m : morphInterpolators ) {
+		if ( m )
+			m->updateData( changedBlock );
+	}
+
+	// Force data update for the target if the controller goes from active to inactive.
+	// This reverts all the changes that have been made by the controller.
+	if ( oldActive && !isActive() && hasTarget() )
+		target->update();
 }
 
-void MorphController::clearMorphs()
+void MorphController::clearMorphInterpolators()
 {
-	qDeleteAll( morphs );
-	morphs.clear();
+	for ( auto m : morphInterpolators ) {
+		if ( m )
+			delete m;
+	}
+	morphInterpolators.clear();
 }
 
 
@@ -965,7 +1034,7 @@ void MaterialColorInterpolator::updateDataImpl()
 
 void MaterialColorInterpolator::applyTransformImpl( float time )
 {
-	Color3 val;
+	Vector3 val;
 	if ( interpolator.interpolate( val, time ) ) {
 		Color4 color( val, 1.0 );
 		switch ( colorType ) {
@@ -1193,7 +1262,7 @@ void EffectColorInterpolator::applyTransformImpl( float time )
 	if ( interpolator.interpolate( val, time ) ) {
 		switch ( colorType ) {
 		case 0:
-			target()->emissiveColor = Color4( val[0], val[1], val[2], target()->emissiveColor.alpha() );
+			target()->emissiveColor = Color4( val, target()->emissiveColor.alpha() );
 			break;
 		}
 	}
@@ -1283,10 +1352,10 @@ void LightingColorInterpolator::applyTransformImpl( float time )
 	if ( interpolator.interpolate( val, time ) ) {
 		switch ( colorType ) {
 		case 0:
-			target()->specularColor = { val[0], val[1], val[2] };
+			target()->specularColor.fromVector3( val );
 			break;
 		case 1:
-			target()->emissiveColor = { val[0], val[1], val[2] };
+			target()->emissiveColor.fromVector3( val );
 			break;
 		default:
 			break;

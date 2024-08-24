@@ -340,6 +340,19 @@ void ValueInterpolatorMatrix::clear()
 	quat.clear();
 }
 
+bool ValueInterpolatorMatrix::isActive() const
+{
+	if ( eulers.count() > 0 ) {
+		for ( auto e : eulers ) {
+			if ( e.isActive() )
+				return true;
+		}
+		return false;
+	} else {
+		return quat.isActive();
+	}
+}
+
 void ValueInterpolatorMatrix::updateData( NifFieldConst keyGroup )
 {
 	clear();

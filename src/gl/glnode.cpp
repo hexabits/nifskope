@@ -228,7 +228,7 @@ void Node::clear()
 	properties.clear();
 }
 
-Controller * Node::findController( const QString & propType, const QString & ctrlType, const QString & var1, const QString & var2 ) const
+Controller * Node::findPropertyController( const QString & propType, const QString & ctrlType, const QString & var1, const QString & var2 ) const
 {
 	if ( !propType.isEmpty() && propType != QStringLiteral("<empty>") ) {
 		for ( Property * prp : properties.hash() ) {
@@ -241,7 +241,7 @@ Controller * Node::findController( const QString & propType, const QString & ctr
 	return IControllable::findController( ctrlType, var1, var2 );
 }
 
-Controller * Node::findController( const QString & propType, NifFieldConst ctrlBlock ) const
+Controller * Node::findPropertyController( const QString & propType, NifFieldConst ctrlBlock ) const
 {
 	if ( !propType.isEmpty() && ctrlBlock ) {
 		for ( Property * prp : properties.hash() ) {
