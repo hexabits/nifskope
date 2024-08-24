@@ -631,14 +631,18 @@ bool NifModel::updateArraySizeImpl( NifItem * array )
 		endRemoveRows();
 	}
 
-	if ( nNewSize != nOldSize
-		&& state != Loading
-		&& ( bOldHasChildLinks || array->hasChildLinks() ) // had or has any links inside
-		&& !array->isDescendantOf( getFooterItem() )
-	) {
-		updateLinks();
-		updateFooter();
-		emit linksChanged();
+	if ( nNewSize != nOldSize ) {
+		if ( state != Loading
+			&& ( bOldHasChildLinks || array->hasChildLinks() ) // had or has any links inside
+			&& !array->isDescendantOf( getFooterItem() )
+		) {
+				updateLinks();
+				updateFooter();
+				emit linksChanged();
+		}
+
+		if ( state == Default )
+			onItemValueChange( array );
 	}
 
 	return true;
