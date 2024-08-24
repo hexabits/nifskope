@@ -134,6 +134,10 @@ void Particles::drawShapes( NodeList * secondPass, bool presort )
 
 	if ( isHidden() )
 		return;
+	// TODO: The code right below is a quick and dirty fix for Particles polluting the selection memory buffer.
+	// Rewrite it in a more elegant way.
+	if ( Node::SELECTING )
+		return;
 
 	AlphaProperty * aprop = findProperty<AlphaProperty>();
 
