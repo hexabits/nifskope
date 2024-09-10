@@ -35,6 +35,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gl/glscene.h"
 #include "model/nifmodel.h"
 #include "spells/tangentspace.h"
+#include "spells/texture.h"
 
 #include "lib/nvtristripwrapper.h"
 
@@ -96,12 +97,7 @@ static void writeData( const NifModel * nif, const QModelIndex & iData, QTextStr
 		QModelIndex iPoints = nif->getIndex( iData, "Points" );
 
 		if ( iPoints.isValid() ) {
-			QVector<QVector<quint16> > strips;
-
-			for ( int r = 0; r < nif->rowCount( iPoints ); r++ )
-				strips.append( nif->getArray<quint16>( iPoints.child( r, 0 ) ) );
-
-			tris = triangulate( strips );
+			tris = triangulateStrips( nif, iPoints );
 		} else {
 			tris = nif->getArray<Triangle>( iData, "Triangles" );
 		}
@@ -850,27 +846,10 @@ void importObjMain( NifModel * nif, const QModelIndex & index, bool collision )
 						// no need of NiTexturingProperty when BSShaderPPLightingProperty is present
 						addLink( nif, iShape, "Properties", nif->getBlockNumber( iTexProp ) );
 
-						nif->set<int>( iTexProp, "Has Base Texture", 1 );
-						iBaseMap = nif->getIndex( iTexProp, "Base Texture" );
-						nif->set<int>( iBaseMap, "Clamp Mode", 3 );
-						nif->set<int>( iBaseMap, "Filter Mode", 2 );
-					}
-
-					if ( iTexSource.isValid() == false || first_tri_shape == false || nif->itemStrType( iTexSource ) != "NiSourceTexture" ) {
-						if ( !cBSShaderPPLightingProperty )
-							iTexSource = nif->insertNiBlock( "NiSourceTexture" );
-					}
-
-					if ( !cBSShaderPPLightingProperty ) {
-						// no need of NiTexturingProperty when BSShaderPPLightingProperty is present
-						nif->setLink( iBaseMap, "Source", nif->getBlockNumber( iTexSource ) );
-						nif->set<int>( iTexSource, "Pixel Layout", nif->getVersion() == "20.0.0.5" ? 6 : 5 );
-						nif->set<int>( iTexSource, "Use Mipmaps", 2 );
-						nif->set<int>( iTexSource, "Alpha Format", 3 );
-						nif->set<int>( iTexSource, "Unknown Byte", 1 );
-						nif->set<int>( iTexSource, "Unknown Byte 2", 1 );
-
-						nif->set<int>( iTexSource, "Use External", 1 );
+						if ( iTexSource.isValid() == false || first_tri_shape == false || nif->itemStrType( iTexSource ) != "NiSourceTexture" ) {
+							iTexSource = QModelIndex();
+						}
+						iTexSource = NiTexturingProperty_addTexture( nif, iTexProp, iTexSource, "Base Texture" );
 						nif->set<QString>( iTexSource, "File Name", TexCache::stripPath( mtl.map_Kd, nif->getFolder() ) );
 					}
 				} else {
@@ -1061,7 +1040,8 @@ void importObjMain( NifModel * nif, const QModelIndex & index, bool collision )
 			nif->set<float>( iData, "Radius", radius );
 
 			// do not stitch, because it looks better in the cs
-			QVector<QVector<quint16> > strips = stripify( triangles );
+			// FIXME: "do not stitch" in the comment above contradicts the declaration of stripifyTriangles with its ", bool stitch = true".
+			auto strips = stripifyTriangles( triangles );
 
 			nif->set<int>( iData, "Num Strips", strips.count() );
 			nif->set<int>( iData, "Has Points", 1 );
@@ -1074,11 +1054,11 @@ void importObjMain( NifModel * nif, const QModelIndex & index, bool collision )
 				nif->updateArraySize( iPoints );
 				int x = 0;
 				int z = 0;
-				for ( const QVector<quint16> & strip : strips ) {
+				for ( const auto & strip : strips ) {
 					nif->set<int>( iLengths.child( x, 0 ), strip.count() );
 					QModelIndex iStrip = iPoints.child( x, 0 );
 					nif->updateArraySize( iStrip );
-					nif->setArray<quint16>( iStrip, strip );
+					nif->setArray<TriVertexIndex>( iStrip, strip );
 					x++;
 					z += strip.count() - 2;
 				}

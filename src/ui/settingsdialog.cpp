@@ -12,7 +12,7 @@
 //! @file settingsdialog.cpp SettingsDialog
 
 SettingsDialog::SettingsDialog( QWidget * parent ) :
-    QDialog( parent ),
+    QDialog( parent, Qt::Tool ),
     ui( new Ui::SettingsDialog )
 {
     ui->setupUi( this );
@@ -21,8 +21,6 @@ SettingsDialog::SettingsDialog( QWidget * parent ) :
 	categories = ui->categoryList;
 
 	setWindowTitle( tr( "Settings" ) );
-	setWindowFlags( Qt::Tool );
-	setWindowModality( Qt::WindowModality::ApplicationModal );
 	installEventFilter( this );
 
 	content->addWidget( new SettingsGeneral( this ) );

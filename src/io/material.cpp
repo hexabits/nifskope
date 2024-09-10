@@ -162,11 +162,6 @@ bool Material::isValid() const
 	return readable && !data.isEmpty();
 }
 
-QStringList Material::textures() const
-{
-	return textureList;
-}
-
 QString Material::getPath() const
 {
 	return localPath;

@@ -36,7 +36,6 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "glview.h"
 #include "message.h"
 #include "spellbook.h"
-#include "version.h"
 #include "gl/glscene.h"
 #include "model/kfmmodel.h"
 #include "model/nifmodel.h"
@@ -47,6 +46,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ui/widgets/inspect.h"
 #include "ui/about_dialog.h"
 #include "ui/settingsdialog.h"
+#include "ui/UiUtils.h"
 
 #include <QAction>
 #include <QApplication>
@@ -148,23 +148,18 @@ NifSkope::NifSkope()
 	if ( !options )
 		options = new SettingsDialog;
 
-	// Migrate settings from older versions of NifSkope
-	migrateSettings();
-
 	// Update Settings struct from registry
 	updateSettings();
 
 	// Create models
 	/* ********************** */
 
-	nif = new NifModel( this );
+	nif = new NifModel( this, BaseModel::MSG_USER );
 	proxy = new NifProxyModel( this );
 	proxy->setModel( nif );
 
 	nifEmpty = new NifModel( this );
 	proxyEmpty = new NifProxyModel( this );
-
-	nif->setMessageMode( BaseModel::MSG_USER );
 
 	// Setup QUndoStack
 	nif->undoStack = new QUndoStack( this );
@@ -174,11 +169,11 @@ NifSkope::NifSkope()
 	// Setup Window Modified on data change
 	connect( nif, &NifModel::dataChanged, [this]( const QModelIndex &, const QModelIndex & ) {
 		// Only if UI is enabled (prevents asterisk from flashing during save/load)
-		if ( !windowTitle().isEmpty() && isEnabled() )
+		if ( !currentFile.isEmpty() && isEnabled() )
 			setWindowModified( true );
 	} );
 
-	kfm = new KfmModel( this );
+	kfm = new KfmModel( this, BaseModel::MSG_USER );
 	kfmEmpty = new KfmModel( this );
 
 	book = SpellBookPtr( new SpellBook( nif, QModelIndex(), this, SLOT( select( const QModelIndex & ) ) ) );
@@ -217,6 +212,7 @@ NifSkope::NifSkope()
 	header->header()->moveSection( 1, 2 );
 	header->header()->resizeSection( NifModel::NameCol, 135 );
 	header->header()->resizeSection( NifModel::ValueCol, 250 );
+	resetHeaderSelection();
 
 	// KFM
 	kfmtree = ui->kfmtree;
@@ -256,6 +252,8 @@ NifSkope::NifSkope()
 	ogl->setObjectName( "OGL1" );
 	ogl->setNif( nif );
 	ogl->installEventFilter( this );
+	ogl->setViewMode( GLView::ViewFront );
+	ogl->center();
 
 	// Create InspectView
 	/* ********************** */
@@ -326,6 +324,8 @@ NifSkope::NifSkope()
 	connect( options, &SettingsDialog::localeChanged, this, &NifSkope::sltLocaleChanged );
 
 	connect( qApp, &QApplication::lastWindowClosed, this, &NifSkope::exitRequested );
+
+	updateWindowTitle();
 }
 
 void NifSkope::exitRequested()
@@ -345,21 +345,17 @@ NifSkope::~NifSkope()
 	delete ui;
 }
 
-void NifSkope::swapModels()
+void NifSkope::updateWindowTitle()
 {
-	// Swap out the models with empty versions while loading the file
-	// This is so that the views do not update while loading the file
-	if ( tree->model() == nif ) {
-		list->setModel( proxyEmpty );
-		tree->setModel( nifEmpty );
-		header->setModel( nifEmpty );
-		kfmtree->setModel( kfmEmpty );
-	} else {
-		list->setModel( proxy );
-		tree->setModel( nif );
-		header->setModel( nif );
-		kfmtree->setModel( kfm );
+	if ( nif ) {
+		QString nifName = nif->getFileInfo().fileName();
+		if ( !nifName.isEmpty() ) {
+			UIUtils::setWindowTitle( this, nifName + QStringLiteral("[*]"), UIUtils::applicationDisplayName );
+			return;
+		}
 	}
+	
+	UIUtils::setWindowTitle( this, UIUtils::applicationDisplayName );
 }
 
 void NifSkope::updateSettings()
@@ -380,7 +376,6 @@ SettingsDialog * NifSkope::getOptions()
 }
 
 
-
 void NifSkope::closeEvent( QCloseEvent * e )
 {
 	saveUi();
@@ -390,7 +385,6 @@ void NifSkope::closeEvent( QCloseEvent * e )
 	else
 		e->ignore();
 }
-
 
 void NifSkope::select( const QModelIndex & index )
 {
@@ -505,11 +499,12 @@ void NifSkope::select( const QModelIndex & index )
 
 void NifSkope::setListMode()
 {
-	QModelIndex idx = list->currentIndex();
-	QAction * a = gListMode->checkedAction();
+	bool bListMode = isInListMode();
 
-	if ( !a || a == aList ) {
+	if ( bListMode ) {
 		if ( list->model() != nif ) {
+			QModelIndex iOldSelection = list->currentIndex();
+
 			// switch to list view
 			QHeaderView * head = list->header();
 			int s0 = head->sectionSize( head->logicalIndex( 0 ) );
@@ -517,22 +512,16 @@ void NifSkope::setListMode()
 			list->setModel( nif );
 			list->setItemsExpandable( false );
 			list->setRootIsDecorated( false );
-			list->setCurrentIndex( proxy->mapTo( idx ) );
-			list->setColumnHidden( NifModel::NameCol, false );
-			list->setColumnHidden( NifModel::TypeCol, true );
-			list->setColumnHidden( NifModel::ValueCol, false );
-			list->setColumnHidden( NifModel::ArgCol, true );
-			list->setColumnHidden( NifModel::Arr1Col, true );
-			list->setColumnHidden( NifModel::Arr2Col, true );
-			list->setColumnHidden( NifModel::CondCol, true );
-			list->setColumnHidden( NifModel::Ver1Col, true );
-			list->setColumnHidden( NifModel::Ver2Col, true );
-			list->setColumnHidden( NifModel::VerCondCol, true );
+			list->setCurrentIndex( proxy->mapTo( iOldSelection ) );
+			for ( int c = 0; c < NifModel::NumColumns; c++ )
+				list->setColumnHidden( c, c != NifModel::NameCol && c != NifModel::ValueCol );
 			head->resizeSection( 0, s0 );
 			head->resizeSection( 1, s1 );
 		}
 	} else {
 		if ( list->model() != proxy ) {
+			QModelIndex iOldSelection = list->currentIndex();
+
 			// switch to hierarchy view
 			QHeaderView * head = list->header();
 			int s0 = head->sectionSize( head->logicalIndex( 0 ) );
@@ -540,7 +529,7 @@ void NifSkope::setListMode()
 			list->setModel( proxy );
 			list->setItemsExpandable( true );
 			list->setRootIsDecorated( true );
-			QModelIndex pidx = proxy->mapFrom( idx, QModelIndex() );
+			QModelIndex pidx = proxy->mapFrom( iOldSelection, QModelIndex() );
 			list->setCurrentIndex( pidx );
 			// proxy model has only two columns (see columnCount in nifproxymodel.h)
 			list->setColumnHidden( 0, false );
@@ -549,6 +538,15 @@ void NifSkope::setListMode()
 			head->resizeSection( 1, s1 );
 		}
 	}
+
+	ui->bExpandAllList->setHidden( bListMode );
+	ui->bCollapseAllList->setHidden( bListMode );
+
+	select( nif->getHeaderIndex() );
+
+	// Expand the top level of Block List tree
+	if ( !bListMode )
+		list->expandToDepth(0);
 }
 
 // 'Recent Files' Helpers
@@ -608,7 +606,7 @@ void NifSkope::updateAllRecentFileActions()
 	}
 }
 
-QString NifSkope::getCurrentFile() const
+const QString & NifSkope::getCurrentFile() const
 {
 	return currentFile;
 }
@@ -619,7 +617,7 @@ void NifSkope::setCurrentFile( const QString & filename )
 
 	nif->refreshFileInfo( currentFile );
 
-	setWindowFilePath( currentFile );
+	updateWindowTitle();
 
 	// Avoid adding files opened from BSAs to Recent Files
 	QFileInfo file( currentFile );
@@ -1164,132 +1162,14 @@ void NifSkope::sltLocaleChanged()
 	//ui->retranslateUi( this );
 }
 
-
-void NifSkope::migrateSettings() const
+bool NifSkope::isInListMode() const
 {
-	// Load current NifSkope settings
-	QSettings settings;
-	// Load pre-1.2 NifSkope settings
-	QSettings cfg1_1( "NifTools", "NifSkope" );
-	// Load NifSkope 1.2 settings
-	QSettings cfg1_2( "NifTools", "NifSkope 1.2" );
+	return gListMode->checkedAction() == aList;
+}
 
-	// Current version strings
-	QString curVer = NIFSKOPE_VERSION;
-	QString curQtVer = QT_VERSION_STR;
-	QString curDisplayVer = NifSkopeVersion::rawToDisplay( NIFSKOPE_VERSION, true );
-
-	// New Install, no need to migrate anything
-	if ( !settings.value( "Version" ).isValid() && !cfg1_1.value( "version" ).isValid() ) {
-		// QSettings constructor creates an empty folder, so clear it.
-		cfg1_1.clear();
-
-		// Set version values
-		settings.setValue( "Version", curVer );
-		settings.setValue( "Qt Version", curQtVer );
-		settings.setValue( "Display Version", curDisplayVer );
-
-		return;
+void NifSkope::forceQuickResize()
+{
+	if ( isResizing && resizeTimer->isActive() ) {
+		resizeTimer->start( 10 );
 	}
-
-	QString prevVer = curVer;
-	QString prevQtVer = settings.value( "Qt Version" ).toString();
-	QString prevDisplayVer = settings.value( "Display Version" ).toString();
-
-	// Set full granularity for version comparisons
-	NifSkopeVersion::setNumParts( 7 );
-
-	// Test migration lambda
-	//	Note: Sets value of prevVer
-	auto testMigration = [&prevVer]( QSettings & migrateFrom, const char * migrateTo ) {
-		if ( migrateFrom.value( "version" ).isValid() && !migrateFrom.value( "migrated" ).isValid() ) {
-			prevVer = migrateFrom.value( "version" ).toString();
-
-			NifSkopeVersion tmp( prevVer );
-			if ( tmp < migrateTo )
-				return true;
-		}
-		return false;
-	};
-
-	// Migrate lambda
-	//	Using a QHash of registry keys (stored in version.h), migrates from one version to another.
-	auto migrate = []( QSettings & migrateFrom, QSettings & migrateTo, const QHash<QString, QString> & migration ) {
-		QHash<QString, QString>::const_iterator i;
-		for ( i = migration.begin(); i != migration.end(); ++i ) {
-			QVariant val = migrateFrom.value( i.key() );
-
-			if ( val.isValid() ) {
-				migrateTo.setValue( i.value(), val );
-			}
-		}
-
-		migrateFrom.setValue( "migrated", true );
-	};
-
-	// NOTE: These set `prevVer` and must come before setting `oldVersion`
-	bool migrateFrom1_1 = testMigration( cfg1_1, "1.2.0" );
-	bool migrateFrom1_2 = testMigration( cfg1_2, "2.0" );
-
-	if ( !migrateFrom1_1 && !migrateFrom1_2 ) {
-		prevVer = settings.value( "Version" ).toString();
-	}
-
-	NifSkopeVersion oldVersion( prevVer );
-	NifSkopeVersion newVersion( curVer );
-
-	// Check NifSkope Version
-	//	Assure full granularity here
-	NifSkopeVersion::setNumParts( 7 );
-	if ( oldVersion != newVersion ) {
-
-		// Migrate from 1.1.x to 1.2
-		if ( migrateFrom1_1 ) {
-			qDebug() << "Migrating from 1.1 to 1.2";
-			migrate( cfg1_1, cfg1_2, migrateTo1_2 );
-		}
-
-		// Migrate from 1.2.x to 2.0
-		if ( migrateFrom1_2 ) {
-			qDebug() << "Migrating from 1.2 to 2.0";
-			migrate( cfg1_2, settings, migrateTo2_0 );
-		}
-
-		// Set new Version
-		settings.setValue( "Version", curVer );
-
-		if ( prevDisplayVer != curDisplayVer )
-			settings.setValue( "Display Version", curDisplayVer );
-
-		// Migrate to new Settings
-		if ( oldVersion <= NifSkopeVersion( "2.0.dev1" ) ) {
-			qDebug() << "Migrating to new Settings";
-
-			// Remove old keys
-
-			settings.remove( "FSEngine" );
-			settings.remove( "Render Settings" );
-			settings.remove( "Settings/Language" );
-			settings.remove( "Settings/Startup Version" );
-		}
-	}
-
-#ifdef QT_NO_DEBUG
-	// Check Qt Version
-	if ( curQtVer != prevQtVer ) {
-		// Check all keys and delete all QByteArrays
-		// to prevent portability problems between Qt versions
-		QStringList keys = settings.allKeys();
-
-		for ( const auto& key : keys ) {
-			if ( settings.value( key ).type() == QVariant::ByteArray ) {
-				qDebug() << "Removing Qt version-specific settings" << key
-					<< "while migrating settings from previous version";
-				settings.remove( key );
-			}
-		}
-
-		settings.setValue( "Qt Version", curQtVer );
-	}
-#endif
 }

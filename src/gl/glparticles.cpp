@@ -43,6 +43,11 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *  Particle
  */
 
+Particles::Particles( Scene * _scene, NifFieldConst _block )
+	: Node( _scene, _block )
+{
+}
+
 void Particles::clear()
 {
 	Node::clear();
@@ -74,15 +79,12 @@ void Particles::updateImpl( const NifModel * nif, const QModelIndex & index )
 		updateData = true;
 }
 
-void Particles::setController( const NifModel * nif, const QModelIndex & index )
+Controller * Particles::createController( NifFieldConst controllerBlock )
 {
-	auto contrName = nif->itemName(index);
-	if ( contrName == "NiParticleSystemController" || contrName == "NiBSPArrayController" ) {
-		Controller * ctrl = new ParticleController( this, index );
-		registerController(nif, ctrl);
-	} else {
-		Node::setController( nif, index );
-	}
+	if ( controllerBlock.hasName("NiParticleSystemController", "NiBSPArrayController") )
+		return new ParticleController( this, controllerBlock );
+
+	return Node::createController( controllerBlock );
 }
 
 void Particles::transform()
@@ -132,6 +134,10 @@ void Particles::drawShapes( NodeList * secondPass, bool presort )
 
 	if ( isHidden() )
 		return;
+	// TODO: The code right below is a quick and dirty fix for Particles polluting the selection memory buffer.
+	// Rewrite it in a more elegant way.
+	if ( Node::SELECTING )
+		return;
 
 	AlphaProperty * aprop = findProperty<AlphaProperty>();
 
@@ -161,7 +167,7 @@ void Particles::drawShapes( NodeList * secondPass, bool presort )
 
 	// setup texturing
 
-	glProperty( findProperty<BSShaderLightingProperty>() );
+	glProperty( findProperty<BSShaderProperty>() );
 
 	// setup z buffer
 
@@ -224,4 +230,6 @@ void Particles::drawShapes( NodeList * secondPass, bool presort )
 
 		p++;
 	}
+
+	glDisable( GL_TEXTURE_2D );
 }

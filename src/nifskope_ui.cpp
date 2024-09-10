@@ -36,7 +36,6 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "glview.h"
 #include "message.h"
 #include "spellbook.h"
-#include "version.h"
 #include "gl/glscene.h"
 #include "model/kfmmodel.h"
 #include "model/nifmodel.h"
@@ -121,14 +120,24 @@ NifSkope * NifSkope::createWindow( const QString & fname )
 {
 	NifSkope * skope = new NifSkope;
 	skope->setAttribute( Qt::WA_DeleteOnClose );
-	skope->restoreUi();
+
+	// Prevent the main window from opening in the minimized state.
+	// This is a fix for this scenario:
+	// If you minimize a NifSkope window and then double click on a .nif file in Windows Explorer or any other file manager,
+	// the file is opened in a new window that is also minimized and requires an additional click to bring it to the front.
+	skope->setWindowState( skope->windowState() & ~Qt::WindowMinimized );
+
 	skope->loadTheme();
+	skope->updateFileMenus();
 	skope->show();
+	skope->restoreUi();
 	skope->raise();
 
 	if ( !fname.isEmpty() ) {
 		skope->loadFile( fname );
 	}
+
+	skope->forceQuickResize();
 
 	return skope;
 }
@@ -140,27 +149,16 @@ void NifSkope::initActions()
 	aHierarchy = ui->aHierarchy;
 	aCondition = ui->aCondition;
 	aRCondition = ui->aRCondition;
-	aSelectFont = ui->aSelectFont;
-
-	// Build all actions list
-	allActions = QSet<QAction *>::fromList( 
-		ui->tFile->actions() 
-		<< ui->mRender->actions()
-		<< ui->tRender->actions()
-		<< ui->tAnim->actions()
-	);
 
 	// Undo/Redo
 	undoAction = nif->undoStack->createUndoAction( this, tr( "&Undo" ) );
 	undoAction->setShortcut( QKeySequence::Undo );
 	undoAction->setObjectName( "aUndo" );
 	undoAction->setIcon( QIcon( ":btn/undo" ) );
-	allActions << undoAction;
 	redoAction = nif->undoStack->createRedoAction( this, tr( "&Redo" ) );
 	redoAction->setShortcut( QKeySequence::Redo );
 	redoAction->setObjectName( "aRedo" );
 	redoAction->setIcon( QIcon( ":btn/redo" ) );
-	allActions << redoAction;
 
 	// TODO: Back/Forward button in Block List
 	//idxForwardAction = indexStack->createRedoAction( this );
@@ -185,8 +183,6 @@ void NifSkope::initActions()
 	connect( ui->aOpen, &QAction::triggered, this, &NifSkope::openDlg );
 	connect( ui->aSave, &QAction::triggered, this, &NifSkope::save );  
 	connect( ui->aSaveAs, &QAction::triggered, this, &NifSkope::saveAsDlg );
-
-	ui->aReload->setDisabled(true);
 
 	// TODO: Assure Actions and Scene state are synced
 	// Set Data for Actions to pass onto Scene when clicking
@@ -295,9 +291,9 @@ void NifSkope::initActions()
 	connect( aCondition, &QAction::toggled, tree, &NifTreeView::setRowHiding );
 	connect( aCondition, &QAction::toggled, kfmtree, &NifTreeView::setRowHiding );
 
-	connect( ui->aAboutNifSkope, &QAction::triggered, []() {
-		auto aboutDialog = new AboutDialog();
-		aboutDialog->show();
+	connect( ui->aAboutNifSkope, &QAction::triggered, [this]() {
+		auto aboutDialog = new AboutDialog( this );
+		aboutDialog->open( true );
 	} );
 	connect( ui->aAboutQt, &QAction::triggered, qApp, &QApplication::aboutQt );
 
@@ -352,14 +348,7 @@ void NifSkope::initActions()
 	connect( ogl, &GLView::clicked, this, &NifSkope::select );
 	connect( ogl, &GLView::sceneTimeChanged, inspect, &InspectView::updateTime );
 	connect( ogl, &GLView::paintUpdate, inspect, &InspectView::refresh );
-	connect( ogl, &GLView::viewpointChanged, [this]() {
-		ui->aViewTop->setChecked( false );
-		ui->aViewFront->setChecked( false );
-		ui->aViewLeft->setChecked( false );
-		ui->aViewUser->setChecked( false );
-
-		ogl->setOrientation( GLView::ViewDefault, false );
-	} );
+	connect( ogl, &GLView::viewModeChanged, this, &NifSkope::updateCurrentViewAction );
 
 	connect( graphicsView, &GLGraphicsView::customContextMenuRequested, this, &NifSkope::contextMenu );
 
@@ -409,6 +398,8 @@ void NifSkope::initDockWidgets()
 	ui->tView->addAction(dKfm->toggleViewAction());
 	ui->tView->addAction(dRefr->toggleViewAction());
 
+	ui->mHelp->insertAction( ui->mHelp->actions().at(0), dRefr->toggleViewAction() );
+
 	// Set Inspect widget
 	dInsp->setWidget( inspect );
 
@@ -418,9 +409,6 @@ void NifSkope::initDockWidgets()
 
 void NifSkope::initMenu()
 {
-	// Disable without NIF loaded
-	ui->mRender->setEnabled( false );
-
 	// Populate Toolbars menu with all enabled toolbars
 	for ( QObject * o : children() ) {
 		QToolBar * tb = qobject_cast<QToolBar *>(o);
@@ -430,8 +418,8 @@ void NifSkope::initMenu()
 		}
 	}
 
-	// Insert SpellBook class before Help
-	ui->menubar->insertMenu( ui->menubar->actions().at( 3 ), book.get() );
+	// Insert SpellBook class before Options
+	mSpells = ui->menubar->insertMenu( ui->menubar->actions().at( 3 ), book.get() );
 
 	// Insert Import/Export menus
 	mExport = ui->menuExport;
@@ -532,8 +520,7 @@ void NifSkope::initMenu()
 
 void NifSkope::initToolBars()
 {
-	// Disable without NIF loaded
-	ui->tRender->setEnabled( false );
+	// Add right click menu to tRender toolbar that duplicates all of the toolbar buttons.
 	ui->tRender->setContextMenuPolicy( Qt::ActionsContextMenu );
 
 	// Status Bar
@@ -546,13 +533,15 @@ void NifSkope::initToolBars()
 
 	// Render
 
-	QActionGroup * grpView = new QActionGroup( this );
-	grpView->addAction( ui->aViewTop );
-	grpView->addAction( ui->aViewFront );
-	grpView->addAction( ui->aViewLeft );
-	grpView->addAction( ui->aViewWalk );
-	grpView->setExclusive( true );
+	viewActions = new QActionGroup( this );
+	viewActions->addAction( ui->aViewTop );
+	viewActions->addAction( ui->aViewFront );
+	viewActions->addAction( ui->aViewLeft );
+	viewActions->addAction( ui->aViewWalk );
+	viewActions->addAction( ui->aViewUser );
+	viewActions->setExclusive( true );
 
+	updateCurrentViewAction();
 
 	// Animate
 	connect( ui->aAnimate, &QAction::toggled, ui->tAnim, &QToolBar::setVisible );
@@ -604,63 +593,40 @@ void NifSkope::initToolBars()
 	ui->tAnim->addWidget( animSlider );
 	animGroupsAction = ui->tAnim->addWidget( animGroups );
 
-	connect( ogl, &GLView::sequencesDisabled, ui->tAnim, &QToolBar::hide );
+	hideAnimToolbar();
+
+	connect( ogl, &GLView::sequencesDisabled, this, &NifSkope::hideAnimToolbar );
 	connect( ogl, &GLView::sequenceStopped, ui->aAnimPlay, &QAction::toggle );
 	connect( ogl, &GLView::sequenceChanged, [this]( const QString & seqname ) {
 		animGroups->setCurrentIndex( ogl->getScene()->animGroups.indexOf( seqname ) );
 	} );
-	connect( ogl, &GLView::sequencesUpdated, [this]() {
-		ui->tAnim->show();
-
-		animGroups->clear();
-		animGroups->addItems( ogl->getScene()->animGroups );
-		animGroups->setCurrentIndex( ogl->getScene()->animGroups.indexOf( ogl->getScene()->animGroup ) );
-
-		if ( animGroups->count() == 0 ) {
-			animGroupsAction->setVisible( false );
-			ui->aAnimSwitch->setVisible( false );
-		} else {
-			ui->aAnimSwitch->setVisible( animGroups->count() != 1 );
-			animGroupsAction->setVisible( true );
-			animGroups->adjustSize();
-		}
-	} );
+	connect( ogl, &GLView::sequencesUpdated, this, &NifSkope::showAnimToolbar );
 
 	connect ( ogl->scene, &Scene::disableSave, [this]() {
+		ui->aSaveMenu->setDisabled(true);
 		ui->aSave->setDisabled(true);
 		ui->aSaveAs->setDisabled(true);
 		ui->aReload->setDisabled(true);
 	} );
 
 	// LOD Toolbar
-	QToolBar * tLOD = ui->tLOD;
-
-	//QSettings settings;
-	//int lodLevel = settings.value( "GLView/LOD Level", 0 ).toInt();
-	//settings.setValue( "GLView/LOD Level", lodLevel );
-
-	QSlider * lodSlider = new QSlider( Qt::Horizontal );
+	lodSlider = new QSlider( Qt::Horizontal );
 	lodSlider->setFocusPolicy( Qt::StrongFocus );
 	lodSlider->setTickPosition( QSlider::TicksBelow );
 	lodSlider->setTickInterval( 1 );
 	lodSlider->setSingleStep( 1 );
 	lodSlider->setMinimum( 0 );
-	lodSlider->setMaximum( 3 );
-	lodSlider->setValue(0);
 
-	tLOD->addWidget( lodSlider );
-	tLOD->setEnabled( false );
-	tLOD->setVisible( false );
+	ui->tLOD->addWidget( lodSlider );
 
-	connect( lodSlider, &QSlider::valueChanged, ogl->getScene(), &Scene::updateLodLevel );
-	connect( lodSlider, &QSlider::valueChanged, ogl, &GLView::updateGL );
-	connect( nif, &NifModel::lodSliderChanged, [tLOD]( bool enabled ) { tLOD->setEnabled( enabled ); tLOD->setVisible( enabled ); } );
+	setLodSliderEnabled( false );
+
+	connect( nif, &NifModel::lodSliderChanged, this, &NifSkope::setLodSliderEnabled );
+	connect( lodSlider, &QSlider::valueChanged, this, &NifSkope::onLodSliderChange );
 }
 
 void NifSkope::initConnections()
 {
-	connect( nif, &NifModel::beginUpdateHeader, this, &NifSkope::enableUi );
-
 	connect( this, &NifSkope::beginLoading, this, &NifSkope::onLoadBegin );
 	connect( this, &NifSkope::beginSave, this, &NifSkope::onSaveBegin );
 
@@ -774,16 +740,23 @@ void NifSkope::openDlg()
 
 void NifSkope::onLoadBegin()
 {
-	// Disconnect the models from the views
-	swapModels();
-
+	setEnabled( false );
 	ogl->setUpdatesEnabled( false );
 	ogl->setEnabled( false );
-	setEnabled( false );
-	ui->tAnim->setEnabled( false );
 
-	ui->tLOD->setEnabled( false );
-	ui->tLOD->setVisible( false );
+	// Swap out the models with empty versions while loading the file.
+	// This is so that the views do not update.
+	if ( isInListMode() )
+		list->setModel( proxyEmpty );
+	else
+		list->setModel( nifEmpty );
+	tree->setModel( nifEmpty );
+	header->setModel( nifEmpty );
+	kfmtree->setModel( kfmEmpty );
+
+	animGroups->clear();
+	hideAnimToolbar();
+	setLodSliderEnabled( false );
 
 	progress->setVisible( true );
 	progress->reset();
@@ -793,39 +766,8 @@ void NifSkope::onLoadComplete( bool success, QString & fname )
 {
 	QApplication::restoreOverrideCursor();
 
-	updateImportExportMenu(mExport);
-	updateImportExportMenu(mImport);
-
-	// Reconnect the models to the views
-	swapModels();
-	// Set List vs Tree
-	setListMode();
-
-	// Re-enable window
-	ogl->setUpdatesEnabled( true );
-	ogl->setEnabled( true );
-	setEnabled( true ); // IMPORTANT!
-
-	ui->aSave->setDisabled(false);
-	ui->aSaveAs->setDisabled(false);
-	ui->aReload->setDisabled(false);
-
 	int timeout = 2500;
-	if ( success ) {
-		// Scroll panel back to top
-		tree->scrollTo( nif->index( 0, 0 ) );
-
-		select( nif->getHeaderIndex() );
-
-		header->setRootIndex( nif->getHeaderIndex() );
-		// Refresh the header rows
-		header->updateConditions( nif->getHeaderIndex().child( 0, 0 ), nif->getHeaderIndex().child( 20, 0 ) );
-
-		ogl->setOrientation( GLView::ViewFront );
-
-		enableUi();
-
-	} else {
+	if ( !success ) {
 		// File failed to load
 		Message::append( this, NifModel::tr( readFail ), 
 						 NifModel::tr( readFailFinal ).arg( fname ), QMessageBox::Critical );
@@ -839,20 +781,28 @@ void NifSkope::onLoadComplete( bool success, QString & fname )
 
 		// Reset
 		currentFile.clear();
-		setWindowFilePath( "" );
+		updateWindowTitle();
 		progress->reset();
 	}
+
+	updateFileMenus();
+
+	// Reconnect the models to the views
+	tree->setModel( nif );
+	setListMode();
+	header->setModel( nif );
+	resetHeaderSelection();
+	kfmtree->setModel( kfm );
 
 	// Mark window as unmodified
 	setWindowModified( false );
 	nif->undoStack->clear();
 	indexStack->clear();
 
-	// Center the model on load
-	ogl->center();
-
-	// Expand the top level of Block List tree
-	ui->list->expandToDepth(0);
+	// Re-enable window
+	ogl->setUpdatesEnabled( true );
+	ogl->setEnabled( true );
+	setEnabled( true ); // IMPORTANT!
 
 	// Hide Progress Bar
 	QTimer::singleShot( timeout, progress, SLOT( hide() ) );
@@ -882,12 +832,13 @@ void NifSkope::onSaveComplete( bool success, QString & fname )
 	setEnabled( true );
 
 	if ( success ) {
-		// Update if Save As results in filename change
-		setWindowFilePath( fname );
+		updateWindowTitle();
 		// Mark window as unmodified
 		nif->undoStack->setClean();
 		setWindowModified( false );
 	}
+
+	updateFileMenus();
 }
 
 bool NifSkope::saveConfirm()
@@ -912,38 +863,20 @@ bool NifSkope::saveConfirm()
 	return true;
 }
 
-void NifSkope::enableUi()
-{
-	// Re-enable toolbars, actions, and menus
-	ui->aSaveMenu->setEnabled( true );
-	ui->aSave->setEnabled( true );
-	ui->aSaveAs->setEnabled( true );
-	ui->aReload->setEnabled( true );
-	ui->aHeader->setEnabled( true );
-
-	ui->mRender->setEnabled( true );
-	ui->tAnim->setEnabled( true );
-	animGroups->clear();
-
-
-	ui->tRender->setEnabled( true );
-
-	// We only need to enable the UI once, disconnect
-	disconnect( nif, &NifModel::beginUpdateHeader, this, &NifSkope::enableUi );
-}
+const int WINDOW_STATE_VER = 0x073;
 
 void NifSkope::saveUi() const
 {
 	QSettings settings;
 	// TODO: saveState takes a version number which can be incremented between releases if necessary
-	settings.setValue( "Window State"_uip, saveState( 0x073 ) );
+	settings.setValue( "Window State"_uip, saveState( WINDOW_STATE_VER ) );
 	settings.setValue( "Window Geometry"_uip, saveGeometry() );
 
 	settings.setValue( "Theme", theme );
 
 	settings.setValue( "File/Auto Sanitize", aSanitize->isChecked() );
 
-	settings.setValue( "List Mode"_uip, (gListMode->checkedAction() == aList ? "list" : "hierarchy") );
+	settings.setValue( "List Mode"_uip, (isInListMode() ? "list" : "hierarchy") );
 	settings.setValue( "Show Non-applicable Rows"_uip, aCondition->isChecked() );
 
 	settings.setValue( "List Header"_uip, list->header()->saveState() );
@@ -952,9 +885,6 @@ void NifSkope::saveUi() const
 	settings.setValue( "Kfmtree Header"_uip, kfmtree->header()->saveState() );
 
 	settings.setValue( "GLView/Enable Animations", ui->aAnimate->isChecked() );
-	//settings.setValue( "GLView/Play Animation", ui->aAnimPlay->isChecked() );
-	//settings.setValue( "GLView/Loop Animation", ui->aAnimLoop->isChecked() );
-	//settings.setValue( "GLView/Switch Animation", ui->aAnimSwitch->isChecked() );
 	settings.setValue( "GLView/Perspective", ui->aViewPerspective->isChecked() );
 }
 
@@ -963,9 +893,21 @@ void NifSkope::restoreUi()
 {
 	QSettings settings;
 	restoreGeometry( settings.value( "Window Geometry"_uip ).toByteArray() );
-	restoreState( settings.value( "Window State"_uip ).toByteArray(), 0x073 );
 
-	aSanitize->setChecked( settings.value( "File/Auto Sanitize", true ).toBool() );
+	// Here goes a workaround for this Qt 5 bug:
+	// The positions/sizes of docked widgets of a main window are not restored properly if they were saved while the window was maximized in the previous session.
+	// Workaround: if the window is supposed to be maximized, let all the events caused by restoreGeometry to be proccessed before calling restoreState.
+	// References:
+	//     https://bugreports.qt.io/browse/QTBUG-46620
+	//     https://bugreports.qt.io/browse/QTBUG-16252
+	//     https://stackoverflow.com/questions/44005852/qdockwidgetrestoregeometry-not-working-correctly-when-qmainwindow-is-maximized 
+	// QTBUG-46620 above labeled with "Fix Version/s: 6.3.0 Alpha", so this hack could be not needed after migrating to Qt 6.
+	if ( isMaximized() )
+		QApplication::processEvents();
+
+	restoreState( settings.value( "Window State"_uip ).toByteArray(), WINDOW_STATE_VER );
+
+	aSanitize->setChecked( settings.value( "File/Auto Sanitize", false ).toBool() );
 
 	if ( settings.value( "List Mode"_uip, "hierarchy" ).toString() == "list" )
 		aList->setChecked( true );
@@ -981,6 +923,7 @@ void NifSkope::restoreUi()
 	header->header()->restoreState( settings.value( "Header Header"_uip ).toByteArray() );
 	kfmtree->header()->restoreState( settings.value( "Kfmtree Header"_uip ).toByteArray() );
 
+	// Hide advanced metadata loaded from nif.xml as it's not useful or necessary for editing
 	auto hideSections = []( NifTreeView * tree, bool hidden ) {
 		tree->header()->setSectionHidden( NifModel::ArgCol, hidden );
 		tree->header()->setSectionHidden( NifModel::Arr1Col, hidden );
@@ -991,20 +934,11 @@ void NifSkope::restoreUi()
 		tree->header()->setSectionHidden( NifModel::VerCondCol, hidden );
 	};
 
-	// Hide advanced metadata loaded from nif.xml as it's not useful or necessary for editing
-	if ( settings.value( "Settings/Nif/Hide metadata columns", true ).toBool() ) {
-		hideSections( tree, true );
-		hideSections( header, true );
-	} else {
-		// Unhide here, or header()->restoreState() will keep them perpetually hidden
-		hideSections( tree, false );
-		hideSections( header, false );
-	}
+	bool bHideMetadatColumns =  settings.value( "Settings/Nif/Hide metadata columns", true ).toBool();
+	hideSections( tree, bHideMetadatColumns );
+	hideSections( header, bHideMetadatColumns );
 
 	ui->aAnimate->setChecked( settings.value( "GLView/Enable Animations", true ).toBool() );
-	//ui->aAnimPlay->setChecked( settings.value( "GLView/Play Animation", true ).toBool() );
-	//ui->aAnimLoop->setChecked( settings.value( "GLView/Loop Animation", true ).toBool() );
-	//ui->aAnimSwitch->setChecked( settings.value( "GLView/Switch Animation", true ).toBool() );
 
 	auto isPersp = settings.value( "GLView/Perspective", true ).toBool();
 	ui->aViewPerspective->setChecked( isPersp );
@@ -1018,6 +952,26 @@ void NifSkope::restoreUi()
 
 	// Modify UI settings that cannot be set in Designer
 	tabifyDockWidget( ui->InspectDock, ui->KfmDock );
+}
+
+void NifSkope::updateFileMenus()
+{
+	ui->aSaveMenu->setEnabled( true );
+	ui->aSave->setEnabled( true );
+	ui->aSaveAs->setEnabled( true );
+	ui->aReload->setEnabled( !getCurrentFile().isEmpty() );
+
+	updateImportExportMenu(mExport);
+	updateImportExportMenu(mImport);
+}
+
+void NifSkope::resetHeaderSelection()
+{
+	auto headerIndex = nif->getHeaderIndex();
+	header->setRootIndex( headerIndex );
+	int iLastChild = std::max( nif->rowCount( headerIndex ) - 1, 0 );
+	header->updateConditions( headerIndex.child( 0, 0 ), headerIndex.child( iLastChild, 0 ) );
+	header->autoExpandBlock( headerIndex );
 }
 
 void NifSkope::setViewFont( const QFont & font )
@@ -1052,7 +1006,6 @@ void NifSkope::loadTheme()
 
 	toolbarSize = ToolbarSize( settings.value( "Settings/Theme/Large Icons", ToolbarLarge ).toBool() );
 
-	//setThemeActions();
 	setToolbarSize();
 
 	switch ( theme )
@@ -1162,22 +1115,6 @@ void NifSkope::loadTheme()
 	qApp->setStyleSheet( styleData );
 }
 
-void NifSkope::setThemeActions()
-{
-	// Map of QAction object names to QRC alias
-	QMap<QString, QString> names = {
-		//{"aTextures", "textures"}
-	};
-
-	QString themeString = (theme == ThemeDark) ? "dark" : "light";
-	for ( auto a : allActions ) {
-		auto obj = a->objectName();
-		if ( names.contains( obj ) ) {
-			a->setIcon( QIcon( QString(":btn/%1/%2").arg(themeString).arg(names[obj]) ) );
-		}
-	}
-}
-
 void NifSkope::setToolbarSize()
 {
 	QSize size = {18, 18};
@@ -1238,10 +1175,65 @@ void NifSkope::resizeDone()
 	ogl->setUpdatesEnabled( true );
 	ogl->setDisabled( false );
 	ogl->getScene()->animate = true;
-	ogl->update();
-	ogl->resizeGL( centralWidget()->width(), centralWidget()->height() );
+	auto viewSize = graphicsView->size();
+	ogl->resize( viewSize.width(), viewSize.height() );
+	ogl->resizeGL( viewSize.width(), viewSize.height() );
 }
 
+void NifSkope::setLodSliderEnabled( bool enabled )
+{
+	auto tLOD = ui->tLOD;
+
+	if ( enabled ) {
+		Scene * scene = ogl->getScene();
+		if ( !scene ) { // Just in case
+			enabled = false;
+		} else if ( !tLOD->isEnabled() ) {
+			lodSlider->setMaximum( scene->maxLodLevel() );
+			lodSlider->setValue( scene->lodLevel );
+		}
+	}
+
+	tLOD->setEnabled( enabled );
+	tLOD->setVisible( enabled );
+}
+
+void NifSkope::onLodSliderChange( int newLodLevel )
+{
+	if ( ui->tLOD->isEnabled() ) {
+		Scene * scene = ogl->getScene();
+		if ( scene ) {
+			scene->updateLodLevel( newLodLevel );
+			ogl->updateGL();
+		}
+	}
+}
+
+void NifSkope::hideAnimToolbar()
+{
+	ogl->resetAnimation();
+	ui->tAnim->setEnabled( false );
+	ui->tAnim->hide();
+}
+
+void NifSkope::showAnimToolbar()
+{
+	ui->tAnim->setEnabled( true );
+	ui->tAnim->show();
+
+	animGroups->clear();
+	animGroups->addItems( ogl->getScene()->animGroups );
+	animGroups->setCurrentIndex( ogl->getScene()->animGroups.indexOf( ogl->getScene()->animGroup ) );
+
+	if ( animGroups->count() == 0 ) {
+		animGroupsAction->setVisible( false );
+		ui->aAnimSwitch->setVisible( false );
+	} else {
+		ui->aAnimSwitch->setVisible( animGroups->count() != 1 );
+		animGroupsAction->setVisible( true );
+		animGroups->adjustSize();
+	}
+}
 
 bool NifSkope::eventFilter( QObject * o, QEvent * e )
 {
@@ -1422,31 +1414,26 @@ void NifSkope::on_aHeader_triggered()
 	select( nif->getHeaderIndex() );
 }
 
-
-void NifSkope::on_tRender_actionTriggered( QAction * action )
+void NifSkope::on_tRender_actionTriggered( [[maybe_unused]] QAction * action )
 {
-	Q_UNUSED( action );
 }
 
 void NifSkope::on_aViewTop_triggered( bool checked )
 {
-	if ( checked ) {
-		ogl->setOrientation( GLView::ViewTop );
-	}
+	if ( checked )
+		ogl->setViewMode( GLView::ViewTop );
 }
 
 void NifSkope::on_aViewFront_triggered( bool checked )
 {
-	if ( checked ) {
-		ogl->setOrientation( GLView::ViewFront );
-	}
+	if ( checked )
+		ogl->setViewMode( GLView::ViewFront );
 }
 
 void NifSkope::on_aViewLeft_triggered( bool checked )
 {
-	if ( checked ) {
-		ogl->setOrientation( GLView::ViewLeft );
-	}
+	if ( checked )
+		ogl->setViewMode( GLView::ViewLeft );
 }
 
 void NifSkope::on_aViewCenter_triggered()
@@ -1454,10 +1441,9 @@ void NifSkope::on_aViewCenter_triggered()
 	ogl->center();
 }
 
-void NifSkope::on_aViewFlip_triggered( bool checked )
+void NifSkope::on_aViewFlip_triggered( [[maybe_unused]] bool checked )
 {
-	Q_UNUSED( checked );
-	ogl->flipOrientation();
+	ogl->flipView();
 }
 
 void NifSkope::on_aViewPerspective_toggled( bool checked )
@@ -1467,26 +1453,19 @@ void NifSkope::on_aViewPerspective_toggled( bool checked )
 
 void NifSkope::on_aViewWalk_triggered( bool checked )
 {
-	if ( checked ) {
-		ogl->setOrientation( GLView::ViewWalk );
-	}
+	if ( checked )
+		ogl->setViewMode( GLView::ViewWalk );
 }
 
-
-void NifSkope::on_aViewUserSave_triggered( bool checked )
+void NifSkope::on_aViewUserSave_triggered( [[maybe_unused]] bool checked )
 { 
-	Q_UNUSED( checked );
 	ogl->saveUserView();
-	ui->aViewUser->setChecked( true );
 }
-
 
 void NifSkope::on_aViewUser_toggled( bool checked )
 {
-	if ( checked ) {
-		ogl->setOrientation( GLView::ViewUser, false );
+	if ( checked )
 		ogl->loadUserView();
-	}
 }
 
 void NifSkope::on_aSettings_triggered()
@@ -1501,4 +1480,35 @@ void NifSkope::on_mTheme_triggered( QAction * action )
 	auto newTheme = WindowTheme( action->data().toInt() );
 
 	setTheme( newTheme );
+}
+
+void NifSkope::updateCurrentViewAction()
+{
+	QAction * pSelectedView = nullptr;
+
+	switch( ogl->view ) {
+	case GLView::ViewFront:
+		pSelectedView = ui->aViewFront;
+		break;
+	case GLView::ViewLeft:
+		pSelectedView = ui->aViewLeft;
+		break;
+	case GLView::ViewTop:
+		pSelectedView = ui->aViewTop;
+		break;
+	case GLView::ViewWalk:
+		pSelectedView = ui->aViewWalk;
+		break;
+	case GLView::ViewUser:
+		pSelectedView = ui->aViewUser;
+		break;
+	}
+
+	if ( pSelectedView ) {
+		pSelectedView->setChecked( true );
+	} else if ( viewActions ) {
+		pSelectedView = viewActions->checkedAction();
+		if ( pSelectedView )
+			pSelectedView->setChecked( false );
+	}
 }

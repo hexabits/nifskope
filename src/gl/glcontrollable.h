@@ -33,63 +33,72 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef ICONTROLLABLE_H
 #define ICONTROLLABLE_H
 
+#include "model/nifmodel.h"
+
 #include <QObject> // Inherited
 #include <QList>
 #include <QPersistentModelIndex>
-#include <QString>
 
 
-//! @file icontrollable.h IControllable interface
+//! @file glcontrollable.h IControllable interface
 
 class Controller;
 class Scene;
-class NifModel;
 
-//! Anything capable of having a Controller
+// A block capable of having a Controller
 class IControllable : public QObject
 {
 	Q_OBJECT
 
-	friend class ControllerManager;
+public:
+	Scene * const scene;
+	const NifFieldConst block;
+	const NifModel * const model;
+
+protected:
+	QPersistentModelIndex iBlock;
+	QList<Controller *> controllers;
+	QString name;
 
 public:
-	IControllable( Scene * Scene, const QModelIndex & index );
+	IControllable( Scene * _scene, NifFieldConst _block );
 	virtual ~IControllable();
 
-	QModelIndex index() const { return iBlock; }
-	virtual bool isValid() const { return iBlock.isValid(); }
+	QModelIndex index() const { return iBlock; } // TODO: Get rid of it
+	bool isValid() const { return iBlock.isValid(); }
+
+	auto modelVersion() const { return model->getVersionNumber(); }
+	bool modelVersionInRange( quint32 since, quint32 until ) const { return model->checkVersion( since, until ); }
+	auto modelBSVersion() const { return model->getBSVersion(); }
+
+	const QString & blockName() const { return name; }
 
 	virtual void clear();
 
 	void update( const NifModel * nif, const QModelIndex & index );
+	void update() { update( model, iBlock ); }
 
 	virtual void transform();
 
 	virtual void timeBounds( float & start, float & stop );
 
-	void setSequence( const QString & seqname );
-	Controller * findController( const QString & ctrltype, const QString & var1, const QString & var2 );
+	void setSequence( const QString & seqName );
 
-	Controller * findController( const QModelIndex & index );
+	Controller * findController( const QString & ctrlType, const QString & var1, const QString & var2 ) const;
+	Controller * findController( NifFieldConst ctrlBlock ) const;
 
-	QString getName() const;
+	static void reportFieldCountMismatch( NifFieldConst rootEntry1, int entryCount1, NifFieldConst rootEntry2, int entryCount2, NifFieldConst reportEntry );
+	static void reportFieldCountMismatch( NifFieldConst rootEntry1, NifFieldConst rootEntry2, NifFieldConst reportEntry )
+	{
+		reportFieldCountMismatch( rootEntry1, rootEntry1.childCount(), rootEntry2, rootEntry2.childCount(), reportEntry );
+	}
 
 protected:
-	//! Sets the Controller
-	virtual void setController( const NifModel * nif, const QModelIndex & iController );
+	// Create a Controller from a block if applicable
+	virtual Controller * createController( NifFieldConst controllerBlock );
 
-	//! Actual implementation of update, with the validation check taken care of by update(...)
+	// Actual implementation of update, with the validation check taken care of by update(...)
 	virtual void updateImpl( const NifModel * nif, const QModelIndex & index );
-
-	Scene * scene;
-
-	QPersistentModelIndex iBlock;
-
-	QList<Controller *> controllers;
-
-	void registerController( const NifModel* nif, Controller *ctrl );
-
-	QString name;
 };
 
 #endif

@@ -104,8 +104,10 @@ protected:
 
 	QStyleOptionViewItem viewOptions() const override final;
 
+public:
 	void autoExpandBlock( const QModelIndex & blockIndex );
-	void autoExpandItem( const NifItem * item );
+protected:
+	void autoExpandItem( NifFieldConst field );
 
 	bool doRowHiding = true;
 	bool autoExpanded = false;
@@ -121,7 +123,8 @@ protected:
 	//     because QTreeView treats this as if you'd click on the expanded/collapsed item and drag the cursor to another item.
 	bool blockMouseSelection = false;
 
-	class BaseModel * nif = nullptr;
+	class BaseModel * baseModel = nullptr;
+	NifModel * nifModel = nullptr;
 
 	//! Row Copy
 	void copy();

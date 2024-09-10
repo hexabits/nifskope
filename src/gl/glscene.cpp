@@ -53,6 +53,8 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 Scene::Scene( TexCache * texcache, QOpenGLContext * context, QOpenGLFunctions * functions, QObject * parent ) :
 	QObject( parent )
 {
+	setGame( Game::OTHER );
+
 	renderer = new Renderer( context, functions );
 
 	currentBlock = currentIndex = QModelIndex();
@@ -64,8 +66,6 @@ Scene::Scene( TexCache * texcache, QOpenGLContext * context, QOpenGLFunctions * 
 	textures = texcache;
 
 	options = ( DoLighting | DoTexturing | DoMultisampling | DoBlending | DoVertexColors | DoSpecular | DoGlow | DoCubeMapping );
-
-	lodLevel = Level0;
 
 	visMode = VisNone;
 
@@ -103,6 +103,12 @@ Scene::~Scene()
 	delete renderer;
 }
 
+void Scene::setGame( Game::GameMode newGame )
+{
+	game = newGame;
+	lodLevel = defaultLodLevel();
+}
+
 void Scene::updateShaders()
 {
 	renderer->updateShaders();
@@ -124,7 +130,7 @@ void Scene::clear( bool flushTextures )
 
 	sceneBoundsValid = timeBoundsValid = false;
 
-	game = Game::OTHER;
+	setGame( Game::OTHER );
 }
 
 void Scene::update( const NifModel * nif, const QModelIndex & index )
@@ -137,7 +143,7 @@ void Scene::update( const NifModel * nif, const QModelIndex & index )
 		if ( !block.isValid() )
 			return;
 
-		for ( Property * prop : properties.list() )
+		for ( Property * prop : properties.hash() )
 			prop->update( nif, block );
 
 		for ( Node * node : nodes.list() )
@@ -146,11 +152,11 @@ void Scene::update( const NifModel * nif, const QModelIndex & index )
 		properties.validate();
 		nodes.validate();
 
-		for ( Property * p : properties.list() )
-			p->update( nif, p->index() );
+		for ( Property * p : properties.hash() )
+			p->update();
 
 		for ( Node * n : nodes.list() )
-			n->update( nif, n->index() );
+			n->update();
 
 		roots.clear();
 		for ( const auto link : nif->getRootLinks() ) {
@@ -158,7 +164,7 @@ void Scene::update( const NifModel * nif, const QModelIndex & index )
 			if ( iBlock.isValid() ) {
 				Node * node = getNode( nif, iBlock );
 				if ( node ) {
-					node->makeParent( 0 );
+					node->makeParent( nullptr );
 					roots.add( node );
 				}
 			}
@@ -197,11 +203,21 @@ void Scene::updateSelectMode( QAction * action )
 	emit sceneUpdated();
 }
 
-void Scene::updateLodLevel( int level )
+int Scene::maxLodLevel() const
 {
-	if ( game != Game::STARFIELD )
-		level = std::max(level, 2);
-	lodLevel = LodLevel( level );
+	return ( game == Game::STARFIELD ) ? MAX_LOD_LEVEL_STARFIELD : MAX_LOD_LEVEL_DEFAULT;
+}
+
+int Scene::defaultLodLevel() const
+{
+	return ( game == Game::STARFIELD ) ? 0 : 2;
+}
+
+void Scene::updateLodLevel( int newLevel )
+{
+	if ( newLevel < 0 || newLevel > maxLodLevel() )
+		newLevel = defaultLodLevel();
+	lodLevel = newLevel;
 }
 
 void Scene::make( NifModel * nif, bool flushTextures )
@@ -211,7 +227,7 @@ void Scene::make( NifModel * nif, bool flushTextures )
 	if ( !nif )
 		return;
 
-	game = Game::GameManager::get_game(nif->getVersionNumber(), nif->getUserVersion(), nif->getBSVersion());
+	setGame( Game::GameManager::get_game(nif->getVersionNumber(), nif->getUserVersion(), nif->getBSVersion()) );
 
 	update( nif, QModelIndex() );
 
@@ -228,45 +244,54 @@ void Scene::make( NifModel * nif, bool flushTextures )
 Node * Scene::getNode( const NifModel * nif, const QModelIndex & iNode )
 {
 	if ( !nif || !iNode.isValid() )
-		return 0;
+		return nullptr;
 
-	Node * node = nodes.get( iNode );
+	return getNode( nif->field( iNode ) );
+}
 
+Node * Scene::getNode( NifFieldConst nodeBlock )
+{
+	if ( !nodeBlock )
+		return nullptr;
+
+	Node * node = nodes.get( nodeBlock );
 	if ( node )
 		return node;
 
-	auto nodeName = nif->itemName(iNode);
-	if ( nif->blockInherits( iNode, "NiNode" ) ) {
-		if ( nodeName == "NiLODNode" )
-			node = new LODNode( this, iNode );
-		else if ( nodeName == "NiBillboardNode" )
-			node = new BillboardNode( this, iNode );
-		else
-			node = new Node( this, iNode );
-	} else if ( nodeName == "NiTriShape" || nodeName == "NiTriStrips" || nif->blockInherits( iNode, "NiTriBasedGeom" ) ) {
-		node = new Mesh( this, iNode );
-		shapes += static_cast<Shape *>(node);
-	} else if ( nif->checkVersion( 0x14050000, 0 ) && nodeName == "NiMesh" ) {
-		node = new Mesh( this, iNode );
-	}
-	//else if ( nif->blockInherits( iNode, "AParticleNode" ) || nif->blockInherits( iNode, "AParticleSystem" ) )
-	else if ( nif->blockInherits( iNode, "NiParticles" ) ) {
-		// ... where did AParticleSystem go?
-		node = new Particles( this, iNode );
-	} else if ( nif->blockInherits( iNode, "BSTriShape" ) ) {
-		node = new BSShape( this, iNode );
-		shapes += static_cast<Shape *>(node);
-	} else if ( nif->blockInherits(iNode, "BSGeometry") ) {
-		node = new BSMesh(this, iNode);
-		shapes += static_cast<Shape*>(node);
-	} else if ( nif->blockInherits( iNode, "NiAVObject" ) ) {
-		if ( nodeName == "BSTreeNode" )
-			node = new Node( this, iNode );
+	if ( !nodeBlock.isBlock() ) {
+		nodeBlock.model()->reportError( tr("Scene::getNode: item '%1' is not a block.").arg( nodeBlock.repr() ) );
+
+	} else if ( nodeBlock.inherits("NiNode") ) {
+		if ( nodeBlock.hasName("NiLODNode") ) {
+			node = new LODNode( this, nodeBlock );
+		} else if ( nodeBlock.hasName("NiBillboardNode") ) {
+			node = new BillboardNode( this, nodeBlock );
+		} else {
+			node = new Node( this, nodeBlock );
+		}
+
+	} else if ( nodeBlock.hasName("NiTriShape", "NiTriStrips") || nodeBlock.inherits("NiTriBasedGeom") ) {
+		node = new Mesh( this, nodeBlock );
+
+	} else if ( nodeBlock.model()->checkVersion( 0x14050000, 0 ) && nodeBlock.hasName("NiMesh") ) {
+		node = new Mesh( this, nodeBlock );
+
+	// } else if ( nodeBlock.inherits("AParticleNode", "AParticleSystem") ) {
+	// ... where did AParticleSystem go?
+
+	} else if ( nodeBlock.inherits("NiParticles") ) {
+		node = new Particles( this, nodeBlock );
+
+	} else if ( nodeBlock.inherits("BSTriShape") ) {
+		node = new BSShape( this, nodeBlock );
+
+	} else if ( nodeBlock.inherits("BSGeometry") ) {
+		node = new BSMesh( this, nodeBlock );
 	}
 
 	if ( node ) {
 		nodes.add( node );
-		node->update( nif, iNode );
+		node->update();
 	}
 
 	return node;
@@ -299,7 +324,7 @@ void Scene::setSequence( const QString & seqname )
 	for ( Node * node : nodes.list() ) {
 		node->setSequence( seqname );
 	}
-	for ( Property * prop : properties.list() ) {
+	for ( Property * prop : properties.hash() ) {
 		prop->setSequence( seqname );
 	}
 
@@ -315,7 +340,7 @@ void Scene::transform( const Transform & trans, float time )
 	viewTrans.clear();
 	bhkBodyTrans.clear();
 
-	for ( Property * prop : properties.list() ) {
+	for ( Property * prop : properties.hash() ) {
 		prop->transform();
 	}
 	for ( Node * node : roots.list() ) {
@@ -399,6 +424,12 @@ void Scene::drawSelection() const
 	}
 }
 
+int Scene::registerShape( Shape * shape )
+{
+	shapes.append( shape );
+	return shapes.count() - 1;
+}
+
 BoundSphere Scene::bounds() const
 {
 	if ( !sceneBoundsValid ) {
@@ -420,7 +451,7 @@ void Scene::updateTimeBounds() const
 		for ( Node * node : nodes.list() ) {
 			node->timeBounds( tMin, tMax );
 		}
-		for ( Property * prop : properties.list() ) {
+		for ( Property * prop : properties.hash() ) {
 			prop->timeBounds( tMin, tMax );
 		}
 	} else {

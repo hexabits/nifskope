@@ -34,153 +34,210 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define CONTROLLERS_H
 
 #include "gl/glcontroller.h" // Inherited
-#include "data/niftypes.h"
 
-#include <QPointer>
+#include "gl/glnode.h"
+#include "gl/glshape.h"
+#include "gl/glparticles.h"
+#include "gl/glproperty.h"
 
 
-//! @file controllers.h Controller subclasses
+//! @file controllers.h Implementations of specific controllers
 
-class Shape;
-class Node;
-
-//! Controller for `NiControllerManager` blocks
+// Controller for `NiControllerManager` blocks
 class ControllerManager final : public Controller
 {
+	QPointer<Node> parent;
+
 public:
-	ControllerManager( Node * node, const QModelIndex & index );
+	ControllerManager( Node * _parent, NifFieldConst ctrlBlock );
+
+	bool hasParent() const { return !parent.isNull(); }
 
 	void updateTime( float ) override final {}
 
-	bool update( const NifModel * nif, const QModelIndex & index ) override final;
-
-	void setSequence( const QString & seqname ) override final;
+	void setSequence( const QString & seqName ) override final;
 
 protected:
-	QPointer<Node> target;
+	void updateImpl( NifFieldConst changedBlock ) override final;
 };
 
 
-//! Controller for `NiKeyframeController` blocks
-class KeyframeController final : public Controller
+using ITransformInterpolator = IControllerInterpolatorTyped<Node>;
+
+// Interpolator for 'NiTransformInterpolator' and 'NiKeyframeController'
+class TransformInterpolator final : public ITransformInterpolator
 {
+	ValueInterpolatorVector3 translation;
+	ValueInterpolatorMatrix rotation;
+	ValueInterpolatorFloat scale;
+
 public:
-	KeyframeController( Node * node, const QModelIndex & index );
+	TransformInterpolator( NifFieldConst _interpolatorBlock, Node * node, Controller * _parentController )
+		: ITransformInterpolator( _interpolatorBlock, node, _parentController ) {}
 
-	void updateTime( float time ) override final;
-
-	bool update( const NifModel * nif, const QModelIndex & index ) override final;
+	bool isActive() const override final { return translation.isActive() || rotation.isActive() || scale.isActive(); }
 
 protected:
-	QPointer<Node> target;
-
-	QPersistentModelIndex iTranslations, iRotations, iScales;
-
-	int lTrans, lRotate, lScale;
+	void updateDataImpl() override final;
+	void applyTransformImpl( float time ) override final;
 };
 
-
-//! Controller for `NiTransformController` blocks
-class TransformController final : public Controller
+// Interpolator for 'NiBSplineCompTransformInterpolator'
+class BSplineInterpolator final : public ITransformInterpolator
 {
+	float startTime = 0, stopTime = 0;
+
+	struct SplineVars
+	{
+		uint off = USHRT_MAX;
+		float mult = 0.0f;
+		float bias = 0.0f;
+
+		bool isActive() const { return off != USHRT_MAX; }
+	};
+	SplineVars rotateVars, translationVars, scaleVars;
+
+	NifFieldConst controlPointsRoot;
+	uint nControlPoints = 0;
+	int degree = 3;
+
 public:
-	TransformController( Node * node, const QModelIndex & index );
+	BSplineInterpolator( NifFieldConst _interpolatorBlock, Node * node, Controller * _parentController )
+		: ITransformInterpolator( _interpolatorBlock, node, _parentController ) {}
 
-	void updateTime( float time ) override final;
-
-	void setInterpolator( const QModelIndex & idx ) override final;
+	bool isActive() const override final { return rotateVars.isActive() || translationVars.isActive() || scaleVars.isActive(); }
 
 protected:
-	QPointer<Node> target;
-	QPointer<TransformInterpolator> interpolator;
+	void updateDataImpl() override final;
+	void applyTransformImpl( float time ) override final;
+
+private:
+	template <typename T> bool interpolateValue( T & value, float interval, const SplineVars & vars ) const;
 };
 
+// Controller for `NiTransformController` and 'NiKeyframeController' blocks
+DECLARE_INTERPOLATED_CONTROLLER( TransformController, Node, ITransformInterpolator )
 
-//! Controller for `NiMultiTargetTransformController` blocks
+
+// Controller for `NiMultiTargetTransformController` blocks
 class MultiTargetTransformController final : public Controller
 {
-	typedef QPair<QPointer<Node>, QPointer<TransformInterpolator> > TransformTarget;
+	QPointer<Node> parent;
+	NodeList targetNodes;
+	QVector<ITransformInterpolator *> transforms;
 
 public:
-	MultiTargetTransformController( Node * node, const QModelIndex & index );
+	MultiTargetTransformController( Node * node, NifFieldConst ctrlBlock );
+	virtual ~MultiTargetTransformController() { clearTransforms(); }
+
+	bool hasParent() const { return !parent.isNull(); }
 
 	void updateTime( float time ) override final;
 
-	bool update( const NifModel * nif, const QModelIndex & index ) override final;
-
-	bool setInterpolatorNode( Node * node, const QModelIndex & idx );
+	bool setNodeInterpolator( Node * node, NifFieldConst interpolarorBlock );
 
 protected:
-	QPointer<Node> target;
-	QList<TransformTarget> extraTargets;
+	void updateImpl( NifFieldConst changedBlock ) override final;
+
+private:
+	void clearTransforms();
+	void removeTransformAt( int i );
 };
 
 
-//! Controller for `NiVisController` blocks
-class VisibilityController final : public Controller
+// Interpolator for `NiVisController` blocks
+class VisibilityInterpolator final : public IControllerInterpolatorTyped<Node>
 {
+	ValueInterpolatorBool interpolator;
+
 public:
-	VisibilityController( Node * node, const QModelIndex & index );
+	VisibilityInterpolator( NifFieldConst _interpolatorBlock, Node * node, Controller * _parentController )
+		: IControllerInterpolatorTyped( _interpolatorBlock, node, _parentController ) {}
 
-	void updateTime( float time ) override final;
-
-	bool update( const NifModel * nif, const QModelIndex & index ) override final;
+	bool isActive() const override final { return interpolator.isActive(); }
 
 protected:
-	QPointer<Node> target;
-
-	int visLast;
+	void updateDataImpl() override final;
+	void applyTransformImpl( float time ) override final;
 };
 
+// Controller for `NiVisController` blocks
+DECLARE_INTERPOLATED_CONTROLLER( VisibilityController, Node, VisibilityInterpolator )
 
-//! Controller for `NiGeomMorpherController` blocks
+
+class MorphController;
+
+// Interpolator for `NiGeomMorpherController` blocks
+class MorphInterpolator final : public IControllerInterpolatorTyped<Shape>
+{
+	int verticesIndex;
+	const NifFieldConst morphDataEntry;
+	ValueInterpolatorFloat interpolator;
+
+public:
+	MorphInterpolator( int _verticesIndex, NifFieldConst _interpolatorBlock, Shape * shape, MorphController * _parentController, NifFieldConst _morphDataEntry );
+
+	bool isActive() const override final { return interpolator.isActive(); }
+
+protected:
+	void updateDataImpl() override final;
+	void applyTransformImpl( float time ) override final;
+};
+
+// Controller for `NiGeomMorpherController` blocks
 class MorphController final : public Controller
 {
-	//! A representation of Mesh geometry morphs
-	struct MorphKey
-	{
-		QPersistentModelIndex iFrames;
-		QVector<Vector3> verts;
-		int index;
-	};
+	friend class MorphInterpolator;
+
+	QPointer<Shape> target;
+	NifFieldConst dataBlock;
+	QVector< QVector<Vector3> > morphVertices;
+	QVector<MorphInterpolator *> morphInterpolators;
 
 public:
-	MorphController( Shape * mesh, const QModelIndex & index );
-	~MorphController();
+	MorphController( Shape * shape, NifFieldConst ctrlBlock );
+	virtual ~MorphController() { clearMorphInterpolators(); }
+
+	bool hasTarget() const { return !target.isNull(); }
+
+	bool isActive() const;
 
 	void updateTime( float time ) override final;
 
-	bool update( const NifModel * nif, const QModelIndex & index ) override final;
+	void setMorphInterpolator( int morphIndex, NifFieldConst interpolarorBlock );
 
 protected:
-	QPointer<Shape> target;
-	QVector<MorphKey *>  morph;
+	void updateImpl( NifFieldConst changedBlock ) override final;
+
+private:
+	void clearMorphInterpolators();
 };
 
 
-//! Controller for `NiUVController` blocks
-class UVController final : public Controller
+// Interpolator for `NiUVController` blocks
+class UVInterpolator final : public IControllerInterpolatorTyped<Shape>
 {
+	static constexpr int UV_GROUPS_COUNT = 4;
+
+	QVector<ValueInterpolatorFloat> interpolators;
+
 public:
-	UVController( Shape * mesh, const QModelIndex & index );
+	UVInterpolator( NifFieldConst _interpolatorBlock, Shape * shape, Controller * _parentController )
+		: IControllerInterpolatorTyped( _interpolatorBlock, shape, _parentController ), interpolators( UV_GROUPS_COUNT ) {}
 
-	~UVController();
-
-	void updateTime( float time ) override final;
-
-	bool update( const NifModel * nif, const QModelIndex & index ) override final;
+	bool isActive() const override final { return true; }
 
 protected:
-	QPointer<Shape> target;
-
-	int luv = 0;
+	void updateDataImpl() override final;
+	void applyTransformImpl( float time ) override final;
 };
 
+// Controller for `NiUVController` blocks
+DECLARE_INTERPOLATED_CONTROLLER( UVController, Shape, UVInterpolator )
 
-class Particles;
 
-//! Controller for `NiParticleSystemController` and other blocks
-class ParticleController final : public Controller
+// Interpolator for `NiParticleSystemController` and other blocks
+class ParticleInterpolator final : public IControllerInterpolatorTyped<Particles>
 {
 	struct Particle
 	{
@@ -191,26 +248,23 @@ class ParticleController final : public Controller
 		float lifespan = 0;
 		float lasttime = 0;
 		short y = 0;
-		short vertex = 0;
-
-		Particle()
-		{
-		}
+		ushort vertex = 0;
 	};
-	QVector<Particle> list;
+	QVector<Particle> particles;
+
 	struct Gravity
 	{
 		float force;
 		int type;
 		Vector3 position;
 		Vector3 direction;
+
+		Gravity( NifFieldConst block );
 	};
-	QVector<Gravity> grav;
+	QVector<Gravity> gravities;
 
-	QPointer<Particles> target;
-
-	float emitStart = 0, emitStop = 0, emitRate = 0, emitLast = 0, emitAccu = 0, emitMax = 0;
 	QPointer<Node> emitNode;
+	float emitStart = 0, emitStop = 0, emitRate = 0, emitLast = 0, emitAccu = 0;
 	Vector3 emitRadius;
 
 	float spd = 0, spdRnd = 0;
@@ -223,127 +277,190 @@ class ParticleController final : public Controller
 	float grow = 0;
 	float fade = 0;
 
-	float localtime = 0;
-
-	QList<QPersistentModelIndex> iExtras;
-	QPersistentModelIndex iColorKeys;
+	ValueInterpolatorColor4 colorInterpolator;
 
 public:
-	ParticleController( Particles * particles, const QModelIndex & index );
+	ParticleInterpolator( NifFieldConst _interpolatorBlock, Particles * particlesControllable, Controller * _parentController )
+		: IControllerInterpolatorTyped( _interpolatorBlock, particlesControllable, _parentController ) {}
 
-	bool update( const NifModel * nif, const QModelIndex & index ) override final;
+	bool isActive() const override final { return true; }
 
-	void updateTime( float time ) override final;
+protected:
+	void updateDataImpl() override final;
+	void applyTransformImpl( float time ) override final;
 
-	void startParticle( Particle & p );
-
+private:
+	void startParticle( Particle & p, float localTime );
 	void moveParticle( Particle & p, float deltaTime );
-
 	void sizeParticle( Particle & p, float & size );
-
 	void colorParticle( Particle & p, Color4 & color );
 };
 
+// Controller for `NiParticleSystemController` and other blocks
+DECLARE_INTERPOLATED_CONTROLLER( ParticleController, Particles, ParticleInterpolator )
 
-class AlphaProperty;
-class MaterialProperty;
-class TexturingProperty;
-class TextureProperty;
-class BSEffectShaderProperty;
-class BSLightingShaderProperty;
 
-//! Controller for alpha values in a MaterialProperty
-class AlphaController final : public Controller
+// Interpolator for 'NiAlphaController' blocks (MaterialProperty)
+class AlphaInterpolator_Material final : public IControllerInterpolatorTyped<MaterialProperty>
 {
+	ValueInterpolatorFloat interpolator;
+
 public:
-	AlphaController( MaterialProperty * prop, const QModelIndex & index );
+	AlphaInterpolator_Material( NifFieldConst _interpolatorBlock, MaterialProperty * prop, Controller * _parentController )
+		: IControllerInterpolatorTyped( _interpolatorBlock, prop, _parentController ) {}
 
-	AlphaController( AlphaProperty * prop, const QModelIndex & index );
-
-	void updateTime( float time ) override final;
+	bool isActive() const override final { return interpolator.isActive(); }
 
 protected:
-	QPointer<MaterialProperty> materialProp;
-	QPointer<AlphaProperty> alphaProp;
-
-	int lAlpha = 0;
+	void updateDataImpl() override final;
+	void applyTransformImpl( float time ) override final;
 };
 
+// Controller for 'NiAlphaController' blocks (MaterialProperty)
+DECLARE_INTERPOLATED_CONTROLLER( AlphaController_Material, MaterialProperty, AlphaInterpolator_Material )
 
-//! Controller for color values in a MaterialProperty
-class MaterialColorController final : public Controller
+
+// Interpolator for 'BSNiAlphaPropertyTestRefController' blocks (AlphaProperty)
+class AlphaInterpolator_Alpha final : public IControllerInterpolatorTyped<AlphaProperty>
 {
+	ValueInterpolatorFloat interpolator;
+
 public:
-	MaterialColorController( MaterialProperty * prop, const QModelIndex & index );
+	AlphaInterpolator_Alpha( NifFieldConst _interpolatorBlock, AlphaProperty * prop, Controller * _parentController )
+		: IControllerInterpolatorTyped( _interpolatorBlock, prop, _parentController ) {}
 
-	void updateTime( float time ) override final;
-
-	bool update( const NifModel * nif, const QModelIndex & index ) override final;
+	bool isActive() const override final { return interpolator.isActive(); }
 
 protected:
-	QPointer<MaterialProperty> target; //!< The MaterialProperty being controlled
+	void updateDataImpl() override final;
+	void applyTransformImpl( float time ) override final;
+};
 
-	int lColor = 0;                        //!< Last interpolation time
-	int tColor = tAmbient;                 //!< The color slot being controlled
+// Controller for 'BSNiAlphaPropertyTestRefController' blocks (AlphaProperty)
+DECLARE_INTERPOLATED_CONTROLLER( AlphaController_Alpha, AlphaProperty, AlphaInterpolator_Alpha )
 
-	//! Color slots that can be controlled
-	enum
+
+// Interpolator for 'NiMaterialColorController' blocks
+class MaterialColorInterpolator final : public IControllerInterpolatorTyped<MaterialProperty>
+{
+	enum class ColorType
 	{
-		tAmbient = 0,
-		tDiffuse = 1,
-		tSpecular = 2,
-		tSelfIllum = 3
+		Ambient = 0,
+		Diffuse = 1,
+		Specular = 2,
+		SelfIllum = 3,
 	};
-};
+	ColorType colorType = ColorType::Ambient; //!< The color slot being controlled
 
+	ValueInterpolatorVector3 interpolator;
 
-//! Controller for source textures in a TexturingProperty
-class TexFlipController final : public Controller
-{
 public:
-	TexFlipController( TexturingProperty * prop, const QModelIndex & index );
+	MaterialColorInterpolator( NifFieldConst _interpolatorBlock, MaterialProperty * prop, Controller * _parentController )
+		: IControllerInterpolatorTyped( _interpolatorBlock, prop, _parentController ) {}
 
-	TexFlipController( TextureProperty * prop, const QModelIndex & index );
-
-	void updateTime( float time ) override final;
-
-	bool update( const NifModel * nif, const QModelIndex & index ) override final;
+	bool isActive() const override final { return interpolator.isActive(); }
 
 protected:
-	QPointer<TexturingProperty> target;
-	QPointer<TextureProperty> oldTarget;
-
-	float flipDelta = 0;
-	int flipSlot = 0;
-
-	int flipLast = 0;
-
-	QPersistentModelIndex iSources;
+	void updateDataImpl() override final;
+	void applyTransformImpl( float time ) override final;
 };
 
+// Controller for 'NiMaterialColorController' blocks
+DECLARE_INTERPOLATED_CONTROLLER( MaterialColorController, MaterialProperty, MaterialColorInterpolator )
 
-//! Controller for transformations in a TexturingProperty
-class TexTransController final : public Controller
+
+// Common data for texture flip interpolators
+struct TextureFlipData
 {
+	bool hasDelta = false;
+	float delta = 0;
+	int slot = 0;
+
+	QVector<NifFieldConst> sources;
+	ValueInterpolatorFloat interpolator;
+
+	bool isActive() const { return hasDelta ? ( delta > 0.0f ) : interpolator.isActive(); }
+
+	void updateData( IControllerInterpolator * ctrlInterpolator, const QString & sourcesName, const QString & sourceBlockType );
+	void interpolate( NifFieldConst & sourceBlock, float time );
+};
+
+// Interpolator for 'NiFlipController' blocks (TexturingProperty)
+class TextureFlipInterpolator_Texturing final : public IControllerInterpolatorTyped<TexturingProperty>
+{
+	TextureFlipData data;
+
 public:
-	TexTransController( TexturingProperty * prop, const QModelIndex & index );
+	TextureFlipInterpolator_Texturing( NifFieldConst _interpolatorBlock, TexturingProperty * prop, Controller * _parentController )
+		: IControllerInterpolatorTyped( _interpolatorBlock, prop, _parentController ) {}
 
-	void updateTime( float time ) override final;
-
-	bool update( const NifModel * nif, const QModelIndex & index ) override final;
+	bool isActive() const override final { return data.isActive(); }
 
 protected:
-	QPointer<TexturingProperty> target;
-
-	int texSlot = 0;
-	int texOP = 0;
-
-	int lX = 0;
+	void updateDataImpl() override final;
+	void applyTransformImpl( float time ) override final;
 };
 
-namespace EffectFloat
+// Controller for 'NiFlipController' blocks (TexturingProperty)
+DECLARE_INTERPOLATED_CONTROLLER( TextureFlipController_Texturing, TexturingProperty, TextureFlipInterpolator_Texturing )
+
+// Interpolator for 'NiFlipController' blocks (TextureProperty)
+class TextureFlipInterpolator_Texture final : public IControllerInterpolatorTyped<TextureProperty>
 {
-	enum Variable
+	TextureFlipData data;
+
+public:
+	TextureFlipInterpolator_Texture( NifFieldConst _interpolatorBlock, TextureProperty * prop, Controller * _parentController )
+		: IControllerInterpolatorTyped( _interpolatorBlock, prop, _parentController ) {}
+
+	bool isActive() const override final { return data.isActive(); }
+
+protected:
+	void updateDataImpl() override final;
+	void applyTransformImpl( float time ) override final;
+};
+
+// Controller for 'NiFlipController' blocks (TextureProperty)
+DECLARE_INTERPOLATED_CONTROLLER( TextureFlipController_Texture, TextureProperty, TextureFlipInterpolator_Texture )
+
+
+// Interpolator for 'NiTextureTransformController' blocks
+class TextureTransformInterpolator final : public IControllerInterpolatorTyped<TexturingProperty>
+{
+	ValueInterpolatorFloat interpolator;
+
+	enum class OperationType
+	{
+		TranslateU = 0,
+		TranslateV = 1,
+		Rotate = 2,
+		ScaleU = 3,
+		ScaleV = 4,
+	};
+	OperationType operationType = OperationType::TranslateU;
+	int textureSlot = 0;
+
+public:
+	TextureTransformInterpolator( NifFieldConst _interpolatorBlock, TexturingProperty * prop, Controller * _parentController )
+		: IControllerInterpolatorTyped( _interpolatorBlock, prop, _parentController ) {}
+
+	bool isActive() const override final { return interpolator.isActive(); }
+
+protected:
+	void updateDataImpl() override final;
+	void applyTransformImpl( float time ) override final;
+};
+
+// Controller for 'NiTextureTransformController' blocks
+DECLARE_INTERPOLATED_CONTROLLER( TextureTransformController, TexturingProperty, TextureTransformInterpolator )
+
+
+// Interpolator for 'BSEffectShaderPropertyFloatController' blocks
+class EffectFloatInterpolator final : public IControllerInterpolatorTyped<BSEffectShaderProperty>
+{
+	ValueInterpolatorFloat interpolator;
+
+	enum class ValueType
 	{
 		Emissive_Multiple = 0,
 		Falloff_Start_Angle = 1,
@@ -356,45 +473,50 @@ namespace EffectFloat
 		V_Offset = 8,
 		V_Scale = 9
 	};
-}
+	ValueType valueType = ValueType::Emissive_Multiple;
 
-
-//! Controller for float values in a BSEffectShaderProperty
-class EffectFloatController final : public Controller
-{
 public:
-	EffectFloatController( BSEffectShaderProperty * prop, const QModelIndex & index );
+	EffectFloatInterpolator( NifFieldConst _interpolatorBlock, BSEffectShaderProperty * prop, Controller * _parentController )
+		: IControllerInterpolatorTyped( _interpolatorBlock, prop, _parentController ) {}
 
-	void updateTime( float time ) override final;
-
-	bool update( const NifModel * nif, const QModelIndex & index ) override final;
+	bool isActive() const override final { return interpolator.isActive(); }
 
 protected:
-	QPointer<BSEffectShaderProperty> target;
-
-	EffectFloat::Variable variable = EffectFloat::Emissive_Multiple;
+	void updateDataImpl() override final;
+	void applyTransformImpl( float time ) override final;
 };
 
+// Controller for 'BSEffectShaderPropertyFloatController' blocks
+DECLARE_INTERPOLATED_CONTROLLER( EffectFloatController, BSEffectShaderProperty, EffectFloatInterpolator )
 
-//! Controller for color values in a BSEffectShaderProperty
-class EffectColorController final : public Controller
+
+// Interpolator for 'BSEffectShaderPropertyColorController' blocks
+class EffectColorInterpolator final : public IControllerInterpolatorTyped<BSEffectShaderProperty>
 {
+	ValueInterpolatorVector3 interpolator;
+	int colorType = 0;
+
 public:
-	EffectColorController( BSEffectShaderProperty * prop, const QModelIndex & index );
+	EffectColorInterpolator( NifFieldConst _interpolatorBlock, BSEffectShaderProperty * prop, Controller * _parentController )
+		: IControllerInterpolatorTyped( _interpolatorBlock, prop, _parentController ) {}
 
-	void updateTime( float time ) override final;
-
-	bool update( const NifModel * nif, const QModelIndex & index ) override final;
+	bool isActive() const override final { return interpolator.isActive(); }
 
 protected:
-	QPointer<BSEffectShaderProperty> target;
-
-	int variable = 0;
+	void updateDataImpl() override final;
+	void applyTransformImpl( float time ) override final;
 };
 
-namespace LightingFloat
+// Controller for 'BSEffectShaderPropertyColorController' blocks
+DECLARE_INTERPOLATED_CONTROLLER( EffectColorController, BSEffectShaderProperty, EffectColorInterpolator )
+
+
+// Interpolator for 'BSLightingShaderPropertyFloatController' blocks
+class LightingFloatInterpolator final : public IControllerInterpolatorTyped<BSLightingShaderProperty>
 {
-	enum Variable
+	ValueInterpolatorFloat interpolator;
+
+	enum class ValueType
 	{
 		Refraction_Strength = 0,
 		Reflection_Strength = 8,
@@ -407,41 +529,41 @@ namespace LightingFloat
 		V_Offset = 22,
 		V_Scale = 23
 	};
-}
+	ValueType valueType = ValueType::Refraction_Strength;
 
-
-//! Controller for float values in a BSEffectShaderProperty
-class LightingFloatController final : public Controller
-{
 public:
-	LightingFloatController( BSLightingShaderProperty * prop, const QModelIndex & index );
+	LightingFloatInterpolator( NifFieldConst _interpolatorBlock, BSLightingShaderProperty * prop, Controller * _parentController )
+		: IControllerInterpolatorTyped( _interpolatorBlock, prop, _parentController ) {}
 
-	void updateTime( float time ) override final;
-
-	bool update( const NifModel * nif, const QModelIndex & index ) override final;
+	bool isActive() const override final { return interpolator.isActive(); }
 
 protected:
-	QPointer<BSLightingShaderProperty> target;
-
-	LightingFloat::Variable variable = LightingFloat::Refraction_Strength;
+	void updateDataImpl() override final;
+	void applyTransformImpl( float time ) override final;
 };
 
+// Controller for 'BSLightingShaderPropertyFloatController' blocks
+DECLARE_INTERPOLATED_CONTROLLER( LightingFloatController, BSLightingShaderProperty, LightingFloatInterpolator )
 
-//! Controller for color values in a BSEffectShaderProperty
-class LightingColorController final : public Controller
+
+// Interpolator for 'BSLightingShaderPropertyColorController' blocks
+class LightingColorInterpolator final : public IControllerInterpolatorTyped<BSLightingShaderProperty>
 {
+	ValueInterpolatorVector3 interpolator;
+	int colorType = 0;
+
 public:
-	LightingColorController( BSLightingShaderProperty * prop, const QModelIndex & index );
+	LightingColorInterpolator( NifFieldConst _interpolatorBlock, BSLightingShaderProperty * prop, Controller * _parentController )
+		: IControllerInterpolatorTyped( _interpolatorBlock, prop, _parentController ) {}
 
-	void updateTime( float time ) override final;
-
-	bool update( const NifModel * nif, const QModelIndex & index ) override final;
+	bool isActive() const override final { return interpolator.isActive(); }
 
 protected:
-	QPointer<BSLightingShaderProperty> target;
-
-	int variable = 0;
+	void updateDataImpl() override final;
+	void applyTransformImpl( float time ) override final;
 };
 
+// Controller for 'BSLightingShaderPropertyColorController' blocks
+DECLARE_INTERPOLATED_CONTROLLER( LightingColorController, BSLightingShaderProperty, LightingColorInterpolator )
 
 #endif // CONTROLLERS_H

@@ -35,21 +35,16 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "gl/glshape.h" // Inherited
 
-//! @file glmesh.h Mesh
 
-//! A mesh
+// Nodes of types NiMesh, NiTriShape, NiTriStrips, NiTriBasedGeom (pre-FO4/SKSE)
 class Mesh : public Shape
 {
-
 public:
-	Mesh( Scene * s, const QModelIndex & b ) : Shape( s, b ) { }
+	Mesh( Scene * _scene, NifFieldConst _block );
 
 	// Node
 
 	void transformShapes() override;
-
-	void drawShapes( NodeList * secondPass = nullptr, bool presort = false ) override;
-	void drawSelection() const override;
 
 	BoundSphere bounds() const override;
 
@@ -57,17 +52,13 @@ public:
 
 	// end Node
 
-	// Shape
-
-	void drawVerts() const override;
-	QModelIndex vertexAt( int ) const override;
-
 protected:
 	void updateImpl( const NifModel * nif, const QModelIndex & index ) override;
-	void updateData( const NifModel * nif ) override;
+	void updateDataImpl() override;
 
-	void updateData_NiMesh( const NifModel * nif );
-	void updateData_NiTriShape( const NifModel * nif );
+private:
+	void updateData_NiMesh();
+	void updateData_NiTriShape();
 };
 
 #endif

@@ -57,7 +57,7 @@ public:
 	bool hasAlphaBlend() const { return (bAlphaBlend != 0); }
 	bool hasAlphaTest() const { return (bAlphaTest != 0); }
 	bool hasDecal() const { return (bDecal != 0); }
-	QStringList textures() const;
+	const QStringList & textures() const { return textureList; }
 	QString getPath() const;
 
 protected:
@@ -128,7 +128,7 @@ class ShaderMaterial : public Material
 	Q_OBJECT
 
 	friend class Renderer;
-	friend class BSShaderLightingProperty;
+	friend class BSShaderProperty;
 	friend class BSLightingShaderProperty;
 
 public:
@@ -211,7 +211,7 @@ class EffectMaterial : public Material
 	Q_OBJECT
 
 	friend class Renderer;
-	friend class BSShaderLightingProperty;
+	friend class BSShaderProperty;
 	friend class BSEffectShaderProperty;
 
 public:

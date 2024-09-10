@@ -56,18 +56,10 @@ int Node::SELECTING = 0;
 static QColor highlightColor;
 static QColor wireframeColor;
 
+
 /*
  *  Node list
  */
-
-NodeList::NodeList()
-{
-}
-
-NodeList::NodeList( const NodeList & other )
-{
-	operator=( other );
-}
 
 NodeList::~NodeList()
 {
@@ -76,61 +68,57 @@ NodeList::~NodeList()
 
 void NodeList::clear()
 {
-	foreach ( Node * n, nodes ) {
-		del( n );
-	}
+	for ( Node * node : nodes )
+		detach( node );
+	nodes.clear();
 }
 
 NodeList & NodeList::operator=( const NodeList & other )
 {
 	clear();
-	for ( Node * n : other.list() ) {
-		add( n );
-	}
+
+	nodes.reserve( other.nodes.count() );
+	for ( Node * node : other.nodes )
+		attach( node );
+
 	return *this;
 }
 
-void NodeList::add( Node * n )
+void NodeList::add( Node * node )
 {
-	if ( n && !nodes.contains( n ) ) {
-		++n->ref;
-		nodes.append( n );
-	}
+	if ( node && !nodes.contains( node ) )
+		attach( node );
 }
 
-void NodeList::del( Node * n )
+void NodeList::del( Node * node )
 {
-	if ( nodes.contains( n ) ) {
-		int cnt = nodes.removeAll( n );
-
-		if ( n->ref <= cnt ) {
-			delete n;
-		} else {
-			n->ref -= cnt;
-		}
+	int i = nodes.indexOf( node );
+	if ( i >= 0 ) {
+		detach( node );
+		nodes.removeAt( i );
 	}
-}
-
-Node * NodeList::get( const QModelIndex & index ) const
-{
-	for ( Node * n : nodes ) {
-		if ( n->index().isValid() && n->index() == index )
-			return n;
-	}
-	return nullptr;
 }
 
 void NodeList::validate()
 {
-	QList<Node *> rem;
-	for ( Node * n : nodes ) {
-		if ( !n->isValid() )
-			rem.append( n );
-	}
-	foreach ( Node * n, rem ) {
-		del( n );
+	for ( int i = nodes.count() - 1; i >= 0; i-- ) {
+		auto node = nodes[i];
+		if ( !node->isValid() ) {
+			detach( node );
+			nodes.removeAt( i );
+		}
 	}
 }
+
+Node * NodeList::get( NifFieldConst nodeBlock ) const
+{
+	for ( Node * node : nodes ) {
+		if ( node->isValid() && node->block == nodeBlock )
+			return node;
+	}
+	return nullptr;
+}
+
 
 bool compareNodes( const Node * node1, const Node * node2 )
 {
@@ -138,9 +126,8 @@ bool compareNodes( const Node * node1, const Node * node2 )
 	bool p2 = node2->isPresorted();
 
 	// Presort meshes
-	if ( p1 && p2 ) {
+	if ( p1 && p2 )
 		return node1->id() < node2->id();
-	}
 
 	return p2;
 }
@@ -154,20 +141,15 @@ bool compareNodesAlpha( const Node * node1, const Node * node2 )
 	bool p2 = node2->isPresorted();
 
 	// Presort meshes
-	if ( p1 && p2 ) {
+	if ( p1 && p2 )
 		return node1->id() < node2->id();
-	}
 
-	bool a1 = node1->findProperty<AlphaProperty>();
-	bool a2 = node2->findProperty<AlphaProperty>();
-
-	float d1 = node1->viewDepth();
-	float d2 = node2->viewDepth();
+	bool a1 = node1->findProperty<AlphaProperty>() != nullptr;
+	bool a2 = node2->findProperty<AlphaProperty>() != nullptr;
 
 	// Alpha sort meshes
-	if ( a1 == a2 ) {
-		return (d1 < d2);
-	}
+	if ( a1 == a2 )
+		return node1->viewDepth() < node2->viewDepth();
 
 	return a2;
 }
@@ -182,12 +164,13 @@ void NodeList::alphaSort()
 	std::stable_sort( nodes.begin(), nodes.end(), compareNodesAlpha );
 }
 
+
 /*
  *	Node
  */
 
-
-Node::Node( Scene * s, const QModelIndex & iBlock) : IControllable( s, iBlock ), parent( 0 ), ref( 0 )
+Node::Node( Scene * _scene, NifFieldConst _block )
+	: IControllable( _scene, _block ), parent( 0 ), ref( 0 )
 {
 	nodeId = 0;
 	flags.bits = 0;
@@ -233,7 +216,6 @@ void Node::glNormalColor() const
 	glColor( Color4( cfg.wireframe ) );
 }
 
-
 void Node::clear()
 {
 	IControllable::clear();
@@ -246,34 +228,32 @@ void Node::clear()
 	properties.clear();
 }
 
-Controller * Node::findController( const QString & proptype, const QString & ctrltype, const QString & var1, const QString & var2 )
+Controller * Node::findPropertyController( const QString & propType, const QString & ctrlType, const QString & var1, const QString & var2 ) const
 {
-	if ( proptype != "<empty>" && !proptype.isEmpty() ) {
-		for ( Property * prp : properties.list() ) {
-			if ( prp->typeId() == proptype ) {
-				return prp->findController( ctrltype, var1, var2 );
-			}
+	if ( !propType.isEmpty() && propType != QStringLiteral("<empty>") ) {
+		for ( Property * prp : properties.hash() ) {
+			if ( prp->typeId() == propType )
+				return prp->findController( ctrlType, var1, var2 );
 		}
 		return nullptr;
 	}
 
-	return IControllable::findController( ctrltype, var1, var2 );
+	return IControllable::findController( ctrlType, var1, var2 );
 }
 
-Controller * Node::findController( const QString & proptype, const QModelIndex & index )
+Controller * Node::findPropertyController( const QString & propType, NifFieldConst ctrlBlock ) const
 {
-	Controller * c = nullptr;
-
-	for ( Property * prp : properties.list() ) {
-		if ( prp->typeId() == proptype ) {
-			if ( c )
-				break;
-
-			c = prp->findController( index );
+	if ( !propType.isEmpty() && ctrlBlock ) {
+		for ( Property * prp : properties.hash() ) {
+			if ( prp->typeId() == propType ) {
+				auto c = prp->findController( ctrlBlock );
+				if ( c )
+					return c;
+			}
 		}
 	}
 
-	return c;
+	return nullptr;
 }
 
 void Node::updateImpl( const NifModel * nif, const QModelIndex & index )
@@ -327,26 +307,21 @@ void Node::makeParent( Node * newParent )
 		parent->children.add( this );
 }
 
-void Node::setController( const NifModel * nif, const QModelIndex & iController )
+Controller * Node::createController( NifFieldConst controllerBlock )
 {
-	QString cname = nif->itemName( iController );
+	if ( controllerBlock.hasName("NiTransformController", "NiKeyframeController") )
+		return new TransformController( this, controllerBlock );
 
-	if ( cname == "NiTransformController" ) {
-		Controller * ctrl = new TransformController( this, iController );
-		registerController(nif, ctrl);
-	} else if ( cname == "NiMultiTargetTransformController" ) {
-		Controller * ctrl = new MultiTargetTransformController( this, iController );
-		registerController(nif, ctrl);
-	} else if ( cname == "NiControllerManager" ) {
-		Controller * ctrl = new ControllerManager( this, iController );
-		registerController(nif, ctrl);
-	} else if ( cname == "NiKeyframeController" ) {
-		Controller * ctrl = new KeyframeController( this, iController );
-		registerController(nif, ctrl);
-	} else if ( cname == "NiVisController" ) {
-		Controller * ctrl = new VisibilityController( this, iController );
-		registerController(nif, ctrl);
-	}
+	if ( controllerBlock.hasName("NiMultiTargetTransformController") )
+		return new MultiTargetTransformController( this, controllerBlock );
+
+	if ( controllerBlock.hasName("NiControllerManager") )
+		return new ControllerManager( this, controllerBlock );
+
+	if ( controllerBlock.hasName("NiVisController") )
+		return new VisibilityController( this, controllerBlock );
+
+	return nullptr;
 }
 
 void Node::activeProperties( PropertyList & list ) const
@@ -508,8 +483,7 @@ void Node::draw()
 		return;
 
 	if ( Node::SELECTING ) {
-		int s_nodeId = ID2COLORKEY( nodeId );
-		glColor4ubv( (GLubyte *)&s_nodeId );
+		glSelectionBufferColor( nodeId );
 		glLineWidth( 5 ); // make hitting a line a litlle bit more easy
 	} else {
 		glEnable( GL_DEPTH_TEST );
@@ -575,8 +549,7 @@ void Node::drawSelection() const
 	auto n = scene->currentIndex.data( NifSkopeDisplayRole ).toString();
 
 	if ( Node::SELECTING ) {
-		int s_nodeId = ID2COLORKEY( nodeId );
-		glColor4ubv( (GLubyte *)&s_nodeId );
+		glSelectionBufferColor( nodeId );
 		glLineWidth( 5 );
 	} else {
 		glEnable( GL_DEPTH_TEST );
@@ -790,15 +763,13 @@ void drawHvkShape( const NifModel * nif, const QModelIndex & iShape, QStack<QMod
 		glPopMatrix();
 	} else if ( name == "bhkSphereShape" ) {
 		if ( Node::SELECTING ) {
-			int s_nodeId = ID2COLORKEY( nif->getBlockNumber( iShape ) );
-			glColor4ubv( (GLubyte *)&s_nodeId );
+			glSelectionBufferColor( nif, iShape );
 		}
 
 		drawSphere( Vector3(), nif->get<float>( iShape, "Radius" ) );
 	} else if ( name == "bhkMultiSphereShape" ) {
 		if ( Node::SELECTING ) {
-			int s_nodeId = ID2COLORKEY( nif->getBlockNumber( iShape ) );
-			glColor4ubv( (GLubyte *)&s_nodeId );
+			glSelectionBufferColor( nif, iShape );
 		}
 
 		QModelIndex iSpheres = nif->getIndex( iShape, "Spheres" );
@@ -808,16 +779,14 @@ void drawHvkShape( const NifModel * nif, const QModelIndex & iShape, QStack<QMod
 		}
 	} else if ( name == "bhkBoxShape" ) {
 		if ( Node::SELECTING ) {
-			int s_nodeId = ID2COLORKEY( nif->getBlockNumber( iShape ) );
-			glColor4ubv( (GLubyte *)&s_nodeId );
+			glSelectionBufferColor( nif, iShape );
 		}
 
 		Vector3 v = nif->get<Vector3>( iShape, "Dimensions" );
 		drawBox( v, -v );
 	} else if ( name == "bhkCapsuleShape" ) {
 		if ( Node::SELECTING ) {
-			int s_nodeId = ID2COLORKEY( nif->getBlockNumber( iShape ) );
-			glColor4ubv( (GLubyte *)&s_nodeId );
+			glSelectionBufferColor( nif, iShape );
 		}
 
 		drawCapsule( nif->get<Vector3>( iShape, "First Point" ), nif->get<Vector3>( iShape, "Second Point" ), nif->get<float>( iShape, "Radius" ) );
@@ -827,8 +796,7 @@ void drawHvkShape( const NifModel * nif, const QModelIndex & iShape, QStack<QMod
 		glScalef( s, s, s );
 
 		if ( Node::SELECTING ) {
-			int s_nodeId = ID2COLORKEY( nif->getBlockNumber( iShape ) );
-			glColor4ubv( (GLubyte *)&s_nodeId );
+			glSelectionBufferColor( nif, iShape );
 		}
 
 		drawNiTSS( nif, iShape );
@@ -844,8 +812,7 @@ void drawHvkShape( const NifModel * nif, const QModelIndex & iShape, QStack<QMod
 		glPopMatrix();
 	} else if ( name == "bhkConvexVerticesShape" ) {
 		if ( Node::SELECTING ) {
-			int s_nodeId = ID2COLORKEY( nif->getBlockNumber( iShape ) );
-			glColor4ubv( (GLubyte *)&s_nodeId );
+			glSelectionBufferColor( nif, iShape );
 		}
 
 		drawConvexHull( nif, iShape, 1.0 );
@@ -873,8 +840,7 @@ void drawHvkShape( const NifModel * nif, const QModelIndex & iShape, QStack<QMod
 		drawHvkShape( nif, nif->getBlockIndex( nif->getLink( iShape, "Shape" ) ), stack, scene, origin_color3fv );
 	} else if ( name == "bhkPackedNiTriStripsShape" || name == "hkPackedNiTriStripsData" ) {
 		if ( Node::SELECTING ) {
-			int s_nodeId = ID2COLORKEY( nif->getBlockNumber( iShape ) );
-			glColor4ubv( (GLubyte *)&s_nodeId );
+			glSelectionBufferColor( nif, iShape );
 		}
 
 		QModelIndex iData = nif->getBlockIndex( nif->getLink( iShape, "Data" ) );
@@ -1016,8 +982,7 @@ void drawHvkShape( const NifModel * nif, const QModelIndex & iShape, QStack<QMod
 		}
 	} else if ( name == "bhkCompressedMeshShape" ) {
 		if ( Node::SELECTING ) {
-			int s_nodeId = ID2COLORKEY( nif->getBlockNumber( iShape ) );
-			glColor4ubv( (GLubyte *)&s_nodeId );
+			glSelectionBufferColor( nif, iShape );
 		}
 
 		drawCMS( nif, iShape );
@@ -1068,8 +1033,7 @@ void drawHvkConstraint( const NifModel * nif, const QModelIndex & iConstraint, c
 	Color3 color_b( 0.6f, 0.8f, 0.0f );
 
 	if ( Node::SELECTING ) {
-		int s_nodeId = ID2COLORKEY( nif->getBlockNumber( iConstraint ) );
-		glColor4ubv( (GLubyte *)&s_nodeId );
+		glSelectionBufferColor( nif, iConstraint );
 		glLineWidth( 5 ); // make hitting a line a litlle bit more easy
 	} else {
 		if ( scene->currentBlock == nif->getBlockIndex( iConstraint ) ) {
@@ -1374,8 +1338,7 @@ void Node::drawHavok()
 		glMultMatrix( bt );
 
 		if ( Node::SELECTING ) {
-			int s_nodeId = ID2COLORKEY( nodeId );
-			glColor4ubv( (GLubyte *)&s_nodeId );
+			glSelectionBufferColor( nodeId );
 		} else {
 			glColor( Color3( 1.0f, 0.0f, 0.0f ) );
 			glDisable( GL_LIGHTING );
@@ -1429,8 +1392,7 @@ void Node::drawHavok()
 			}
 			
 			if ( Node::SELECTING ) {
-				int s_nodeId = ID2COLORKEY( nif->getBlockNumber( iBSMultiBoundData ) );
-				glColor4ubv( (GLubyte *)&s_nodeId );
+				glSelectionBufferColor( nif, iBSMultiBoundData );
 				glLineWidth( 5 );
 			} else {
 				glColor( Color4( 1.0f, 1.0f, 1.0f, 0.6f ) );
@@ -1462,8 +1424,7 @@ void Node::drawHavok()
 			glMultMatrix( worldTrans() );
 
 			if ( Node::SELECTING ) {
-				int s_nodeId = ID2COLORKEY( nif->getBlockNumber( iBound ) );
-				glColor4ubv( (GLubyte *)&s_nodeId );
+				glSelectionBufferColor( nif, iBound );
 			} else {
 				glColor( Color3( 1.0f, 0.0f, 0.0f ) );
 				glDisable( GL_LIGHTING );
@@ -1538,8 +1499,7 @@ void Node::drawHavok()
 	drawHvkShape( nif, nif->getBlockIndex( nif->getLink( iBody, "Shape" ) ), shapeStack, scene, colors[ color_index ] );
 
 	if ( Node::SELECTING && scene->hasOption(Scene::ShowAxes) ) {
-		int s_nodeId = ID2COLORKEY( nif->getBlockNumber( iBody ) );
-		glColor4ubv( (GLubyte *)&s_nodeId );
+		glSelectionBufferColor( nif, iBody );
 		glDepthFunc( GL_ALWAYS );
 		drawAxes( Vector3( nif->get<Vector4>( iBody, "Center" ) ), 1.0f / bhkScaleMult( nif ), false );
 		glDepthFunc( GL_LEQUAL );
@@ -1715,9 +1675,7 @@ void drawFurnitureMarker( const NifModel * nif, const QModelIndex & iPosition )
 	}
 
 	if ( Node::SELECTING ) {
-		GLint id = ( nif->getBlockNumber( iPosition ) & 0xffff ) | ( ( iPosition.row() & 0xffff ) << 16 );
-		int s_nodeId = ID2COLORKEY( id );
-		glColor4ubv( (GLubyte *)&s_nodeId );
+		glSelectionBufferColor( iPosition.row(), nif->getBlockNumber( iPosition ) );
 	}
 
 	for ( int n = 0; n < i; n++ ) {
@@ -1889,8 +1847,8 @@ BoundSphere Node::bounds() const
 }
 
 
-LODNode::LODNode( Scene * scene, const QModelIndex & iBlock )
-	: Node( scene, iBlock )
+LODNode::LODNode( Scene * _scene, NifFieldConst _block )
+	: Node( _scene, _block )
 {
 }
 
@@ -1956,8 +1914,8 @@ void LODNode::transform()
 }
 
 
-BillboardNode::BillboardNode( Scene * scene, const QModelIndex & iBlock )
-	: Node( scene, iBlock )
+BillboardNode::BillboardNode( Scene * _scene, NifFieldConst _block )
+	: Node( _scene, _block )
 {
 }
 

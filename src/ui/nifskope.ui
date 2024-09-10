@@ -92,9 +92,6 @@
    <addaction name="aShowHidden"/>
   </widget>
   <widget class="QToolBar" name="tAnim">
-   <property name="enabled">
-    <bool>false</bool>
-   </property>
    <property name="windowTitle">
     <string>Animation</string>
    </property>
@@ -182,7 +179,7 @@
      <x>0</x>
      <y>0</y>
      <width>1280</width>
-     <height>21</height>
+     <height>22</height>
     </rect>
    </property>
    <widget class="QMenu" name="mFile">
@@ -313,15 +310,14 @@
     <property name="title">
      <string>Help</string>
     </property>
-    <addaction name="aToggleHelp"/>
     <addaction name="separator"/>
     <addaction name="aHelpWebsite"/>
     <addaction name="separator"/>
     <addaction name="aNifToolsWebsite"/>
     <addaction name="aNifToolsDownloads"/>
     <addaction name="separator"/>
-    <addaction name="aAboutNifSkope"/>
     <addaction name="aAboutQt"/>
+    <addaction name="aAboutNifSkope"/>
    </widget>
    <widget class="QMenu" name="mOptions">
     <property name="title">
@@ -1050,9 +1046,6 @@ background: qradialgradient(spread:pad, cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0
    </property>
   </action>
   <action name="aHeader">
-   <property name="enabled">
-    <bool>false</bool>
-   </property>
    <property name="text">
     <string>Header</string>
    </property>
@@ -1083,9 +1076,6 @@ background: qradialgradient(spread:pad, cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0
   </action>
   <action name="aViewFront">
    <property name="checkable">
-    <bool>true</bool>
-   </property>
-   <property name="checked">
     <bool>true</bool>
    </property>
    <property name="icon">
@@ -1139,10 +1129,10 @@ background: qradialgradient(spread:pad, cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0
     <string>Load View</string>
    </property>
    <property name="toolTip">
-    <string>Load View</string>
+    <string>Load Saved View</string>
    </property>
    <property name="statusTip">
-    <string>Load View</string>
+    <string>Load Saved View</string>
    </property>
    <property name="shortcut">
     <string>F8</string>
@@ -1647,10 +1637,10 @@ background: qradialgradient(spread:pad, cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0
      <normaloff>:/btn/bulb</normaloff>:/btn/bulb</iconset>
    </property>
    <property name="text">
-    <string/>
+    <string>Lighting Options</string>
    </property>
    <property name="toolTip">
-    <string/>
+    <string>Lighting Options</string>
    </property>
    <property name="statusTip">
     <string>Lighting Options</string>

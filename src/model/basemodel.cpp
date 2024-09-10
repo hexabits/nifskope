@@ -48,12 +48,11 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *  BaseModel
  */
 
-BaseModel::BaseModel( QObject * p ) : QAbstractItemModel( p )
+BaseModel::BaseModel( QObject * p, MsgMode msgMode ) : QAbstractItemModel( p ), msgMode(msgMode)
 {
 	root = new NifItem( this, nullptr );
 	root->setIsConditionless( true );
 	parentWindow = qobject_cast<QWidget *>(p);
-	msgMode = MSG_TEST;
 }
 
 BaseModel::~BaseModel()
@@ -664,8 +663,12 @@ const NifItem * BaseModel::getItem( const NifItem * parent, int childIndex, bool
 			reportError( parent, tr( "Subitem with index %1 has failed condition check." ).arg( repr ) );
 		}
 	} else {
-		if ( reportErrors && childIndex >= 0 )
-			reportError( parent, tr( "Invalid child index %1." ).arg( childIndex ) );
+		if ( reportErrors ) {
+			if ( childIndex >= 0 )
+				reportError( parent, tr( "No subitem with index %1." ).arg( childIndex ) );
+			else
+				reportError( parent, tr( "Invalid child index %1." ).arg( childIndex ) );
+		}
 	}
 
 	return nullptr;
@@ -776,14 +779,17 @@ bool BaseModel::evalConditionImpl( const NifItem * item ) const
 	return true;
 }
 
-QString BaseModel::itemRepr( const NifItem * item ) const
+QString BaseModel::itemRepr( const NifItem * item, const NifItem * cutoffParent ) const
 {
 	if ( !item )
 		return QString("[NULL]");
 	if ( item->model() != this )
-		return item->model()->itemRepr( item );
+		return item->model()->itemRepr( item, cutoffParent );
 	if ( item == root )
 		return QString("[ROOT]");
+
+	while( cutoffParent && cutoffParent->isArray() )
+		cutoffParent = cutoffParent->parent();
 
 	QString result;
 	while( true ) {
@@ -791,18 +797,22 @@ QString BaseModel::itemRepr( const NifItem * item ) const
 		if ( !parent ) {
 			result = "???" + result; // WTF...
 			break;
-		} else if ( parent == root ) {
+		}
+		if ( parent == root ) {
 			result = topItemRepr( item ) + result;
 			break;
-		} else {
-			QString subres;
-			if ( parent->isArray() )
-				subres = QString(" [%1]").arg( item->row() );
-			else
-				subres = SLASH_QSTRING + item->name();
-			result = subres + result;
-			item = parent;
 		}
+
+		QString subres;
+		if ( parent->isArray() )
+			subres = QString(" [%1]").arg( item->row() );
+		else
+			subres = SLASH_QSTRING + item->name();
+		result = subres + result;
+
+		if ( parent == cutoffParent )
+			break;
+		item = parent;
 	}
 
 	return result;

@@ -445,14 +445,8 @@ public:
 
 			if ( iData.isValid() ) {
 				QVector<Vector3> vrts = nif->getArray<Vector3>( iData, "Vertices" );
-				QVector<Triangle> tris;
+				QVector<Triangle> tris = triangulateStrips( nif, nif->getIndex( iData, "Points" ) );
 				QVector<Vector3> nrms;
-
-				QModelIndex iPoints = nif->getIndex( iData, "Points" );
-
-				for ( int x = 0; x < nif->rowCount( iPoints ); x++ ) {
-					tris += triangulate( nif->getArray<quint16>( iPoints.child( x, 0 ) ) );
-				}
 
 				QMutableVectorIterator<Triangle> it( tris );
 

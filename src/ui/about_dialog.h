@@ -1,20 +1,15 @@
 #ifndef ABOUT_H
 #define ABOUT_H
 
-#include "ui_about_dialog.h"
-
-#include <QDialog>
+#include "ToolDialog.h"
 
 
-class AboutDialog : public QDialog
+class AboutDialog : public ToolDialog
 {
 	Q_OBJECT
 
 public:
-	AboutDialog( QWidget * parent = nullptr );
-
-private:
-	Ui::AboutDialog ui;
+	AboutDialog( QWidget * parent );
 };
 
 

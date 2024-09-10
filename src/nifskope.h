@@ -82,6 +82,7 @@ class QStringList;
 class QTimer;
 class QTreeView;
 class QUdpSocket;
+class QSlider;
 
 namespace nstheme
 {
@@ -117,8 +118,10 @@ public:
 	//! Restore NifSkope UI settings.
 	void restoreUi();
 
+	void updateWindowTitle();
+
 	//! Returns path of currently open file
-	QString getCurrentFile() const;
+	const QString & getCurrentFile() const;
 
 	/*! Create and initialize a new NifSkope application window.
 	 *
@@ -170,8 +173,6 @@ public slots:
 	void openArchive( const QString & );
 	void openArchiveFile( const QModelIndex & );
 	void openArchiveFileString( BSA *, const QString & );
-
-	void enableUi();
 
 	void updateSettings();
 
@@ -245,12 +246,6 @@ protected slots:
 	//! Override the view font
 	void overrideViewFont();
 
-	/*! Sets Import/Export menus
-	 *
-	 * @see importex/importex.cpp
-	 */
-	void fillImportExportMenus();
-	void updateImportExportMenu(const QMenu* menu);
 	//! Perform Import or Export
 	void sltImport( QAction* action );
 	void sltExport( QAction* action );
@@ -263,6 +258,12 @@ protected slots:
 
 	//! Called after window resizing has stopped
 	void resizeDone();
+
+	void setLodSliderEnabled( bool enabled );
+	void onLodSliderChange( int newLodLevel );
+
+	void hideAnimToolbar();
+	void showAnimToolbar();
 
 protected:
 	void closeEvent( QCloseEvent * e ) override final;
@@ -294,11 +295,18 @@ private:
 	void updateRecentArchiveActions();
 	void updateRecentArchiveFileActions();
 
+	/*! Sets Import/Export menus
+	 *
+	 * @see importex/importex.cpp
+	 */
+	void fillImportExportMenus();
+	void updateImportExportMenu(const QMenu* menu);
 	//! Currently selected NiBlock index in the list or tree view
 	QModelIndex currentNifIndex() const;
-
-	//! Disconnect and reconnect the models to the views
-	void swapModels();
+	
+	void updateFileMenus();
+	
+	void resetHeaderSelection();
 
 	QMenu * lightingWidget();
 	QWidget * filePathWidget( QWidget * );
@@ -307,26 +315,21 @@ private:
 
 	//! Load the theme
 	void loadTheme();
-	//! Sync the theme actions in the UI
-	void setThemeActions();
 	//! Set the toolbar size
 	void setToolbarSize();
 	//! Set the theme
 	void setTheme( nstheme::WindowTheme theme );
 
-	//! Migrate settings from older versions of NifSkope.
-	void migrateSettings() const;
+	//! Checks if Block List is shown as a list, not tree.
+	bool isInListMode() const;
 
-	//! All QActions in the UI
-	QSet<QAction *> allActions;
+	void forceQuickResize();
 
 	nstheme::WindowTheme theme = nstheme::ThemeDark;
 	nstheme::ToolbarSize toolbarSize = nstheme::ToolbarLarge;
 
 	QString currentFile;
 	BSA * currentArchive = nullptr;
-
-	QByteArray filehash;
 
 	//! Stores the NIF file in memory.
 	NifModel * nif;
@@ -374,7 +377,6 @@ private:
 	QAction * animGroupsAction;
 
 	bool selecting = false;
-	bool initialShowEvent = true;
 	
 	QProgressBar * progress = nullptr;
 
@@ -385,8 +387,6 @@ private:
 	QDockWidget * dRefr;
 	QDockWidget * dInsp;
 	QDockWidget * dBrowser;
-
-	QToolBar * tool;
 
 	QAction * aSanitize;
 
@@ -403,16 +403,18 @@ private:
 	QAction * aCondition;
 	QAction * aRCondition;
 
-	QAction * aSelectFont;
-
 	QMenu * mExport;
 	QMenu * mImport;
+
+	QAction * mSpells = nullptr;
 
 	QAction * aRecentFilesSeparator;
 
 	QAction * recentFileActs[NumRecentFiles];
 	QAction * recentArchiveActs[NumRecentFiles];
 	QAction * recentArchiveFileActs[NumRecentFiles];
+
+	QSlider * lodSlider;
 
 	bool isResizing;
 	QTimer * resizeTimer;
@@ -436,6 +438,10 @@ private:
 	QStandardItemModel * emptyModel;
 
 	QMenu * mRecentArchiveFiles;
+
+	QActionGroup * viewActions = nullptr;
+protected slots:
+	void updateCurrentViewAction();
 };
 
 

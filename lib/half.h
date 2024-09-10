@@ -15,4 +15,23 @@ half_sub( uint16_t ha, uint16_t hb )
   return half_add( ha, hb ^ 0x8000 );
 }
 
+
+// Added for NifSkope - BEGIN
+
+inline float halfToFloat( uint16_t u )
+{
+	union { float f; uint32_t i; } hv;
+	hv.i = half_to_float( u );
+	return hv.f;
+}
+
+inline uint16_t floatToHalf( float f )
+{
+	union { float f; uint32_t i; } hv;
+	hv.f = f;
+	return half_from_float( hv.i );
+}
+
+// Added for NifSkope - END
+
 #endif /* HALF_H */

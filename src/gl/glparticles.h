@@ -43,10 +43,10 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 class Particles : public Node
 {
-	friend class ParticleController;
+	friend class ParticleInterpolator;
 
 public:
-	Particles( Scene * s, const QModelIndex & b ) : Node( s, b ) {}
+	Particles( Scene * _scene, NifFieldConst _block );
 
 	void clear() override;
 	void transform() override;
@@ -58,7 +58,7 @@ public:
 	BoundSphere bounds() const override;
 
 protected:
-	void setController( const NifModel * nif, const QModelIndex & controller ) override;
+	Controller * createController( NifFieldConst controllerBlock ) override;
 	void updateImpl( const NifModel * nif, const QModelIndex & index ) override;
 
 	QPersistentModelIndex iData;

@@ -88,7 +88,7 @@ protected:
 	QList<QModelIndex> mapFrom( const QModelIndex & index ) const;
 
 	void updateRoot( bool fast );
-	void updateItem( NifProxyItem * item, bool fast );
+	void updateItem( NifProxyItem * item, const QModelIndex & index, const QList<int> & goodChildLinks, const QList<int> & goodParentLinks, bool fast );
 
 	NifModel * nif;
 

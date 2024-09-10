@@ -42,7 +42,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 const QString DOT_QSTRING(".");
 
-KfmModel::KfmModel( QObject * parent ) : BaseModel( parent )
+KfmModel::KfmModel( QObject * parent, MsgMode msgMode ) : BaseModel( parent, msgMode )
 {
 	clear();
 }

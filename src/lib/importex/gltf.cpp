@@ -98,7 +98,7 @@ bool exportCreateNodes(const NifModel* nif, const Scene* scene, tinygltf::Model&
 				// Fill nodes map
 				gltf.nodes[nodeId].append(gltfNodeID);
 
-				gltfNode.name = node->getName().toStdString();
+				gltfNode.name = node->blockName().toStdString();
 				if ( isBSGeometry ) {
 					gltfNode.name += ":LOD" + std::to_string(j);
 					// Skins
@@ -211,7 +211,7 @@ bool exportCreateNodes(const NifModel* nif, const Scene* scene, tinygltf::Model&
 		for ( const auto mesh : gltf.skins ) {
 			if ( mesh && mesh->boneNames.size() > 0 ) {
 				auto gltfNode = tinygltf::Node();
-				gltfNode.name = mesh->getName().toStdString();
+				gltfNode.name = mesh->blockName().toStdString();
 				model.nodes.push_back(gltfNode);
 				int skeletonRoot = gltfNodeID++;
 				model.skins[skinID].skeleton = skeletonRoot;
@@ -534,7 +534,7 @@ bool exportCreateMeshes(const NifModel* nif, const Scene* scene, tinygltf::Model
 					auto& gltfNode = model.nodes[n[j]];
 					tinygltf::Mesh gltfMesh;
 					gltfNode.mesh = meshIndex;
-					gltfMesh.name = QString("%1%2%3").arg(node->getName()).arg(":LOD").arg(j).toStdString();
+					gltfMesh.name = QString("%1%2%3").arg(node->blockName()).arg(":LOD").arg(j).toStdString();
 					int materialID = gltf.materials.indexOf(mesh->materialPath) + 1;
 					int lodLevel = (hasGPULODs) ? 0 : j;
 					if ( exportCreatePrimitives(model, bin, mesh, gltfMesh, attributeIndex, lodLevel, materialID, gltf, skeletalLodIndex) ) {

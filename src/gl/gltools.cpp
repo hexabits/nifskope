@@ -33,6 +33,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gltools.h"
 
 #include "model/nifmodel.h"
+#include "lib/Miniball.hpp"
 
 #include <QMap>
 #include <QStack>
@@ -46,107 +47,9 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 //! \file gltools.cpp GL helper functions
 
-BoneWeights::BoneWeights( const NifModel * nif, const QModelIndex & index, int b, int vcnt )
-{
-	trans  = Transform( nif, index );
-	auto sph = BoundSphere( nif, index );
-	center = sph.center;
-	radius = sph.radius;
-	bone = b;
-
-	QModelIndex idxWeights = nif->getIndex( index, "Vertex Weights" );
-	if ( vcnt && idxWeights.isValid() ) {
-		for ( int c = 0; c < nif->rowCount( idxWeights ); c++ ) {
-			QModelIndex idx = idxWeights.child( c, 0 );
-			weights.append( VertexWeight( nif->get<int>( idx, "Index" ), nif->get<float>( idx, "Weight" ) ) );
-		}
-	}
-}
-
-void BoneWeights::setTransform( const NifModel * nif, const QModelIndex & index )
-{
-	trans = Transform( nif, index );
-	auto sph = BoundSphere( nif, index );
-	center = sph.center;
-	radius = sph.radius;
-}
-
-BoneWeightsUNorm::BoneWeightsUNorm(QVector<QPair<quint16, quint16>> weights, int v)
-{
-	weightsUNORM.resize(weights.size());
-	for ( int i = 0; i < weights.size(); i++ ) {
-		weightsUNORM[i] = BoneWeightUNORM16(weights[i].first, weights[i].second / 65535.0);
-	}
-}
-
-
-SkinPartition::SkinPartition( const NifModel * nif, const QModelIndex & index )
-{
-	numWeightsPerVertex = nif->get<int>( index, "Num Weights Per Vertex" );
-
-	vertexMap = nif->getArray<int>( index, "Vertex Map" );
-
-	if ( vertexMap.isEmpty() ) {
-		vertexMap.resize( nif->get<int>( index, "Num Vertices" ) );
-
-		for ( int x = 0; x < vertexMap.count(); x++ )
-			vertexMap[x] = x;
-	}
-
-	boneMap = nif->getArray<int>( index, "Bones" );
-
-	QModelIndex iWeights = nif->getIndex( index, "Vertex Weights" );
-	QModelIndex iBoneIndices = nif->getIndex( index, "Bone Indices" );
-
-	weights.resize( vertexMap.count() * numWeightsPerVertex );
-
-	for ( int v = 0; v < vertexMap.count(); v++ ) {
-		for ( int w = 0; w < numWeightsPerVertex; w++ ) {
-			QModelIndex iw = iWeights.child( v, 0 ).child( w, 0 );
-			QModelIndex ib = iBoneIndices.child( v, 0 ).child( w, 0 );
-
-			weights[ v * numWeightsPerVertex + w ].first  = ( ib.isValid() ? nif->get<int>( ib ) : 0 );
-			weights[ v * numWeightsPerVertex + w ].second = ( iw.isValid() ? nif->get<float>( iw ) : 0 );
-		}
-	}
-
-	QModelIndex iStrips = nif->getIndex( index, "Strips" );
-
-	for ( int s = 0; s < nif->rowCount( iStrips ); s++ ) {
-		tristrips << nif->getArray<quint16>( iStrips.child( s, 0 ) );
-	}
-
-	triangles = nif->getArray<Triangle>( index, "Triangles" );
-}
-
-QVector<Triangle> SkinPartition::getRemappedTriangles() const
-{
-	QVector<Triangle> tris;
-
-	for ( const auto& t : triangles )
-		tris << Triangle( vertexMap[t.v1()], vertexMap[t.v2()], vertexMap[t.v3()] );
-
-	return tris;
-}
-
-QVector<QVector<quint16>> SkinPartition::getRemappedTristrips() const
-{
-	QVector<QVector<quint16>> tris;
-
-	for ( const auto& t : tristrips ) {
-		QVector<quint16> points;
-		for ( const auto& p : t )
-			points << vertexMap[p];
-		tris << points;
-	}
-
-	return tris;
-}
-
 /*
  *  Bound Sphere
  */
-
 
 BoundSphere::BoundSphere()
 {
@@ -166,6 +69,7 @@ BoundSphere::BoundSphere( const BoundSphere & other )
 
 BoundSphere::BoundSphere( const NifModel * nif, const QModelIndex & index )
 {
+	// TODO: Replace with BoundSphere( NifFieldConst sphereRoot ) everywhere
 	auto idx = index;
 	auto sph = nif->getIndex( idx, "Bounding Sphere" );
 	if ( sph.isValid() )
@@ -175,26 +79,40 @@ BoundSphere::BoundSphere( const NifModel * nif, const QModelIndex & index )
 	radius = nif->get<float>( idx, "Radius" );
 }
 
+BoundSphere::BoundSphere( NifFieldConst sphereRoot )
+{
+	NifFieldConst sphere = sphereRoot.child("Bounding Sphere");
+	if ( sphere )
+		sphereRoot = sphere;
+
+	center = sphereRoot["Center"].value<Vector3>();
+	radius = sphereRoot["Radius"].value<float>();
+}
+
 BoundSphere::BoundSphere( const QVector<Vector3> & verts )
 {
 	if ( verts.isEmpty() ) {
 		center = Vector3();
 		radius = -1;
 	} else {
-		center = Vector3();
-		for ( const Vector3& v : verts ) {
-			center += v;
-		}
-		center /= verts.count();
+		// Convert QVector<Vector3> to a QVector of pointers to Vector3 data.
+		QVector<const float *> vptrs;
+		vptrs.reserve( verts.count() );
+		for ( const auto & v : verts )
+			vptrs << v.data();
 
-		radius = 0;
-		for ( const Vector3& v : verts ) {
-			float d = ( center - v ).squaredLength();
+		// Create an instance of Miniball.
+		typedef const float * const * PointIterator;
+		typedef const float * CoordIterator;
+		Miniball::Miniball< Miniball::CoordAccessor<PointIterator, CoordIterator> >
+			mb(3, vptrs.begin(), vptrs.end());
 
-			if ( d > radius )
-				radius = d;
-		}
-		radius = sqrt( radius );
+		const float * pCenter = mb.center();
+		center[0] = pCenter[0];
+		center[1] = pCenter[1];
+		center[2] = pCenter[2];
+
+		radius = sqrt(mb.squared_radius());
 	}
 }
 
@@ -408,7 +326,7 @@ QModelIndex bhkGetRBInfo( const NifModel * nif, const QModelIndex & index, const
 	return{ x, y, z };
 }
 
-void drawAxesOverlay( const Vector3 & c, float axis, QVector<int> axesOrder )
+void drawAxesOverlay( const Vector3 & c, float axis, const QVector<int> & axesOrder, double uiScale )
 {
 	glPushMatrix();
 	glTranslate( c );
@@ -416,7 +334,7 @@ void drawAxesOverlay( const Vector3 & c, float axis, QVector<int> axesOrder )
 
 	glDisable( GL_LIGHTING );
 	glDepthFunc( GL_ALWAYS );
-	glLineWidth( 2.0f );
+	glLineWidth( 2.0 * uiScale );
 	glBegin( GL_LINES );
 
 	// Render the X axis
@@ -534,11 +452,39 @@ void drawGrid( int s /* grid size */, int line /* line spacing */, int sub /* # 
 	glDisable( GL_BLEND );
 }
 
+const int CIRCLE_SEGMENTS = 120;
+
 void drawCircle( const Vector3 & c, const Vector3 & n, float r, int sd )
 {
 	Vector3 x = Vector3::crossproduct( n, Vector3( n[1], n[2], n[0] ) );
 	Vector3 y = Vector3::crossproduct( n, x );
 	drawArc( c, x * r, y * r, -PI, +PI, sd );
+}
+
+static float angleSection( double fullAngle, int nSection, int nTotalSections )
+{
+	if ( nSection == 0 )
+		return 0.0f;
+	if ( nSection == nTotalSections )
+		return fullAngle;
+	return fullAngle * double(nSection) / double(nTotalSections); 
+}
+
+static float angleSection( double angleStart, double angleEnd, int nSection, int nTotalSections )
+{
+	if ( nSection == 0 )
+		return angleStart;
+	if ( nSection == nTotalSections )
+		return angleEnd;
+	return ( (angleEnd - angleStart) * double(nSection) / double(nTotalSections) ) + angleStart;
+}
+
+void glVertexArc( const Vector3 & center, const Vector3 & arcv1, const Vector3 & arcv2, double angleStart, double angleEnd, int nSections )
+{
+	for ( int i = 0; i <= nSections; i++ ) {
+		float angle = angleSection( angleStart, angleEnd, i, nSections );
+		glVertex( center + arcv1 * sin( angle ) + arcv2 * cos( angle ) );
+	}
 }
 
 void drawArc( const Vector3 & c, const Vector3 & x, const Vector3 & y, float an, float ax, int sd )
@@ -778,6 +724,32 @@ void drawSphere( const Vector3 & c, float r, int sd )
 		for ( int i = 0; i <= sd * 2; i++ )
 			glVertex( Vector3( 0, sin( PI / sd * i ), cos( PI / sd * i ) ) * rj + cj );
 
+		glEnd();
+	}
+}
+
+void drawSphereNew( const Vector3 & center, float radius, int segments, const Transform & transform )
+{
+	Transform radTrans( transform );
+	radTrans.translation = Vector3();
+
+	Vector3 c = transform * center;
+
+	for ( int z = 1; z < segments; z++ ) {
+		float angle = angleSection( PI, z, segments );
+		Vector3 cz = c + radTrans *  Vector3( 0, 0, radius * cos(angle) );
+		float rz = radius * sin(angle);
+
+		glBegin( GL_LINE_STRIP );
+		glVertexArc( cz, radTrans * Vector3( rz, 0, 0 ), radTrans * Vector3( 0, rz, 0 ), -PI, PI, CIRCLE_SEGMENTS );
+		glEnd();
+	}
+
+	Vector3 vz = radTrans * Vector3( 0, 0, radius );
+	for ( int x = 0; x < segments; x++ ) {
+		float angle = angleSection( PI, x, segments );
+		glBegin(GL_LINE_STRIP);
+		glVertexArc( c, radTrans * Vector3( radius * cos(angle), radius * sin(angle), 0 ), vz, -PI, PI, CIRCLE_SEGMENTS );
 		glEnd();
 	}
 }
@@ -1094,6 +1066,26 @@ void drawCMS( const NifModel * nif, const QModelIndex & iShape, bool solid )
 	}
 }
 
+void glSelectionBufferColor( int lowId )
+{
+	if ( lowId >= 0 && lowId < 0xFFFF ) {
+		uint32_t idColor = lowId + 1;
+		glColor3ubv( (GLubyte *) &idColor );
+	} else {
+		glColor4f( 0, 0, 0, 1 );
+	}
+}
+
+void glSelectionBufferColor( int highId, int lowId )
+{
+	if ( highId >= 0 && highId < 0xFF && lowId >= 0 && lowId <= 0xFFFF ) {
+		uint32_t idColor = ( (highId + 1) << 16 ) + lowId;
+		glColor3ubv( (GLubyte *) &idColor );
+	} else {
+		glColor4f( 0, 0, 0, 1 );
+	}
+}
+
 // Renders text using the font initialized in the primary view class
 void renderText( const Vector3 & c, const QString & str )
 {
@@ -1117,4 +1109,3 @@ void renderText( double x, double y, double z, const QString & str )
 	glCallLists( cstr.size(), GL_UNSIGNED_BYTE, cstr.constData() );
 	glPopAttrib();
 }
-

@@ -62,15 +62,15 @@ struct ImportExportOption
 	std::function<void(NifModel*, const QModelIndex&)> importFn;
 	std::function<void(const NifModel*, const Scene*, const QModelIndex&)> exportFn;
 	quint32 minBSVersion = 0;
-	quint32 maxBSVersion = 0xFFFFFFFF;
+	quint32 maxBSVersion = 0;
 	quint32 minVersion = 0;
-	quint32 maxVersion = 0x1404FFFF; // < 0x14050000 (20.5)
+	quint32 maxVersion = 0x14050000 - 1; // < 0x14050000 (20.5)
 };
 
 
-QVector<ImportExportOption> impexOptions{
-	ImportExportOption{ ".OBJ", importObj, exportObj, 0, 171 },
-	ImportExportOption{ ".OBJ as Collision", importObjAsCollision, nullptr, 0, 171 },
+const QVector<ImportExportOption> impexOptions{
+	ImportExportOption{ ".OBJ", importObj, exportObj, 0, 172 - 1 },
+	ImportExportOption{ ".OBJ as Collision", importObjAsCollision, nullptr, 1, 172 - 1 },
 	ImportExportOption{ ".glTF", nullptr, exportGltf, 172 },
 };
 
@@ -80,12 +80,12 @@ void NifSkope::fillImportExportMenus()
 	int impexIndex = 0;
 	for ( const auto& option : impexOptions ) {
 		if ( option.exportFn ) {
-			mExport->addAction(tr("Export %1").arg(option.name.c_str()));
-			mExport->actions().last()->setData(impexIndex);
+			auto a = mExport->addAction(tr("Export %1").arg(option.name.c_str()));
+			a->setData(impexIndex);
 		}
 		if ( option.importFn ) {
-			mImport->addAction(tr("Import %1").arg(option.name.c_str()));
-			mImport->actions().last()->setData(impexIndex);
+			auto a = mImport->addAction(tr("Import %1").arg(option.name.c_str()));
+			a->setData(impexIndex);
 		}
 		impexIndex++;
 	}
@@ -97,10 +97,8 @@ void NifSkope::updateImportExportMenu(const QMenu * menu)
 		a->setEnabled(false);
 		auto impex = impexOptions.value(a->data().toInt(), {});
 		if ( impex.importFn || impex.exportFn ) {
-			auto nifver = nif->getVersionNumber();
-			auto bsver = nif->getBSVersion();
-			if ( (nifver >= impex.minVersion && nifver <= impex.maxVersion)
-				&& (bsver >= impex.minBSVersion && bsver <= impex.maxBSVersion) )
+			if ( BaseModel::checkVersion(nif->getVersionNumber(), impex.minVersion, impex.maxVersion)
+				&& BaseModel::checkVersion(nif->getBSVersion(), impex.minBSVersion, impex.maxBSVersion) )
 			{
 				a->setEnabled(true);
 			}

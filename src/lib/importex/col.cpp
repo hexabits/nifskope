@@ -34,6 +34,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gl/gltex.h"
 #include "gl/glscene.h"
 #include "model/nifmodel.h"
+#include "version.h"
 
 #include "lib/nvtristripwrapper.h"
 
@@ -843,12 +844,7 @@ void attachNiShape ( const NifModel * nif, QDomElement parentNode, int idx )
 			QModelIndex iPoints = nif->getIndex( iProp, "Points" );
 
 			if ( iPoints.isValid() ) {
-				QVector<QVector<quint16> > strips;
-
-				for ( int r = 0; r < nif->rowCount( iPoints ); r++ )
-					strips.append( nif->getArray<quint16>( iPoints.child( r, 0 ) ) );
-
-				tri = triangulate( strips );
+				tri = triangulateStrips( nif, iPoints );
 			} else {
 				tri = nif->getArray<Triangle>( iProp, "Triangles" );
 			}
@@ -1008,7 +1004,7 @@ void exportCol( const NifModel * nif, const Scene* scene, QFileInfo fileInfo )
 	QDomElement contributor = doc.createElement( "contributor" );
 	asset.appendChild( contributor );
 	contributor.appendChild( doc.createElement( "author" ) );
-	contributor.appendChild( textElement( "authoring_tool", QString( "NifSkope %1" ).arg( NIFSKOPE_VERSION ) ) );
+	contributor.appendChild( textElement( "authoring_tool", QString( APP_NAME_FULL ) ) );
 	contributor.appendChild( doc.createElement( "comments" ) );
 	asset.appendChild( dateElement( "created", QDateTime::currentDateTime() ) );
 	asset.appendChild( dateElement( "modified", QDateTime::currentDateTime() ) );

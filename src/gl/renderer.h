@@ -35,6 +35,8 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <data/niftypes.h>
 
+#include "gl/glproperty.h"
+
 #include <QCoreApplication>
 #include <QMap>
 #include <QVector>
@@ -46,9 +48,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 //! @file renderer.h Renderer, Renderer::ConditionSingle, Renderer::ConditionGroup, Renderer::Shader, Renderer::Program
 
-class NifModel;
 class Shape;
-class PropertyList;
 
 class QOpenGLContext;
 class QOpenGLFunctions;
@@ -354,9 +354,9 @@ public:
 		void uni1i( UniformType var, int val );
 		void uni3m( UniformType var, const Matrix & val );
 		void uni4m( UniformType var, const Matrix4 & val );
-		bool uniSampler( class BSShaderLightingProperty * bsprop, UniformType var, int textureSlot,
-						 int & texunit, const QString & alternate, uint clamp, const QString & forced = {} );
-		bool uniSamplerBlank( UniformType var, int & texunit );
+		void uniSampler( BSShaderProperty * bsprop, UniformType var, int textureSlot,
+						 int & texunit, const QString & alternate, TextureClampMode clamp, const QString & forced = {} );
+		void uniSamplerBlank( UniformType var, int & texunit );
 	};
 
 	QMap<QString, Shader *> shaders;

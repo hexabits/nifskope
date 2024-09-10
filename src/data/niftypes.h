@@ -46,6 +46,8 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 //! @file niftypes.h Matrix, Matrix4, Triangle, Vector2, Vector3, Vector4, Color3, Color4, Quat
 
+using NifSkopeFlagsType = unsigned int;
+
 #ifndef PI
 #define PI M_PI
 #endif
@@ -71,9 +73,23 @@ constexpr inline float deg2rad( float deg ) { return deg2radf( deg ); }
 //! Convert degrees to radians (double).
 constexpr inline double deg2rad( double deg ) { return deg2radd( deg ); }
 
+//! Normalize angle value in degrees to 0 (inclusive)..360 (exclusive) range.
+float normDegf( float deg );
+//! Normalize angle value in degrees to 0 (inclusive)..360 (exclusive) range.
+double normDegd( double deg );
+//! Normalize angle value in degrees to 0 (inclusive)..360 (exclusive) range.
+inline float normDeg( float deg ) { return normDegf( deg ); }
+//! Normalize angle value in degrees to 0 (inclusive)..360 (exclusive) range.
+inline double normDeg( double deg ) { return normDegd( deg ); }
 
+
+class NifItem;
 class NifModel;
 class QModelIndex;
+
+template <typename ModelPtr, typename ItemPtr> class NifFieldTemplate;
+using NifField = NifFieldTemplate<NifModel *, NifItem *>;
+using NifFieldConst = NifFieldTemplate<const NifModel *, const NifItem *>;
 
 //! Format a float with out of range values
 QString NumOrMinMax( float val, char f = 'g', int prec = 6 );
@@ -235,6 +251,11 @@ inline QDataStream & operator>>( QDataStream & ds, Vector2 & v )
 	ds >> v.xy[0] >> v.xy[1];
 	return ds;
 }
+
+//! Texture coordinates (UV map)
+using TexCoords = QVector<Vector2>;
+Q_DECLARE_TYPEINFO(TexCoords, Q_MOVABLE_TYPE);
+
 
 //! A vector of 3 floats
 class Vector3
@@ -1085,6 +1106,7 @@ public:
 	 * @param	transform	The index to create the transform from.
 	 */
 	Transform( const NifModel * nif, const QModelIndex & transform );
+	Transform( NifFieldConst dataRoot );
 	//! Default constructor
 	Transform() { scale = 1.0; }
 
@@ -1123,54 +1145,56 @@ public:
 	QString toString() const;
 };
 
+typedef quint16 TriVertexIndex;
+
 //! A triangle
 class Triangle
 {
 public:
+	TriVertexIndex v[3];
+
+	static constexpr TriVertexIndex MAX_VERTEX_INDEX = 0xffff;
+
 	//! Default constructor
 	Triangle() { v[0] = v[1] = v[2] = 0; }
 	//! Constructor
-	Triangle( quint16 a, quint16 b, quint16 c ) { set( a, b, c ); }
+	Triangle( TriVertexIndex a, TriVertexIndex b, TriVertexIndex c ) { set( a, b, c ); }
 
 	//! Array operator
-	quint16 & operator[]( unsigned int i )
+	TriVertexIndex & operator[]( unsigned int i )
 	{
 		Q_ASSERT( i < 3 );
 		return v[i];
 	}
 	//! Const array operator
-	const quint16 & operator[]( unsigned int i ) const
+	const TriVertexIndex & operator[]( unsigned int i ) const
 	{
 		Q_ASSERT( i < 3 );
 		return v[i];
 	}
 	//! Sets the vertices of the triangle
-	void set( quint16 a, quint16 b, quint16 c )
+	void set( TriVertexIndex a, TriVertexIndex b, TriVertexIndex c )
 	{
 		v[0] = a; v[1] = b; v[2] = c;
 	}
 	//! Gets the first vertex
-	inline quint16 v1() const { return v[0]; }
+	inline TriVertexIndex v1() const { return v[0]; }
 	//! Gets the second vertex
-	inline quint16 v2() const { return v[1]; }
+	inline TriVertexIndex v2() const { return v[1]; }
 	//! Gets the third vertex
-	inline quint16 v3() const { return v[2]; }
+	inline TriVertexIndex v3() const { return v[2]; }
 
 	/*! Flips the triangle face
 	 *
 	 * Triangles are usually drawn anticlockwise(?); by changing the order of
 	 * the vertices the triangle is flipped.
 	 */
-	void flip() { quint16 x = v[0]; v[0] = v[1]; v[1] = x; }
+	void flip() { auto x = v[0]; v[0] = v[1]; v[1] = x; }
 
 	//! Add operator
-	Triangle operator+( quint16 d )
+	Triangle operator+( TriVertexIndex d )
 	{
-		Triangle t( *this );
-		t.v[0] += d;
-		t.v[1] += d;
-		t.v[2] += d;
-		return t;
+		return Triangle( v1() + d, v2() + d, v3() + d );
 	}
 
 	//! Equality operator
@@ -1178,13 +1202,6 @@ public:
 	{
 		return (v[0] == other.v[0]) && (v[1] == other.v[1]) && (v[2] == other.v[2]);
 	}
-
-protected:
-	quint16 v[3];
-	friend class NifIStream;
-	friend class NifOStream;
-
-	friend QDataStream & operator>>( QDataStream & ds, Triangle & t );
 };
 
 //! QDebug stream operator for Triangle
@@ -1212,6 +1229,12 @@ inline float clamp01( float a )
 
 	return a;
 }
+
+
+//! Triangle strip
+using TriStrip = QVector<TriVertexIndex>;
+Q_DECLARE_TYPEINFO(TriStrip, Q_MOVABLE_TYPE);
+
 
 //! A 3 value color (RGB)
 class Color3
@@ -1360,6 +1383,8 @@ public:
 	Color4() { rgba[0] = rgba[1] = rgba[2] = rgba[3] = 1.0; }
 	//! Constructor
 	explicit Color4( const Color3 & c, float alpha = 1.0 ) { rgba[0] = c[0]; rgba[1] = c[1]; rgba[2] = c[2]; rgba[3] = alpha; }
+	//! Constructor
+	explicit Color4( const Vector3 & c, float alpha = 1.0 ) { rgba[0] = c[0]; rgba[1] = c[1]; rgba[2] = c[2]; rgba[3] = alpha; }
 	//! Constructor
 	explicit Color4( const QColor & c ) { fromQColor( c ); }
 	//! Constructor

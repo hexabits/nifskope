@@ -99,12 +99,7 @@ QModelIndex spTangentSpace::cast( NifModel * nif, const QModelIndex & iBlock )
 	QModelIndex iPoints = nif->getIndex( iData, "Points" );
 
 	if ( iPoints.isValid() ) {
-		QVector<QVector<quint16> > strips;
-
-		for ( int r = 0; r < nif->rowCount( iPoints ); r++ )
-			strips.append( nif->getArray<quint16>( iPoints.child( r, 0 ) ) );
-
-		triangles = triangulate( strips );
+		triangles = triangulateStrips( nif, iPoints );
 	} else if ( nif->getBSVersion() < 100 ) {
 		triangles = nif->getArray<Triangle>( iData, "Triangles" );
 	} else if ( nif->getBSVersion() >= 100 ) {

@@ -344,7 +344,7 @@ void InspectView::updateSelection( const QModelIndex & select )
 	if ( !scene || !nif ) {
 		clear();
 	} else {
-		selection = select;
+		selection = nif->getBlockIndex( select );
 		Node * node = scene->getNode( nif, selection );
 
 		if ( !node ) {

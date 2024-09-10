@@ -39,6 +39,24 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 //! @file niftypes.cpp Type functions
 
+float normDegf( float deg )
+{
+	while ( deg < 0.0f )
+		deg += 360.0f;
+	while ( deg >= 360.0f )
+		deg -= 360.0f;
+	return deg;
+}
+
+double normDegd( double deg )
+{
+	while ( deg < 0.0 )
+		deg += 360.0;
+	while ( deg >= 360.0 )
+		deg -= 360.0;
+	return deg;
+}
+
 const float Quat::identity[4] = {
 	1.0, 0.0, 0.0, 0.0
 };
@@ -689,6 +707,7 @@ bool Transform::canConstruct( const NifModel * nif, const QModelIndex & parent )
 
 Transform::Transform( const NifModel * nif, const QModelIndex & transform )
 {
+	// TODO: Replace with Transform( NifFieldConst transformRoot ) everywhere.
 	QModelIndex t = nif->getIndex( transform, "Transform" );
 	if ( !t.isValid() ) {
 		t = nif->getIndex( transform, "Skin Transform" );
@@ -699,6 +718,20 @@ Transform::Transform( const NifModel * nif, const QModelIndex & transform )
 	rotation = nif->get<Matrix>( t, "Rotation" );
 	translation = nif->get<Vector3>( t, "Translation" );
 	scale = nif->get<float>( t, "Scale" );
+}
+
+Transform::Transform( NifFieldConst dataRoot )
+{
+	NifFieldConst transformRoot = dataRoot.child("Transform");
+	if ( !transformRoot ) {
+		transformRoot  = dataRoot.child("Skin Transform");
+		if ( !transformRoot )
+			transformRoot = dataRoot;
+	}
+
+	rotation = transformRoot["Rotation"].value<Matrix>();
+	translation = transformRoot["Translation"].value<Vector3>();
+	scale = transformRoot["Scale"].value<float>();
 }
 
 void Transform::writeBack( NifModel * nif, const QModelIndex & transform ) const

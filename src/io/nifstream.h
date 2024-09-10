@@ -87,6 +87,9 @@ private:
 
 	//! The maximum length of a string that can be read.
 	int maxLength = 0x8000;
+
+	bool readSizedString( NifValue & val );
+	bool readLineString( QByteArray & outString, int maxLineLength );
 };
 
 

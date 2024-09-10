@@ -34,11 +34,13 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define GLVIEW
 
 #include "gl/glscene.h"
+#include "ui/ToolDialog.h"
 
 #include <QGLWidget> // Inherited
 #include <QGraphicsView>
 #include <QDateTime>
 #include <QPersistentModelIndex>
+#include <QFileInfo>
 
 #include <math.h>
 
@@ -62,6 +64,7 @@ class GLView final : public QGLWidget
 
 	friend class NifSkope;
 	friend class GLGraphicsView;
+	friend class ScreenshotDialog;
 
 private:
 	GLView( const QGLFormat & format, QWidget * parent, const QGLWidget * shareWidget = 0 );
@@ -102,7 +105,9 @@ public:
 		ViewFront,
 		ViewBack,
 		ViewWalk,
-		ViewUser
+		ViewUser,
+
+		ViewLast = ViewUser
 	};
 
 	enum DebugMode
@@ -123,13 +128,13 @@ public:
 
 	Scene * getScene();
 	void updateShaders();
-	void updateViewpoint();
+	void resetViewMode();
 
 	void flush();
 
 	void center();
-	void move( float, float, float );
-	void rotate( float, float, float );
+	void moveBy( float x, float y, float z );
+	void rotateBy( float x, float y, float z );
 
 	void setCenter();
 	void setDistance( float );
@@ -139,12 +144,13 @@ public:
 	void setRotation( float, float, float );
 	void setZoom( float );
 
-	void setOrientation( GLView::ViewState, bool recenter = true );
-	void flipOrientation();
+	void setViewMode( GLView::ViewState state );
+	void flipView();
+	GLView::ViewState getDefaultViewMode();
 
 	void setDebugMode( DebugMode );
 
-	float scale() { return (scene->game == Game::STARFIELD) ? 1.0 / 32.0 : 1.0; };
+	float scale() { return (scene->getGame() == Game::STARFIELD) ? 1.0 / 32.0 : 1.0; };
 
 	QColor clearColor() const;
 
@@ -156,12 +162,13 @@ public:
 	QSize minimumSizeHint() const override final { return { 50, 50 }; }
 	QSize sizeHint() const override final { return { 400, 400 }; }
 
-public slots:
 	void setCurrentIndex( const QModelIndex & );
-	void setSceneTime( float );
-	void setSceneSequence( const QString & );
 	void saveUserView();
 	void loadUserView();
+
+public slots:
+	void setSceneTime( float );
+	void setSceneSequence( const QString & );
 	void setBrightness( int );
 	void setAmbient( int );
 	void setDeclination( int );
@@ -176,7 +183,7 @@ signals:
 	void clicked( const QModelIndex & );
 	void paintUpdate();
 	void sceneTimeChanged( float t, float mn, float mx );
-	void viewpointChanged();
+	void viewModeChanged();
 
 	void sequenceStopped();
 	void sequenceChanged( const QString & );
@@ -212,8 +219,12 @@ protected:
 	void mouseReleaseEvent( QMouseEvent * ) override final;
 	void wheelEvent( QWheelEvent * ) override final;
 
+	void resetAnimation();
+
 protected slots:
 	void saveImage();
+protected:
+	QImage captureScreenshot( int imageScale );
 
 private:
 	NifModel * model;
@@ -237,8 +248,15 @@ private:
 	GLdouble grid;
 	Transform viewTrans;
 
-	GLdouble aspect;
-	
+	int viewportWidth = -1;
+	int viewportHeight = 1;
+	int globalScale = 1;
+	double uiScale = 1.0;
+	GLdouble aspectWidth = 0;
+	GLdouble aspectHeight = 1;
+	int axesSize = 0;
+	void cacheViewportSize();
+
 	QHash<int, bool> kbd;
 	QPoint lastPos;
 	QPoint pressPos;
@@ -250,6 +268,7 @@ private:
 	QString fnDragTex, fnDragTexOrg;
 
 	bool doCompile;
+	bool doLoadReset;
 	bool doCenter;
 
 	QTimer * lightVisTimer;
@@ -311,6 +330,37 @@ private:
 
 	QStringList draggedNifs;
 
+};
+
+class ScreenshotDialog final : public ToolDialog
+{
+	Q_OBJECT
+
+public:
+	ScreenshotDialog( GLView * parent );
+
+protected slots:
+	void onPathEdit();
+	void onAppDirClicked();
+	void onNifDirClicked();
+	void onSaveClicked();
+
+private:
+	GLView * view;
+	QString appScreenshotsPath;
+
+	class FileSelector * pathWidget = nullptr;
+	QLabel * qualityLabel = nullptr;
+	QSpinBox * qualityBox = nullptr;
+	QButtonGroup * imageScaleGroup = nullptr;
+
+	QFileInfo imagePathInfo() const;
+
+	const QString & modelFolder() const;
+
+	void updateQualityUI( const QString & extension );
+
+	void switchToDirectory( const QString & dirPath );
 };
 
 #endif

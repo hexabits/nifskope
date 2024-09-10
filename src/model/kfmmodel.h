@@ -50,7 +50,7 @@ class KfmModel final : public BaseModel
 	Q_OBJECT
 
 public:
-	KfmModel( QObject * parent = 0 );
+	KfmModel( QObject * parent = nullptr, MsgMode msgMode = BaseModel::MSG_TEST );
 
 	// call this once on startup to load the XML descriptions
 	static bool loadXML();
@@ -76,9 +76,6 @@ public:
 	// version conversion
 	static QString version2string( quint32 );
 	static quint32 version2number( const QString & );
-
-	// check wether the current nif file version lies in the range since~until
-	bool checkVersion( quint32 since, quint32 until ) const;
 
 	QString getVersion() const override final { return version2string( version ); }
 	quint32 getVersionNumber() const override final { return version; }

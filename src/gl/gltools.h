@@ -34,19 +34,13 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define GLTOOLS_H
 
 #include "data/niftypes.h"
+#include "model/nifmodel.h"
 
 #include <QOpenGLContext>
 #include <QPair>
 
 
 //! @file gltools.h BoundSphere, VertexWeight, BoneWeights, SkinPartition
-
-
-using TriStrip = QVector<quint16>;
-Q_DECLARE_TYPEINFO(TriStrip, Q_MOVABLE_TYPE);
-using TexCoords = QVector<Vector2>;
-Q_DECLARE_TYPEINFO(TexCoords, Q_MOVABLE_TYPE);
-
 
 //! A bounding sphere for an object, typically a Mesh
 class BoundSphere final
@@ -55,6 +49,7 @@ public:
 	BoundSphere();
 	BoundSphere( const BoundSphere & );
 	BoundSphere( const NifModel * nif, const QModelIndex & );
+	BoundSphere( NifFieldConst sphereRoot );
 	BoundSphere( const Vector3 & center, float radius );
 	BoundSphere( const QVector<Vector3> & vertices );
 
@@ -81,75 +76,12 @@ class VertexWeight final
 {
 public:
 	VertexWeight()
-	{ vertex = 0; weight = 0.0; }
+		: vertex( 0 ), weight( 0.0f ) {}
 	VertexWeight( int v, float w )
-	{ vertex = v; weight = w; }
+		: vertex( v ), weight( w ) {}
 
 	int vertex;
 	float weight;
-};
-
-//! A bone, weight pair
-class BoneWeightUNORM16 final
-{
-public:
-	BoneWeightUNORM16()
-	{
-		bone = 0; weight = 0.0;
-	}
-	BoneWeightUNORM16(quint16 b, float w)
-	{
-		bone = b; weight = w;
-	}
-
-	quint16 bone;
-	float weight;
-};
-
-//! A set of vertices weighted to a bone
-class BoneWeights
-{
-public:
-	BoneWeights() {}
-	BoneWeights( const NifModel * nif, const QModelIndex & index, int b, int vcnt = 0 );
-
-	void setTransform( const NifModel * nif, const QModelIndex & index );
-
-	Transform trans;
-	Vector3 center;
-	float radius = 0;
-	Vector3 tcenter;
-	int bone = 0;
-	QVector<VertexWeight> weights;
-};
-
-class BoneWeightsUNorm : public BoneWeights
-{
-public:
-	BoneWeightsUNorm() {}
-	BoneWeightsUNorm(QVector<QPair<quint16, quint16>> weights, int v);
-
-	QVector<BoneWeightUNORM16> weightsUNORM;
-};
-
-//! A skin partition
-class SkinPartition final
-{
-public:
-	SkinPartition() { numWeightsPerVertex = 0; }
-	SkinPartition( const NifModel * nif, const QModelIndex & index );
-
-	QVector<Triangle> getRemappedTriangles() const;
-	QVector<QVector<quint16>> getRemappedTristrips() const;
-
-	QVector<int> boneMap;
-	QVector<int> vertexMap;
-
-	int numWeightsPerVertex;
-	QVector<QPair<int, float> > weights;
-
-	QVector<Triangle> triangles;
-	QVector<QVector<quint16> > tristrips;
 };
 
 float bhkScale( const NifModel * nif );
@@ -164,7 +96,7 @@ QModelIndex bhkGetRBInfo( const NifModel * nif, const QModelIndex & index, const
 QVector<int> sortAxes( QVector<float> axesDots );
 
 void drawAxes( const Vector3 & c, float axis, bool color = true );
-void drawAxesOverlay( const Vector3 & c, float axis, QVector<int> axesOrder = {2, 1, 0} );
+void drawAxesOverlay( const Vector3 & c, float axis, const QVector<int> & axesOrder, double uiScale );
 void drawGrid( int s, int line, int sub );
 void drawBox( const Vector3 & a, const Vector3 & b );
 void drawCircle( const Vector3 & c, const Vector3 & n, float r, int sd = 16 );
@@ -173,6 +105,7 @@ void drawSolidArc( const Vector3 & c, const Vector3 & n, const Vector3 & x, cons
 void drawCone( const Vector3 & c, Vector3 n, float a, int sd = 16 );
 void drawRagdollCone( const Vector3 & pivot, const Vector3 & twist, const Vector3 & plane, float coneAngle, float minPlaneAngle, float maxPlaneAngle, int sd = 16 );
 void drawSphereSimple( const Vector3 & c, float r, int sd = 36 );
+void drawSphereNew( const Vector3 & center, float radius, int segments, const Transform & transform );
 void drawSphere( const Vector3 & c, float r, int sd = 8 );
 void drawCapsule( const Vector3 & a, const Vector3 & b, float r, int sd = 5 );
 void drawDashLine( const Vector3 & a, const Vector3 & b, int sd = 15 );
@@ -207,6 +140,11 @@ inline void glVertex( const Vector4 & v )
 	glVertex3fv( v.data() );
 }
 
+inline void glVertex( const Vector3 * pv )
+{
+	glVertex3fv( pv->data() );
+}
+
 inline void glNormal( const Vector3 & v )
 {
 	glNormal3fv( v.data() );
@@ -226,6 +164,15 @@ inline void glColor( const Color4 & c )
 {
 	glColor4fv( c.data() );
 }
+
+void glSelectionBufferColor( int lowId );
+
+inline void glSelectionBufferColor( const NifModel * nif, const QModelIndex & index )
+{
+	glSelectionBufferColor( nif->getBlockNumber(index) );
+}
+
+void glSelectionBufferColor( int highId, int lowId );
 
 inline void glMaterial( GLenum x, GLenum y, const Color4 & c )
 {
@@ -252,6 +199,16 @@ inline void glMultMatrix( const Transform & t )
 	glMultMatrix( t.toMatrix4() );
 }
 
+inline void glDrawTriangles( const QVector<Triangle> & tris, int iStartOffset, int nTris )
+{
+	if ( nTris > 0)
+		glDrawElements( GL_TRIANGLES, nTris * 3, GL_UNSIGNED_SHORT, tris.constData() + iStartOffset );
+}
+
+inline void glDrawTriangles( const QVector<Triangle> & tris )
+{
+	glDrawTriangles( tris, 0, tris.count() );
+}
 
 inline GLuint glClosestMatch( GLuint * buffer, GLint hits )
 {
@@ -271,8 +228,5 @@ inline GLuint glClosestMatch( GLuint * buffer, GLint hits )
 
 void renderText( double x, double y, double z, const QString & str );
 void renderText( const Vector3 & c, const QString & str );
-
-#define ID2COLORKEY( id ) (id + 1)
-#define COLORKEY2ID( id ) (id - 1)
 
 #endif

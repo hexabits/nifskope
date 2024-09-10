@@ -40,28 +40,15 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "model/nifmodel.h"
 #include "ui/settingsdialog.h"
 #include "ui/widgets/fileselect.h"
+#include "ui/UiUtils.h"
 
 #include <QApplication>
-#include <QActionGroup>
-#include <QButtonGroup>
-#include <QCheckBox>
-#include <QComboBox>
 #include <QDebug>
-#include <QDialog>
 #include <QDir>
-#include <QGroupBox>
 #include <QImageWriter>
-#include <QLabel>
-#include <QKeyEvent>
-#include <QMenu>
 #include <QMimeData>
 #include <QMouseEvent>
-#include <QPushButton>
-#include <QRadioButton>
-#include <QSettings>
-#include <QSpinBox>
 #include <QTimer>
-#include <QToolBar>
 
 #include <QOpenGLContext>
 #include <QOpenGLFunctions>
@@ -316,7 +303,8 @@ void GLView::initializeGL()
 	//	Made viewport and aspect member variables.
 	//	They were being updated every single frame instead of only when resizing.
 	//glGetIntegerv( GL_VIEWPORT, viewport );
-	aspect = (GLdouble)width() / (GLdouble)height();
+	if ( viewportWidth < 0 )
+		cacheViewportSize();
 
 	// Check for errors
 	while ( ( err = glGetError() ) != GL_NO_ERROR )
@@ -332,10 +320,8 @@ void GLView::updateShaders()
 	update();
 }
 
-void GLView::glProjection( int x, int y )
+void GLView::glProjection( [[maybe_unused]] int x, [[maybe_unused]] int y )
 {
-	Q_UNUSED( x ); Q_UNUSED( y );
-
 	glMatrixMode( GL_PROJECTION );
 	glLoadIdentity();
 
@@ -351,7 +337,7 @@ void GLView::glProjection( int x, int y )
 	GLdouble nr = fabs( bs.center[2] ) - bounds * 1.5;
 	GLdouble fr = fabs( bs.center[2] ) + bounds * 1.5;
 
-	if ( perspectiveMode || (view == ViewWalk) ) {
+	if ( perspectiveMode || view == ViewWalk ) {
 		// Perspective View
 		if ( nr < 1.0 * scale() )
 			nr = 1.0 * scale();
@@ -360,24 +346,22 @@ void GLView::glProjection( int x, int y )
 
 		if ( nr > fr ) {
 			// add: swap them when needed
-			GLfloat tmp = nr;
-			nr = fr;
-			fr = tmp;
+			std::swap( nr, fr );
 		}
 
-		if ( (fr - nr) < 0.00001f ) {
+		if ( (fr - nr) < 0.00001 ) {
 			// add: ensure distance
 			nr = 1.0 * scale();
 			fr = 2.0 * scale();
 		}
 
-		GLdouble h2 = tan( ( cfg.fov / Zoom ) / 360 * M_PI ) * nr;
-		GLdouble w2 = h2 * aspect;
+		GLdouble h2 = tan( double( cfg.fov ) * M_PI / ( Zoom * 360.0 ) ) * nr;
+		GLdouble w2 = h2 * aspectWidth / aspectHeight;
 		glFrustum( -w2, +w2, -h2, +h2, nr, fr );
 	} else {
 		// Orthographic View
 		GLdouble h2 = Dist / Zoom;
-		GLdouble w2 = h2 * aspect;
+		GLdouble w2 = h2 * aspectWidth / aspectHeight;
 		glOrtho( -w2, +w2, -h2, +h2, nr, fr );
 	}
 
@@ -421,22 +405,34 @@ void GLView::paintGL()
 	if ( doCompile ) {
 		textures->setNifFolder( model->getFolder() );
 		scene->make( model );
-		scene->transform( Transform(), scene->timeMin() );
+
+		auto tMin = scene->timeMin();
+		auto tMax = scene->timeMax();
+
+		scene->transform( Transform(), tMin );
 
 		axis = (scene->bounds().radius <= 0) ? 1024.0 * scale() : scene->bounds().radius;
 
-		if ( scene->timeMin() != scene->timeMax() ) {
-			if ( time < scene->timeMin() || time > scene->timeMax() )
-				time = scene->timeMin();
+		if ( doLoadReset ) {
+			setViewMode( getDefaultViewMode() );
+			center(); // Force (re)center the view on the model because setViewMode not always does this.
+
+			time = tMin;
+		}
+
+		if ( tMin != tMax ) {
+			if ( time < tMin || time > tMax  )
+				time = tMin;
 
 			emit sequencesUpdated();
 
-		} else if ( scene->timeMax() == 0 ) {
+		} else if ( tMax == 0 ) {
 			// No Animations in this NIF
 			emit sequencesDisabled( true );
 		}
-		emit sceneTimeChanged( time, scene->timeMin(), scene->timeMax() );
+		emit sceneTimeChanged( time, tMin, tMax );
 		doCompile = false;
+		doLoadReset = false;
 	}
 
 	// Center the model
@@ -627,7 +623,6 @@ void GLView::paintGL()
 
 	if ( scene->hasOption(Scene::ShowAxes) ) {
 		// Resize viewport to small corner of screen
-		int axesSize = std::min( width() / 10, 125 );
 		glViewport( 0, 0, axesSize, axesSize );
 
 		// Reset matrices
@@ -635,9 +630,9 @@ void GLView::paintGL()
 		glLoadIdentity();
 
 		// Square frustum
-		auto nr = 1.0;
-		auto fr = 250.0;
-		GLdouble h2 = tan( cfg.fov / 360 * M_PI ) * nr;
+		double nr = 1.0;
+		double fr = 250.0;
+		GLdouble h2 = tan( double( cfg.fov ) * M_PI / 360.0 ) * nr;
 		GLdouble w2 = h2;
 		glFrustum( -w2, +w2, -h2, +h2, nr, fr );
 
@@ -651,7 +646,7 @@ void GLView::paintGL()
 		auto viewTransOrig = viewTrans.translation;
 
 		// Zoom out slightly
-		viewTrans.translation = { 0, 0, -150.0 };
+		viewTrans.translation = { 0, 0, -140.0 };
 
 		// Load modified viewTrans
 		glLoadMatrix( viewTrans );
@@ -663,12 +658,12 @@ void GLView::paintGL()
 		auto vtr = viewTrans.rotation;
 		QVector<float> axesDots = { vtr( 2, 0 ), vtr( 2, 1 ), vtr( 2, 2 ) };
 
-		drawAxesOverlay( { 0, 0, 0 }, 50.0, sortAxes( axesDots ) );
+		drawAxesOverlay( { 0, 0, 0 }, 50.0, sortAxes( axesDots ), uiScale );
 
 		glPopMatrix();
 
 		// Restore viewport size
-		glViewport( 0, 0, width(), height() );
+		glViewport( 0, 0, viewportWidth, viewportHeight );
 		// Restore matrices
 		glProjection();
 	}
@@ -696,15 +691,13 @@ void GLView::paintGL()
 }
 
 
-void GLView::resizeGL( int width, int height )
+void GLView::resizeGL( [[maybe_unused]] int width, [[maybe_unused]] int height )
 {
-	resize( width, height );
-
 	makeCurrent();
 	if ( !isValid() )
 		return;
-	aspect = (GLdouble)width / (GLdouble)height;
-	glViewport( 0, 0, width, height );
+	cacheViewportSize();
+	glViewport( 0, 0, viewportWidth, viewportHeight );
 
 	glDisable(GL_FRAMEBUFFER_SRGB);
 	qglClearColor(clearColor());
@@ -773,9 +766,8 @@ void GLView::setVisMode( Scene::VisMode mode, bool checked )
 
 typedef void (Scene::* DrawFunc)( void );
 
-int indexAt( /*GLuint *buffer,*/ NifModel * model, Scene * scene, QList<DrawFunc> drawFunc, int cycle, const QPoint & pos, int & furn )
+uint32_t indexAt( Scene * scene, const QList<DrawFunc> & drawFunc, const QPoint & pos )
 {
-	Q_UNUSED( model ); Q_UNUSED( cycle );
 	// Color Key O(1) selection
 	//	Open GL 3.0 says glRenderMode is deprecated
 	//	ATI OpenGL API implementation of GL_SELECT corrupts NifSkope memory
@@ -831,31 +823,8 @@ int indexAt( /*GLuint *buffer,*/ NifModel * model, Scene * scene, QList<DrawFunc
 	img.save( "fbo.png" );
 #endif
 
-	// Encode RGB to Int
-	int a = 0;
-	a |= pixel.red()   << 0;
-	a |= pixel.green() << 8;
-	a |= pixel.blue()  << 16;
-
-	// Decode:
-	// R = (id & 0x000000FF) >> 0
-	// G = (id & 0x0000FF00) >> 8
-	// B = (id & 0x00FF0000) >> 16
-
-	int choose = COLORKEY2ID( a );
-
-	// Pick BSFurnitureMarker
-	if ( choose > 0 ) {
-		auto furnBlock = model->getBlockIndex( model->index( 3, 0, model->getBlockIndex( choose & 0x0ffff ) ), "BSFurnitureMarker" );
-
-		if ( furnBlock.isValid() ) {
-			furn = choose >> 16;
-			choose &= 0x0ffff;
-		}
-	}
-
-	//qDebug() << "Key:" << a << " R" << pixel.red() << " G" << pixel.green() << " B" << pixel.blue();
-	return choose;
+	// Decode RGB to id
+	return ( pixel.blue() << 16 ) | ( pixel.green() << 8 ) | pixel.red();
 }
 
 QModelIndex GLView::indexAt( const QPoint & pos, int cycle )
@@ -889,8 +858,7 @@ QModelIndex GLView::indexAt( const QPoint & pos, int cycle )
 
 	df << &Scene::drawShapes;
 
-	int choose = -1, furn = -1;
-	choose = ::indexAt( model, scene, df, cycle, pos, /*out*/ furn );
+	uint32_t idColor = ::indexAt( scene, df, pos );
 
 	glPopAttrib();
 	glMatrixMode( GL_MODELVIEW );
@@ -900,22 +868,23 @@ QModelIndex GLView::indexAt( const QPoint & pos, int cycle )
 
 	QModelIndex chooseIndex;
 
-	if ( scene->isSelModeVertex() ) {
-		// Vertex
-		int block = choose >> 16;
-		int vert = choose - (block << 16);
+	if ( idColor != 0 ) {
+		int lowId  = idColor & 0xFFFF;
+		int highId = idColor >> 16;
 
-		auto shape = scene->shapes.value( block );
-		if ( shape )
-			chooseIndex = shape->vertexAt( vert );
-	} else if ( choose != -1 ) {
-		// Block Index
-		chooseIndex = model->getBlockIndex( choose );
-
-		if ( furn != -1 ) {
-			// Furniture Row @ Block Index
-			chooseIndex = model->index( furn, 0, model->index( 3, 0, chooseIndex ) );
-		}			
+		if ( scene->isSelModeVertex() ) {
+			if ( highId > 0 ) { // Shape vertex selection
+				auto shape = scene->shapes.value( highId - 1 );
+				if ( shape )
+					chooseIndex = shape->vertexAt( lowId );
+			}
+		} else {
+			if ( highId > 0 ) { // Furniture row selection
+				chooseIndex = model->block( lowId ).child("Positions").child( highId - 1 ).toIndex();
+			} else { // Block selection
+				chooseIndex = model->getBlockIndex( lowId - 1 );
+			}
+		}
 	}
 
 	return chooseIndex;
@@ -927,18 +896,17 @@ void GLView::center()
 	update();
 }
 
-void GLView::move( float x, float y, float z )
+void GLView::moveBy( float x, float y, float z )
 {
 	Pos += Matrix::euler( deg2rad(Rot[0]), deg2rad(Rot[1]), deg2rad(Rot[2]) ).inverted() * Vector3( x, y, z );
-	updateViewpoint();
 	update();
+	resetViewMode();
 }
 
-void GLView::rotate( float x, float y, float z )
+void GLView::rotateBy( float x, float y, float z )
 {
-	Rot += Vector3( x, y, z );
-	updateViewpoint();
-	update();
+	setRotation( Rot[0] + x, Rot[1] + y, Rot[2] + z );
+	resetViewMode();
 }
 
 void GLView::setCenter()
@@ -949,7 +917,7 @@ void GLView::setCenter()
 		// Center on selected node
 		BoundSphere bs = node->bounds();
 
-		this->setPosition( -bs.center );
+		setPosition( -bs.center );
 
 		if ( bs.radius > 0 ) {
 			setDistance( bs.radius * 1.2 );
@@ -965,8 +933,6 @@ void GLView::setCenter()
 		setZoom( 1.0 );
 
 		setPosition( -bs.center );
-
-		setOrientation( view );
 	}
 }
 
@@ -996,7 +962,9 @@ void GLView::setProjection( bool isPersp )
 
 void GLView::setRotation( float x, float y, float z )
 {
-	Rot = { x, y, z };
+	Rot[0] = normDeg( x );
+	Rot[1] = normDeg( y );
+	Rot[2] = normDeg( z );
 	update();
 }
 
@@ -1014,90 +982,130 @@ void GLView::setZoom( float z )
 }
 
 
-void GLView::flipOrientation()
+void GLView::flipView()
 {
-	ViewState tmp = ViewDefault;
-
 	switch ( view ) {
 	case ViewTop:
-		tmp = ViewBottom;
+		setViewMode( ViewBottom );
 		break;
 	case ViewBottom:
-		tmp = ViewTop;
+		setViewMode( ViewTop );
 		break;
 	case ViewLeft:
-		tmp = ViewRight;
+		setViewMode( ViewRight );
 		break;
 	case ViewRight:
-		tmp = ViewLeft;
+		setViewMode( ViewLeft );
 		break;
 	case ViewFront:
-		tmp = ViewBack;
+		setViewMode( ViewBack );
 		break;
 	case ViewBack:
-		tmp = ViewFront;
+		setViewMode( ViewFront );
 		break;
-	case ViewUser:
 	default:
-	{
-		// TODO: Flip any other view also?
-	}
+		setRotation( 180.0f - Rot[0], Rot[1], Rot[2] + 180.0f );
+		resetViewMode();
 		break;
 	}
-
-	setOrientation( tmp, false );
 }
 
-void GLView::setOrientation( GLView::ViewState state, bool recenter )
+void GLView::setViewMode( GLView::ViewState newView )
 {
-	if ( state == view )
+	if ( view == newView )
 		return;
 
-	switch ( state ) {
+	auto oldView = view;
+	view = newView;
+
+	auto onDirViewModeChange = [this, oldView]( float rotX, float rotY, float rotZ ) {
+		setRotation( rotX, rotY, rotZ );
+		if ( oldView != ViewBottom && oldView != ViewTop && oldView != ViewBack && oldView != ViewFront && oldView != ViewRight && oldView != ViewLeft )
+			center();
+	};
+
+	switch ( view ) {
 	case ViewBottom:
-		setRotation( 180, 0, 0 ); // Bottom
+		onDirViewModeChange( 180, 0, 0 ); // Bottom
 		break;
 	case ViewTop:
-		setRotation( 0, 0, 0 ); // Top
+		onDirViewModeChange( 0, 0, 0 ); // Top
 		break;
 	case ViewBack:
-		setRotation( -90, 0, 0 ); // Back
+		onDirViewModeChange( -90, 0, 0 ); // Back
 		break;
 	case ViewFront:
-		setRotation( -90, 0, 180 ); // Front
+		onDirViewModeChange( -90, 0, 180 ); // Front
 		break;
 	case ViewRight:
-		setRotation( -90, 0, 90 ); // Right
+		onDirViewModeChange( -90, 0, 90 ); // Right
 		break;
 	case ViewLeft:
-		setRotation( -90, 0, -90 ); // Left
+		onDirViewModeChange( -90, 0, -90 ); // Left
 		break;
-	default:
+	case ViewWalk:
+		center();
 		break;
 	}
 
-	view = state;
-
-	// Recenter
-	if ( recenter )
-		center();
+	emit viewModeChanged();
 }
 
-void GLView::updateViewpoint()
+void GLView::resetViewMode()
 {
-	switch ( view ) {
-	case ViewTop:
-	case ViewBottom:
-	case ViewLeft:
-	case ViewRight:
-	case ViewFront:
-	case ViewBack:
-	case ViewUser:
-		emit viewpointChanged();
-		break;
-	default:
-		break;
+	if ( view != ViewDefault && view != ViewWalk )
+		setViewMode( ViewDefault );
+}
+
+GLView::ViewState GLView::getDefaultViewMode()
+{
+	const GLView::ViewState defaultMode = GLView::ViewFront;
+	GLView::ViewState resultMode = defaultMode;
+
+	if ( scene->shapes.count() > 0 ) {
+		double modeWeights[GLView::ViewLast + 1] = { 0.0 };
+		bool hasSkinnedShapes = false;
+
+		const int modeAxesX[] = {
+			GLView::ViewTop,   GLView::ViewBottom,
+			GLView::ViewLeft,  GLView::ViewRight, 
+			GLView::ViewFront, GLView::ViewBack,
+		};
+		const int modeAxesY[] = {
+			GLView::ViewFront, GLView::ViewBack,
+			GLView::ViewTop,   GLView::ViewBottom,
+			GLView::ViewLeft,  GLView::ViewRight, 
+		};
+		const int modeAxesZ[] = {
+			GLView::ViewLeft,  GLView::ViewRight, 
+			GLView::ViewFront, GLView::ViewBack,
+			GLView::ViewTop,   GLView::ViewBottom,
+		};
+
+		const int * modeAxes;
+		switch( cfg.upAxis ) {
+		case XAxis: modeAxes = modeAxesX; break;
+		case YAxis: modeAxes = modeAxesY; break;
+		default:    modeAxes = modeAxesZ; break;
+		}
+
+		for ( auto shape : scene->shapes )
+			shape->fillViewModeWeights( modeWeights, hasSkinnedShapes, modeAxes );
+
+		if ( !hasSkinnedShapes ) {
+			modeWeights[defaultMode] *= 16.0; // Inflate the weight of the default mode
+		
+			int maxIndex = defaultMode;
+			for ( int i = 0, n = sizeof(modeWeights) / sizeof(*modeWeights); i < n; i++ ) {
+				if ( modeWeights[i] > modeWeights[maxIndex] )
+					maxIndex = i;
+			}
+			if ( modeWeights[maxIndex] > 0.0 )
+				resultMode = GLView::ViewState(maxIndex);
+		}
 	}
+
+	return resultMode;
 }
 
 void GLView::flush()
@@ -1192,6 +1200,7 @@ void GLView::modelChanged()
 		return;
 
 	doCompile = true;
+	doLoadReset = true;
 	//doCenter  = true;
 	update();
 }
@@ -1252,6 +1261,8 @@ void GLView::saveUserView()
 	settings.setValue( "Dist", Dist );
 	settings.endGroup();
 	settings.endGroup();
+
+	setViewMode( ViewUser );
 }
 
 void GLView::loadUserView()
@@ -1264,6 +1275,8 @@ void GLView::loadUserView()
 	setDistance( settings.value( "Dist" ).toDouble() );
 	settings.endGroup();
 	settings.endGroup();
+
+	setViewMode( ViewUser );
 }
 
 void GLView::advanceGears()
@@ -1312,20 +1325,20 @@ void GLView::advanceGears()
 	// keys based on user preferences of what app they would like to
 	// emulate for the control scheme
 	// Rotation
-	if ( kbd[ Qt::Key_Up ] )    rotate( -cfg.rotSpd * dT, 0, 0 );
-	if ( kbd[ Qt::Key_Down ] )  rotate( +cfg.rotSpd * dT, 0, 0 );
-	if ( kbd[ Qt::Key_Left ] )  rotate( 0, 0, -cfg.rotSpd * dT );
-	if ( kbd[ Qt::Key_Right ] ) rotate( 0, 0, +cfg.rotSpd * dT );
+	if ( kbd[ Qt::Key_Up ] )    rotateBy( -cfg.rotSpd * dT, 0, 0 );
+	if ( kbd[ Qt::Key_Down ] )  rotateBy( +cfg.rotSpd * dT, 0, 0 );
+	if ( kbd[ Qt::Key_Left ] )  rotateBy( 0, 0, -cfg.rotSpd * dT );
+	if ( kbd[ Qt::Key_Right ] ) rotateBy( 0, 0, +cfg.rotSpd * dT );
 
 	// Fix movement speed for Starfield scale
 	dT *= scale();
 	// Movement
-	if ( kbd[ Qt::Key_A ] ) move( +cfg.moveSpd * dT, 0, 0 );
-	if ( kbd[ Qt::Key_D ] ) move( -cfg.moveSpd * dT, 0, 0 );
-	if ( kbd[ Qt::Key_W ] ) move( 0, 0, +cfg.moveSpd * dT );
-	if ( kbd[ Qt::Key_S ] ) move( 0, 0, -cfg.moveSpd * dT );
-	if ( kbd[ Qt::Key_Q ] ) move( 0, +cfg.moveSpd * dT, 0 );
-	if ( kbd[ Qt::Key_E ] ) move( 0, -cfg.moveSpd * dT, 0 );
+	if ( kbd[ Qt::Key_A ] ) moveBy( +cfg.moveSpd * dT, 0, 0 );
+	if ( kbd[ Qt::Key_D ] ) moveBy( -cfg.moveSpd * dT, 0, 0 );
+	if ( kbd[ Qt::Key_W ] ) moveBy( 0, 0, +cfg.moveSpd * dT );
+	if ( kbd[ Qt::Key_S ] ) moveBy( 0, 0, -cfg.moveSpd * dT );
+	if ( kbd[ Qt::Key_Q ] ) moveBy( 0, +cfg.moveSpd * dT, 0 );
+	if ( kbd[ Qt::Key_E ] ) moveBy( 0, -cfg.moveSpd * dT, 0 );
 
 	// Zoom
 	//if ( kbd[ Qt::Key_R ] ) setDistance( Dist / ZOOM_QE_KEY_MULT );
@@ -1336,231 +1349,260 @@ void GLView::advanceGears()
 	if ( kbd[ Qt::Key_PageDown ] ) setZoom( Zoom / ZOOM_PAGE_KEY_MULT );
 
 	if ( mouseMov[0] != 0 || mouseMov[1] != 0 || mouseMov[2] != 0 ) {
-		move( mouseMov[0], mouseMov[1], mouseMov[2] );
+		moveBy( mouseMov[0], mouseMov[1], mouseMov[2] );
 		mouseMov = Vector3();
 	}
 
 	if ( mouseRot[0] != 0 || mouseRot[1] != 0 || mouseRot[2] != 0 ) {
-		rotate( mouseRot[0], mouseRot[1], mouseRot[2] );
+		rotateBy( mouseRot[0], mouseRot[1], mouseRot[2] );
 		mouseRot = Vector3();
 	}
 }
 
-
-// TODO: Separate widget
-void GLView::saveImage()
+void GLView::resetAnimation()
 {
-	auto dlg = new QDialog( qApp->activeWindow() );
-	QGridLayout * lay = new QGridLayout( dlg );
-	dlg->setWindowTitle( tr( "Save View" ) );
-	dlg->setLayout( lay );
-	dlg->setMinimumWidth( 400 );
+	if ( animState & AnimPlay ) {
+		time = scene->timeMin();
+		animState &= ~AnimPlay;
+		emit sequenceStopped();
+		emit sceneTimeChanged( time, scene->timeMin(), scene->timeMax() );
+		update();
+	}
+}
 
-	QString date = QDateTime::currentDateTime().toString( "yyyyMMdd_HH-mm-ss" );
-	QString name = model->getFilename();
+ScreenshotDialog::ScreenshotDialog( GLView * parent )
+	: ToolDialog( parent, tr("Save Screenshot"), ToolDialog::HResize, 500 ), // parent
+	view( parent )
+{
+	setSettingsFolder( "Screenshot" );
 
-	QString nifFolder = model->getFolder();
-	// TODO: Default extension in Settings
-	QString filename = name + (!name.isEmpty() ? "_" : "") + date + ".jpg";
+	appScreenshotsPath = QFileInfo( QApplication::applicationDirPath() + "/screenshots" ).absoluteFilePath();
+	const QString & modelDirPath = modelFolder();
+	bool hasModelFile = !modelDirPath.isEmpty();
 
-	// Default: NifSkope directory
-	// TODO: User-configurable default screenshot path in Options
-	QString nifskopePath = "screenshots/" + filename;
-	// Absolute: NIF directory
-	QString nifPath = nifFolder + (!nifFolder.isEmpty() ? "/" : "") + filename;
+	QVBoxLayout * mainLayout = addVBoxLayout( this );
 
-	FileSelector * file = new FileSelector( FileSelector::SaveFile, tr( "File" ), QBoxLayout::LeftToRight );
-	file->setParent( dlg );
-	// TODO: Default extension in Settings
-	file->setFilter( { "Images (*.jpg *.png *.webp *.bmp)", "JPEG (*.jpg)", "PNG (*.png)", "WebP (*.webp)", "BMP (*.bmp)" } );
-	file->setFile( nifskopePath );
-	lay->addWidget( file, 0, 0, 1, -1 );
+	// Image path
+	QString imgName;
+	if ( hasModelFile ) {
+		imgName += view->model->getFilename();
+		if ( !imgName.isEmpty() )
+			imgName += "-";
+	}
+	imgName += QDateTime::currentDateTime().toString( "yyyy-MM-dd-HHmmss" ) + "." + settingsStrValue( "Format", "jpg" );
 
-	auto grpDir = new QButtonGroup( dlg );
-	
-	QRadioButton * nifskopeDir = new QRadioButton( tr( "NifSkope Directory" ), dlg );
-	nifskopeDir->setChecked( true );
-	nifskopeDir->setToolTip( tr( "Save to NifSkope screenshots directory" ) );
+	pathWidget = new FileSelector( FileSelector::SaveFile, "...", QBoxLayout::LeftToRight );
+	pathWidget->setFilter( { "Images (*.jpg *.png *.webp *.bmp)", "JPEG (*.jpg)", "PNG (*.png)", "WebP (*.webp)", "BMP (*.bmp)" } );
+	pathWidget->setFile( imgName );
+	switchToDirectory( ( hasModelFile && settingsIntValue( "ModelDirectory", 0 ) ) ? modelDirPath : appScreenshotsPath );
+	connect( pathWidget, &FileSelector::sigEdited, this, &ScreenshotDialog::onPathEdit );
+	connect( pathWidget, &FileSelector::sigActivated, this, &ScreenshotDialog::onPathEdit );
+	mainLayout->addWidget( pathWidget );
 
-	QRadioButton * niffileDir = new QRadioButton( tr( "NIF Directory" ), dlg );
-	niffileDir->setChecked( false );
-	niffileDir->setDisabled( nifFolder.isEmpty() );
-	niffileDir->setToolTip( tr( "Save to NIF file directory" ) );
+	// Directory selectors
+	QHBoxLayout * dirSelLayout = addHBoxLayout( mainLayout );
 
-	grpDir->addButton( nifskopeDir );
-	grpDir->addButton( niffileDir );
-	grpDir->setExclusive( true );
+	QPushButton * btnAppDir = addPushButton( dirSelLayout, tr("NifSkope Directory") );
+	lockPushButtonSize( btnAppDir );
+	btnAppDir->setToolTip( tr("Switch to NifSkope screenshots directory") );
+	connect( btnAppDir, &QPushButton::clicked, this, &ScreenshotDialog::onAppDirClicked );
 
-	lay->addWidget( nifskopeDir, 1, 0, 1, 1 );
-	lay->addWidget( niffileDir, 1, 1, 1, 1 );
+	QPushButton * btnModelDir = addPushButton( dirSelLayout, tr("NIF Directory") );
+	lockPushButtonSize( btnModelDir );
+	btnModelDir->setToolTip( tr("Switch to the current NIF file directory") );
+	btnModelDir->setEnabled( hasModelFile );
+	connect( btnModelDir, &QPushButton::clicked, this, &ScreenshotDialog::onNifDirClicked );
 
-	// Save JPEG Quality
-	QSettings settings;
-	int jpegQuality = settings.value( "JPEG/Quality", 90 ).toInt();
-	settings.setValue( "JPEG/Quality", jpegQuality );
+	addStretch( dirSelLayout, 1 );
 
-	QHBoxLayout * pixBox = new QHBoxLayout;
-	pixBox->setAlignment( Qt::AlignRight );
-	QSpinBox * pixQuality = new QSpinBox( dlg );
-	pixQuality->setRange( -1, 100 );
-	pixQuality->setSingleStep( 10 );
-	pixQuality->setValue( jpegQuality );
-	pixQuality->setSpecialValueText( tr( "Auto" ) );
-	pixQuality->setMaximumWidth( pixQuality->minimumSizeHint().width() );
-	pixBox->addWidget( new QLabel( tr( "JPEG Quality" ), dlg ) );
-	pixBox->addWidget( pixQuality );
-	lay->addLayout( pixBox, 1, 2, Qt::AlignRight );
+	// JPEG/WebP Quality
+	qualityLabel = addLabel( dirSelLayout, tr("Quality:"), true );
+	qualityBox = addSpinBox( dirSelLayout, 0, 100, settingsIntValue( "Quality", 95 ) );
+	updateQualityUI( imagePathInfo().suffix() );
 
+	// Image scale
+	QHBoxLayout * imageScaleLayout = addHBoxLayout();
+	imageScaleGroup = beginRadioGroup();
 
-	// Image Size radio button lambda
-	auto btnSize = [dlg]( const QString & name ) {
-		auto btn = new QRadioButton( name, dlg );
-		btn->setCheckable( true );
-		
-		return btn;
-	};
-
-	// Get max viewport size for platform
-	GLint dims;
-	glGetIntegerv( GL_MAX_VIEWPORT_DIMS, &dims );
+	GLint dims;	
+	glGetIntegerv( GL_MAX_VIEWPORT_DIMS, &dims ); // Get max viewport size for platform
 	int maxSize = dims;
 
-	// Default size
-	auto btnOneX = btnSize( "1x" );
-	btnOneX->setChecked( true );
-	// Disable any of these that would exceed the max viewport size of the platform
-	auto btnTwoX = btnSize( "2x" );
-	btnTwoX->setDisabled( (width() * 2) > maxSize || (height() * 2) > maxSize );
-	auto btnFourX = btnSize( "4x" );
-	btnFourX->setDisabled( (width() * 4) > maxSize || (height() * 4) > maxSize );
-	auto btnEightX = btnSize( "8x" );
-	btnEightX->setDisabled( (width() * 8) > maxSize || (height() * 8) > maxSize );
-
-
-	auto grpBox = new QGroupBox( tr( "Image Size" ), dlg );
-	auto grpBoxLayout = new QHBoxLayout;
-	grpBoxLayout->addWidget( btnOneX );
-	grpBoxLayout->addWidget( btnTwoX );
-	grpBoxLayout->addWidget( btnFourX );
-	grpBoxLayout->addWidget( btnEightX );
-	grpBoxLayout->addWidget( new QLabel( "<b>Caution:</b><br/> 4x and 8x may be memory intensive.", dlg ) );
-	grpBoxLayout->addStretch( 1 );
-	grpBox->setLayout( grpBoxLayout );
-
-	auto grpSize = new QButtonGroup( dlg );
-	grpSize->addButton( btnOneX, 1 );
-	grpSize->addButton( btnTwoX, 2 );
-	grpSize->addButton( btnFourX, 4 );
-	grpSize->addButton( btnEightX, 8 );
-
-	grpSize->setExclusive( true );
-	
-	lay->addWidget( grpBox, 2, 0, 1, -1 );
-
-
-	QHBoxLayout * hBox = new QHBoxLayout;
-	QPushButton * btnOk = new QPushButton( tr( "Save" ), dlg );
-	QPushButton * btnCancel = new QPushButton( tr( "Cancel" ), dlg );
-	hBox->addWidget( btnOk );
-	hBox->addWidget( btnCancel );
-	lay->addLayout( hBox, 3, 0, 1, -1 );
-
-	// Set FileSelector to NifSkope dir (relative)
-	connect( nifskopeDir, &QRadioButton::clicked, [=]()
-		{
-			file->setText( nifskopePath );
-			file->setFile( nifskopePath );
+	for ( int sz = 1; sz <= 8; sz *= 2 ) {
+		QRadioButton * btn = addRadioButton( imageScaleLayout, QString::number( sz ) + "x", sz );
+		if ( sz == 1 ) {
+			btn->setChecked( true );
+		} else { // sz > 1
+			btn->setDisabled( ( view->viewportWidth * sz ) > maxSize || ( view->viewportHeight * sz ) > maxSize );
 		}
-	);
-	// Set FileSelector to NIF File dir (absolute)
-	connect( niffileDir, &QRadioButton::clicked, [=]()
-		{
-			file->setText( nifPath );
-			file->setFile( nifPath );
-		}
-	);
-
-	// Validate on OK
-	connect( btnOk, &QPushButton::clicked, [&]() 
-		{
-			// Save JPEG Quality
-			QSettings settings;
-			settings.setValue( "JPEG/Quality", pixQuality->value() );
-
-			// TODO: Set up creation of screenshots directory in Options
-			if ( nifskopeDir->isChecked() ) {
-				QDir workingDir;
-				workingDir.mkpath( "screenshots" );
-			}
-
-			// Supersampling
-			int ss = grpSize->checkedId();
-
-			int w, h;
-
-			w = width();
-			h = height();
-
-			// Resize viewport for supersampling
-			if ( ss > 1 ) {
-				w *= ss;
-				h *= ss;
-
-				resizeGL( w, h );
-			}
-			
-			QOpenGLFramebufferObjectFormat fboFmt;
-			fboFmt.setTextureTarget( GL_TEXTURE_2D );
-			fboFmt.setInternalTextureFormat( GL_RGB );
-			fboFmt.setMipmap( false );
-			fboFmt.setAttachment( QOpenGLFramebufferObject::Attachment::Depth );
-			fboFmt.setSamples( 16 / ss );
-
-			QOpenGLFramebufferObject fbo( w, h, fboFmt );
-			fbo.bind();
-
-			update();
-			updateGL();
-
-			fbo.release();
-
-			QImage * img = new QImage(fbo.toImage());
-
-			// Return viewport to original size
-			if ( ss > 1 )
-				resizeGL( width(), height() );
-
-
-			QImageWriter writer( file->file() );
-
-			// Set Compression for formats that can use it
-			writer.setCompression( 1 );
-
-			// Handle JPEG/WebP Quality exclusively
-			//	PNG will not use compression if Quality is set
-			if ( file->file().endsWith( ".jpg", Qt::CaseInsensitive ) ) {
-				writer.setFormat( "jpg" );
-				writer.setQuality( 50 + pixQuality->value() / 2 );
-			} else if ( file->file().endsWith( ".webp", Qt::CaseInsensitive ) ) {
-				writer.setFormat( "webp" );
-				writer.setQuality( 75 + pixQuality->value() / 4 );
-			}
-
-			if ( writer.write( *img ) ) {
-				dlg->accept();
-			} else {
-				Message::critical( this, tr( "Could not save %1" ).arg( file->file() ) );
-			}
-
-			delete img;
-			img = nullptr;
-		}
-	);
-	connect( btnCancel, &QPushButton::clicked, dlg, &QDialog::reject );
-
-	if ( dlg->exec() != QDialog::Accepted ) {
-		return;
 	}
+	addLabel( imageScaleLayout, tr("<b>Caution:</b><br/> 4x and 8x may be memory intensive.") );
+	addStretch( imageScaleLayout, 1 );
+
+	addGroupBox( mainLayout, tr("Image Size"), imageScaleLayout );
+
+	// Main buttons
+	beginMainButtonLayout( mainLayout );
+
+	QPushButton * btnSave = addMainButton( tr("Save"), true );
+	connect( btnSave, &QPushButton::clicked, this, &ScreenshotDialog::onSaveClicked );
+	addCloseButton( tr("Cancel") );
+}
+
+const QString & ScreenshotDialog::modelFolder() const
+{
+	return view->model->getFolder();
+}
+
+QFileInfo ScreenshotDialog::imagePathInfo() const
+{
+	if ( pathWidget )
+		return QFileInfo( pathWidget->file() );
+	return QFileInfo();
+}
+
+static bool isJpegExtension( const QString & extension )
+{
+	return extension.compare( QStringLiteral("jpg"), Qt::CaseInsensitive ) == 0 || extension.compare( QStringLiteral("jpeg"), Qt::CaseInsensitive ) == 0;
+}
+
+static bool isWebpExtension( const QString & extension )
+{
+	return extension.compare( QStringLiteral("webp"), Qt::CaseInsensitive ) == 0;
+}
+
+void ScreenshotDialog::updateQualityUI( const QString & extension )
+{
+	bool qualityEnabled = isJpegExtension( extension ) || isWebpExtension( extension );
+	if ( qualityLabel )
+		qualityLabel->setEnabled( qualityEnabled );
+	if ( qualityBox )
+		qualityBox->setEnabled( qualityEnabled );
+}
+
+void ScreenshotDialog::onPathEdit()
+{
+	updateQualityUI( imagePathInfo().suffix() );
+}
+
+void ScreenshotDialog::onAppDirClicked()
+{
+	switchToDirectory( appScreenshotsPath );
+}
+
+void ScreenshotDialog::onNifDirClicked()
+{
+	const QString & modelDirPath = modelFolder();
+	if ( !modelDirPath.isEmpty() )
+		switchToDirectory( modelDirPath );
+}
+
+void ScreenshotDialog::switchToDirectory( const QString & dirPath )
+{
+	QString newPath = QDir( dirPath ).filePath( imagePathInfo().fileName() );
+	pathWidget->setText( QDir::toNativeSeparators( newPath ) );
+}
+
+void ScreenshotDialog::onSaveClicked()
+{
+	QFileInfo pathInfo = imagePathInfo();
+	QString outPath = QDir::toNativeSeparators( pathInfo.absoluteFilePath() );
+	QString outExt = pathInfo.suffix();
+	QDir outDir( pathInfo.absolutePath() );
+	const QString & modelDirPath = modelFolder();
+	int quality = qualityBox->value();
+	int imageScale = std::max( imageScaleGroup->checkedId(), 1 );
+
+	setSettingsStrValue( "Format", outExt );
+	setSettingsIntValue( "Quality", quality );
+	setSettingsIntValue( "ModelDirectory", outDir == QDir( modelDirPath ) );
+
+	QDir appScreenshotsDir( appScreenshotsPath );
+	if ( outDir == appScreenshotsDir && !appScreenshotsDir.exists() ) {
+		if ( !QDir().mkdir( appScreenshotsPath ) ) {
+			QFileInfo appScreenshotsInfo( appScreenshotsPath );
+			Message::critical( this, tr("Could not create \"%1\" folder in \"%2\".").arg( appScreenshotsInfo.fileName(), appScreenshotsInfo.absolutePath() ) );
+			return;
+		}
+	}
+
+	if ( imageScale > 1 ) // Image scales 2x or greater can take a significant amount of time to save...
+		setCursor( Qt::WaitCursor );
+
+	QImage img = view->captureScreenshot( imageScale );
+
+	QImageWriter writer( outPath );
+
+	// Set Compression for formats that can use it
+	writer.setCompression( 1 );
+
+	// Handle JPEG/WebP Quality exclusively
+	//	PNG will not use compression if Quality is set
+	if ( isJpegExtension( outExt ) ) {
+		writer.setFormat( "jpg" );
+		writer.setQuality( quality );
+	} else if ( isWebpExtension( outExt ) ) {
+		writer.setFormat( "webp" );
+		writer.setQuality( quality );
+	}
+
+	if ( writer.write( img ) ) {
+		close();
+	} else {
+		Message::critical( this, tr("Could not save \"%1\":\n\n").arg( outPath ) + writer.errorString() );
+	} 
+
+	if ( imageScale > 1 )
+		setCursor( Qt::ArrowCursor );
+}
+
+void GLView::saveImage()
+{
+	auto dlg = new ScreenshotDialog( this );
+	dlg->open( true );
+}
+
+QImage GLView::captureScreenshot( int imageScale )
+{
+	// Supersampling
+	int oldw = width();
+	int oldh = height();
+
+	// Resize viewport for supersampling
+	if ( imageScale > 1 ) {
+		int neww = oldw * imageScale;
+		int newh = oldh * imageScale;
+
+		globalScale = imageScale;
+		resize( neww, newh );
+		resizeGL( neww, newh );
+	}
+
+	QOpenGLFramebufferObjectFormat fboFmt;
+	fboFmt.setTextureTarget( GL_TEXTURE_2D );
+	fboFmt.setInternalTextureFormat( GL_RGB );
+	fboFmt.setMipmap( false );
+	fboFmt.setAttachment( QOpenGLFramebufferObject::Attachment::Depth );
+	fboFmt.setSamples( 16 );
+
+	QOpenGLFramebufferObject fbo( viewportWidth, viewportHeight, fboFmt );
+	fbo.bind();
+
+	updateGL();
+
+	fbo.release();
+
+	auto img = fbo.toImage();
+
+	// Return viewport to the original size
+	if ( imageScale > 1 ) {
+		globalScale = 1;
+		resize( oldw, oldh );
+		resizeGL( oldw, oldh );
+		updateGL();
+	}
+
+	return img;
 }
 
 
@@ -1813,6 +1855,17 @@ void GLView::wheelEvent( QWheelEvent * event )
 	}
 }
 
+void GLView::cacheViewportSize()
+{
+	auto vportSize = UIUtils::widgetRealSize( this );
+
+	viewportWidth  = std::max( vportSize.width(), 0 );
+	viewportHeight = std::max( vportSize.height(), 0 );
+	aspectWidth    = viewportWidth;
+	aspectHeight   = viewportHeight > 0 ? viewportHeight : 1;
+	uiScale        = UIUtils::widgetUIScaleFactor( this ) * globalScale;
+	axesSize       = std::min( qRound( uiScale * 125 ), std::min( viewportWidth / 10, viewportHeight ) );
+}
 
 void GLGraphicsView::setupViewport( QWidget * viewport )
 {

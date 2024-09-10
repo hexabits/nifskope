@@ -33,7 +33,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef GLNODE_H
 #define GLNODE_H
 
-#include "gl/icontrollable.h" // Inherited
+#include "gl/glcontrollable.h" // Inherited
 #include "gl/glproperty.h"
 
 #include <QList>
@@ -46,42 +46,49 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 class Node;
 class NifModel;
 
+// A list of Nodes without duplicates and with reference counting
 class NodeList final
 {
 public:
-	NodeList();
-	NodeList( const NodeList & other );
+	NodeList() {}
+	NodeList( const NodeList & other ) { operator=( other ); }
 	~NodeList();
-
-	void add( Node * );
-	void del( Node * );
-
-	Node * get( const QModelIndex & idx ) const;
-
-	void validate();
 
 	void clear();
 
 	NodeList & operator=( const NodeList & other );
 
+	void add( Node * node );
+	void del( Node * node );
+	bool has( Node * node ) const { return nodes.contains( node ); }
+
+	void validate();
+
 	const QVector<Node *> & list() const { return nodes; }
+
+	Node * get( NifFieldConst nodeBlock ) const;
 
 	void sort();
 	void alphaSort();
 
-protected:
+private:
 	QVector<Node *> nodes;
+
+	void attach( Node * node );
+	void detach( Node * node );
 };
+
 
 class Node : public IControllable
 {
 	friend class ControllerManager;
-	friend class KeyframeController;
-	friend class MultiTargetTransformController;
-	friend class TransformController;
-	friend class VisibilityController;
 	friend class NodeList;
 	friend class LODNode;
+
+	// Interpolator managers
+	friend class TransformInterpolator;
+	friend class BSplineInterpolator;
+	friend class VisibilityInterpolator;
 
 	typedef union
 	{
@@ -94,7 +101,7 @@ class Node : public IControllable
 	} NodeFlags;
 
 public:
-	Node( Scene * scene, const QModelIndex & iBlock );
+	Node( Scene * _scene, NifFieldConst _block );
 
 	static int SELECTING;
 
@@ -139,15 +146,14 @@ public:
 	template <typename T> T * findProperty() const;
 	void activeProperties( PropertyList & list ) const;
 
-	Controller * findController( const QString & proptype, const QString & ctrltype, const QString & var1, const QString & var2 );
-
-	Controller * findController( const QString & proptype, const QModelIndex & index );
+	Controller * findPropertyController( const QString & propType, const QString & ctrlType, const QString & var1, const QString & var2 ) const;
+	Controller * findPropertyController( const QString & propType, NifFieldConst ctrlBlock ) const;
 
 public slots:
 	void updateSettings();
 
 protected:
-	void setController( const NifModel * nif, const QModelIndex & controller ) override;
+	Controller * createController( NifFieldConst controllerBlock ) override;
 	void updateImpl( const NifModel * nif, const QModelIndex & block ) override;
 
 	// Old Options API
@@ -194,7 +200,7 @@ template <typename T> inline T * Node::findProperty() const
 class LODNode : public Node
 {
 public:
-	LODNode( Scene * scene, const QModelIndex & block );
+	LODNode( Scene * _scene, NifFieldConst _block );
 
 	// IControllable
 
@@ -216,10 +222,25 @@ protected:
 class BillboardNode : public Node
 {
 public:
-	BillboardNode( Scene * scene, const QModelIndex & block );
+	BillboardNode( Scene * _scene, NifFieldConst _block );
 
 	const Transform & viewTrans() const override;
 };
 
+
+// Inlines - NodeList
+
+inline void NodeList::attach( Node * node )
+{
+	node->ref++;
+	nodes.append( node );
+}
+
+inline void NodeList::detach( Node * node )
+{
+	Q_ASSERT( node->ref > 0 );
+	if ( --node->ref <= 0 )
+		delete node;
+}
 
 #endif

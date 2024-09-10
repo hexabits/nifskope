@@ -1,22 +1,19 @@
 #include "about_dialog.h"
+#include "version.h"
+
+#include <QScrollArea>
+
 
 AboutDialog::AboutDialog( QWidget * parent )
-	: QDialog( parent )
+	: ToolDialog( parent, 
+		tr( "About %1 (revision %2)" ).arg( APP_NAME_FULL, APP_GIT_BUILD ),
+		ToolDialog::ApplicationBlocking, 650, 400 )
 {
-	ui.setupUi( this );
-
-	setAttribute( Qt::WA_DeleteOnClose );
-
-#ifdef NIFSKOPE_REVISION
-	this->setWindowTitle( tr( "About NifSkope %1 (revision %2)" ).arg( NIFSKOPE_VERSION, NIFSKOPE_REVISION ) );
-#else
-	this->setWindowTitle( tr( "About NifSkope %1" ).arg( NIFSKOPE_VERSION ) );
-#endif
 	QString text = tr( R"rhtml(
 	<p>NifSkope is a tool for opening and editing the NetImmerse file format (NIF).</p>
 
 	<p>NifSkope is free software available under a BSD license.
-	The source is available via <a href='https://github.com/niftools/nifskope'>GitHub</a></p>
+	The source is available via <a href='https://github.com/niftools/nifskope'>GitHub</a>.</p>
 
 	<p>The most recent version of NifSkope can be downloaded from the <a href='https://github.com/niftools/nifskope/releases'>
 	official GitHub release page</a>.</p>
@@ -81,5 +78,34 @@ AboutDialog::AboutDialog( QWidget * parent )
 	
 	)rhtml" );
 
-	ui.text->setText( text );
+	QVBoxLayout * mainLayout = addVBoxLayout( this );
+
+	QHBoxLayout * infoLayout = addHBoxLayout( mainLayout );
+
+	QLabel * iconLabel = addLabel( QString(), true );
+	infoLayout->addWidget( iconLabel, 0, Qt::AlignLeft | Qt::AlignTop );
+	iconLabel->setScaledContents( true );
+	iconLabel->setPixmap( QPixmap( ":/res/nifskope.png" ) );
+
+	QLabel * textLabel = addLabel( text );
+	textLabel->setAlignment( Qt::AlignLeft | Qt::AlignTop );
+	textLabel->setTextFormat( Qt::TextFormat::RichText );
+	textLabel->setWordWrap( true );
+	textLabel->setScaledContents( false );
+	textLabel->setOpenExternalLinks( true );
+	textLabel->setTextInteractionFlags( Qt::TextInteractionFlag::TextBrowserInteraction );
+	const int TEXT_MARGIN_HORZ = 8;
+	const int TEXT_MARGIN_VERT = 6;
+	textLabel->setContentsMargins( TEXT_MARGIN_HORZ, TEXT_MARGIN_VERT, TEXT_MARGIN_HORZ, 0 );
+
+	QScrollArea * scrollWidget = new QScrollArea;
+	infoLayout->addWidget( scrollWidget, 1 );
+	scrollWidget->setFrameShape( QFrame::Shape::StyledPanel );
+	scrollWidget->setFrameShadow( QFrame::Plain );
+	scrollWidget->setBackgroundRole( QPalette::Base ); // White background (at least in Windows theme)
+	scrollWidget->setWidget( textLabel );
+	scrollWidget->setWidgetResizable( true );
+
+	beginMainButtonLayout( mainLayout );
+	addCloseButton( tr("OK") );
 }

@@ -54,7 +54,7 @@ public:
 		qDeleteAll( childItems );
 	}
 
-	NifProxyItem * getLink( int link )
+	NifProxyItem * getLink( int link ) const
 	{
 		for ( NifProxyItem * item : childItems ) {
 			if ( item->block() == link )
@@ -63,39 +63,17 @@ public:
 		return nullptr;
 	}
 
-	int rowLink( int link )
-	{
-		int row = 0;
-		for ( NifProxyItem * item : childItems ) {
-			if ( item->block() == link )
-				return row;
-
-			row++;
-		}
-		return -1;
-	}
-
 	NifProxyItem * addLink( int link )
 	{
-		NifProxyItem * child = getLink( link );
-
-		if ( child ) {
-			return child;
-		} else {
-			child = new NifProxyItem( link, this );
-			childItems.append( child );
-			return child;
-		}
+		NifProxyItem * child = new NifProxyItem( link, this );
+		childItems.append( child );
+		return child;
 	}
 
-	void delLink( int link )
+	void delAt( int i )
 	{
-		NifProxyItem * child = getLink( link );
-
-		if ( child ) {
-			childItems.removeAll( child );
-			delete child;
-		}
+		delete childItems[i];
+		childItems.removeAt( i );
 	}
 
 	NifProxyItem * parent() const
@@ -103,12 +81,24 @@ public:
 		return parentItem;
 	}
 
+	bool hasParentLink( int link ) const
+	{
+		NifProxyItem * parent = parentItem;
+		while ( parent && parent->parentItem ) {
+			if ( parent->block() == link )
+				return true;
+			parent = parent->parentItem;
+		}
+
+		return false;
+	}
+
 	NifProxyItem * child( int row )
 	{
 		return childItems.value( row );
 	}
 
-	int childCount()
+	int childCount() const
 	{
 		return childItems.count();
 	}
@@ -130,28 +120,6 @@ public:
 	inline int block() const
 	{
 		return blockNumber;
-	}
-
-	QList<int> parentBlocks() const
-	{
-		QList<int> parents;
-		NifProxyItem * parent = parentItem;
-
-		while ( parent && parent->parentItem ) {
-			parents.append( parent->blockNumber );
-			parent = parent->parentItem;
-		}
-
-		return parents;
-	}
-
-	QList<int> childBlocks() const
-	{
-		QList<int> blocks;
-		for ( NifProxyItem * item : childItems ) {
-			blocks.append( item->block() );
-		}
-		return blocks;
 	}
 
 	NifProxyItem * findItem( int b, bool scanParents = true )
@@ -249,10 +217,12 @@ void NifProxyModel::reset()
 
 void NifProxyModel::updateRoot( bool fast )
 {
-	if ( !( nif && nif->getBlockCount() > 0 ) ) {
+	QModelIndex rootIndex;
+
+	if ( !nif || nif->getBlockCount() <= 0 ) {
 		if ( root->childCount() > 0 ) {
 			if ( !fast )
-				beginRemoveRows( QModelIndex(), 0, root->childCount() - 1 );
+				beginRemoveRows( rootIndex, 0, root->childCount() - 1 );
 
 			root->killChildren();
 
@@ -265,93 +235,62 @@ void NifProxyModel::updateRoot( bool fast )
 
 	//qDebug() << "proxy update top level";
 
-	// Make a copy to iterate over
-	auto items = root->childItems;
-	for ( NifProxyItem * item : items ) {
-		if ( !nif->getRootLinks().contains( item->block() ) ) {
-			int at = root->rowLink( item->block() );
-
-			if ( !fast )
-				beginRemoveRows( QModelIndex(), at, at );
-
-			root->delLink( item->block() );
-
-			if ( !fast )
-				endRemoveRows();
-		}
-	}
-
-	for ( const auto l : nif->getRootLinks() ) {
-		NifProxyItem * item = root->getLink( l );
-
-		if ( !item ) {
-			if ( !fast )
-				beginInsertRows( QModelIndex(), root->childCount(), root->childCount() );
-
-			item = root->addLink( l );
-
-			if ( !fast )
-				endInsertRows();
-		}
-
-		updateItem( item, fast );
-	}
+	updateItem( root, rootIndex, nif->getRootLinks(), QList<int>(), fast );
 }
 
-void NifProxyModel::updateItem( NifProxyItem * item, bool fast )
+void NifProxyModel::updateItem( NifProxyItem * item, const QModelIndex & index, const QList<int> & goodChildLinks, const QList<int> & goodParentLinks, bool fast )
 {
-	QModelIndex index( createIndex( item->row(), 0, item ) );
+	// Clear bad links
+	for ( int i = item->childCount() - 1; i >= 0; i-- ) {
+		auto link = item->child(i)->block();
+		if ( ( goodChildLinks.contains( link ) || goodParentLinks.contains( link ) ) && !item->hasParentLink( link ) )
+			continue;
 
-	QList<int> parents( item->parentBlocks() );
-
-	for ( const auto l : item->childBlocks() ) {
-		if ( !( nif->getChildLinks( item->block() ).contains( l ) || nif->getParentLinks( item->block() ).contains( l ) ) ) {
-			int at = item->rowLink( l );
-
-			if ( !fast )
-				beginRemoveRows( index, at, at );
-
-			item->delLink( l );
-
-			if ( !fast )
-				endRemoveRows();
-		}
-	}
-	for ( const auto l : nif->getChildLinks( item->block() ) ) {
-		NifProxyItem * child = item->getLink( l );
-
-		if ( !child ) {
-			int at = item->childCount();
-
-			if ( !fast )
-				beginInsertRows( index, at, at );
-
-			child = item->addLink( l );
-
-			if ( !fast )
-				endInsertRows();
-		}
-
-		if ( !parents.contains( child->block() ) ) {
-			updateItem( child, fast );
+		if ( fast ) {
+			item->delAt( i );
 		} else {
-			Message::append( tr( "Warnings were generated while reading NIF file." ),
-				tr( "infinite recursive link construct detected %1 -> %2" ).arg( item->block() ).arg( child->block() )
-			);
+			beginRemoveRows( index, i, i );
+			item->delAt( i );
+			endRemoveRows();
 		}
 	}
-	for ( const auto l : nif->getParentLinks( item->block() ) ) {
-		if ( !item->getLink( l ) ) {
+
+	auto addChildLink = [ this, item, index, fast ]( int link ) -> NifProxyItem * {
+		NifProxyItem * child;
+
+		if ( fast ) {
+			child = item->addLink( link );
+		} else {
 			int at = item->childCount();
-
-			if ( !fast )
-				beginInsertRows( index, at, at );
-
-			item->addLink( l );
-
-			if ( !fast )
-				endInsertRows();
+			beginInsertRows( index, at, at );
+			child = item->addLink( link );
+			endInsertRows();
 		}
+
+		return child;
+		};
+
+	// Add good child links
+	for ( auto link : goodChildLinks ) {
+		if ( item->hasParentLink( link ) ) {
+			auto block1 = nif->block( item->block() );
+			auto block2 = nif->block( link );
+			nif->reportError( tr("Infinite recursive link construct detected: %1 -> %2.").arg( block1.repr(), block2.repr() ) );
+			continue;
+		}
+
+		NifProxyItem * child = item->getLink( link );
+		if ( !child )
+			child = addChildLink( link );
+		updateItem( child, createIndex( child->row(), 0, child ), nif->getChildLinks( link ), nif->getParentLinks( link ), fast );
+	}
+
+	// Add good parent links
+	for ( auto link : goodParentLinks ) {
+		if ( item->hasParentLink( link ) )
+			continue;
+		if ( !item->getLink( link ) )
+			addChildLink( link );
 	}
 }
 

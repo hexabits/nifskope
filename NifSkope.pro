@@ -2,8 +2,12 @@
 ## BUILD OPTIONS
 ###############################
 
-TEMPLATE = vcapp
-TARGET   = NifSkope
+*msvc* {
+	TEMPLATE = vcapp
+} else {
+	TEMPLATE = app
+}
+TARGET = NifSkope
 
 QT += xml opengl network widgets
 
@@ -83,24 +87,6 @@ include(NifSkope_functions.pri)
 
 
 ###############################
-## MACROS
-###############################
-
-# NifSkope Version
-VER = $$getVersion()
-# NifSkope Revision
-REVISION = $$getRevision()
-
-# NIFSKOPE_VERSION macro
-DEFINES += NIFSKOPE_VERSION=\\\"$${VER}\\\"
-
-# NIFSKOPE_REVISION macro
-!isEmpty(REVISION) {
-	DEFINES += NIFSKOPE_REVISION=\\\"$${REVISION}\\\"
-}
-
-
-###############################
 ## OUTPUT DIRECTORIES
 ###############################
 
@@ -147,6 +133,7 @@ HEADERS += \
 	src/gl/BSMesh.h \
 	src/gl/bsshape.h \
 	src/gl/controllers.h \
+	src/gl/glcontrollable.h \
 	src/gl/glcontroller.h \
 	src/gl/glmarker.h \
 	src/gl/glmesh.h \
@@ -158,7 +145,6 @@ HEADERS += \
 	src/gl/gltex.h \
 	src/gl/gltexloaders.h \
 	src/gl/gltools.h \
-	src/gl/icontrollable.h \
 	src/gl/renderer.h \
 	src/io/material.h \
 	src/io/MeshFile.h \
@@ -198,6 +184,8 @@ HEADERS += \
 	src/ui/checkablemessagebox.h \
 	src/ui/settingsdialog.h \
 	src/ui/settingspane.h \
+	src/ui/ToolDialog.h \
+	src/ui/UiUtils.h \
 	src/xml/nifexpr.h \
 	src/xml/xmlconfig.h \
 	src/gamemanager.h \
@@ -212,7 +200,8 @@ HEADERS += \
 	lib/json.hpp \
 	lib/stb_image.h \
 	lib/stb_image_write.h \
-	lib/tiny_gltf.h
+	lib/tiny_gltf.h \
+	lib/Miniball.hpp
 
 SOURCES += \
 	src/data/nifitem.cpp \
@@ -221,6 +210,7 @@ SOURCES += \
 	src/gl/BSMesh.cpp \
 	src/gl/bsshape.cpp \
 	src/gl/controllers.cpp \
+	src/gl/glcontrollable.cpp \
 	src/gl/glcontroller.cpp \
 	src/gl/glmarker.cpp \
 	src/gl/glmesh.cpp \
@@ -290,6 +280,8 @@ SOURCES += \
 	src/ui/checkablemessagebox.cpp \
 	src/ui/settingsdialog.cpp \
 	src/ui/settingspane.cpp \
+	src/ui/ToolDialog.cpp \
+	src/ui/UiUtils.cpp \
 	src/xml/kfmxml.cpp \
 	src/xml/nifexpr.cpp \
 	src/xml/nifxml.cpp \
@@ -300,14 +292,12 @@ SOURCES += \
 	src/nifskope.cpp \
 	src/nifskope_ui.cpp \
 	src/spellbook.cpp \
-	src/version.cpp \
 	lib/half.cpp
 
 RESOURCES += \
 	res/nifskope.qrc
 
 FORMS += \
-	src/ui/about_dialog.ui \
 	src/ui/checkablemessagebox.ui \
 	src/ui/nifskope.ui \
 	src/ui/settingsdialog.ui \
@@ -362,6 +352,7 @@ gli {
 zlib {
 	macx {
         DEFINES += Z_HAVE_UNISTD_H
+        QMAKE_CFLAGS += -fno-define-target-os-macros
     }
     !*msvc*:QMAKE_CFLAGS += -isystem ../nifskope/lib/zlib
     !*msvc*:QMAKE_CXXFLAGS += -isystem ../nifskope/lib/zlib
@@ -436,9 +427,9 @@ win32 {
 }
 
 
-# MinGW, GCC
+# MinGW, GCC, clang
 #  Recommended: GCC 4.8.1+
-*-g++ {
+*-g++|*-clang {
 
 	# COMPILER FLAGS
 
@@ -472,20 +463,6 @@ macx {
 build_pass|!debug_and_release {
 
 ###############################
-## QMAKE_PRE_LINK
-###############################
-
-	# Find `sed` command
-	SED = $$getSed()
-
-	!isEmpty(SED) {
-		# Replace @VERSION@ with number from build/VERSION
-		# Copy build/README.md.in > README.md
-		QMAKE_PRE_LINK += $${SED} -e s/@VERSION@/$${VER}/ $${PWD}/build/README.md.in > $${PWD}/README.md $$nt
-	}
-
-
-###############################
 ## QMAKE_POST_LINK
 ###############################
 
@@ -514,9 +491,12 @@ win32:contains(QT_ARCH, i386) {
 		README.md \
 		README_GLTF.md
 
+	CONFIGS += \
+		build/qt.conf
+
 	copyDirs( $$SHADERS, shaders )
 	#copyDirs( $$LANG, lang )
-	copyFiles( $$XML $$QSS )
+	copyFiles( $$XML $$QSS $$CONFIGS )
 
 	# Copy Readmes and rename to TXT
 	copyFiles( $$READMES,,,, md:txt )

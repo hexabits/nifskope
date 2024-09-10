@@ -77,7 +77,12 @@ class BaseModel : public QAbstractItemModel
 	friend class BaseModelEval;
 
 public:
-	BaseModel( QObject * parent = nullptr );
+	enum MsgMode
+	{
+		MSG_USER, MSG_TEST
+	};
+
+	BaseModel( QObject * parent, MsgMode msgMode );
 	~BaseModel();
 
 	//! Get parent window
@@ -104,21 +109,21 @@ public:
 	 * This function is used to resolve external resources.
 	 * @return The folder of the last file that was loaded with loadFromFile.
 	 */
-	QString getFolder() const { return folder; }
+	const QString & getFolder() const { return folder; }
 
 	/*! If the model was loaded from a file then getFilename returns the filename.
 	 *
 	 * This function is used to resolve external resources.
 	 * @return The filename (without extension) of the last file that was loaded with loadFromFile.
 	 */
-	QString getFilename() const { return filename; }
+	const QString & getFilename() const { return filename; }
 
 	/*! If the model was loaded from a file then getFileInfo returns a QFileInfo object.
 	 *
 	 * This function is used to resolve external resources.
 	 * @return The file info of the last file that was loaded with loadFromFile.
 	 */
-	QFileInfo getFileInfo() const { return fileinfo; }
+	const QFileInfo & getFileInfo() const { return fileinfo; }
 
 	//! Updates stored file and folder information
 	void refreshFileInfo( const QString & );
@@ -253,11 +258,6 @@ public:
 
 	// end QAbstractItemModel
 
-	enum MsgMode
-	{
-		MSG_USER, MSG_TEST
-	};
-
 	void setMessageMode( MsgMode mode );
 	MsgMode getMessageMode() const { return msgMode; }
 
@@ -269,7 +269,7 @@ public:
 public:
 	//! Return string representation ("path") of an item within its model (e.g., "NiTriShape [0]\Vertex Data [3]\Vertex colors").
 	// Mostly for messages and debug.
-	QString itemRepr( const NifItem * item ) const;
+	QString itemRepr( const NifItem * item, const NifItem * cutoffParent = nullptr ) const;
 
 	//! Return string representation ("path") of a model index within its model (e.g., "NiTriShape [0]\Vertex Data [3]\Vertex colors").
 	// Mostly for messages and debug.
@@ -315,6 +315,9 @@ public:
 
 	// Evaluating NifItem condition and model version
 public:
+	//! Checks if version is within since-until range. 0 for since or until means unlimited.
+	static bool checkVersion( quint32 version, quint32 since, quint32 until = 0 );
+
 	//! Evaluate NifItem model version.
 	bool evalVersion( const NifItem * item ) const;
 protected:
@@ -662,6 +665,10 @@ inline bool BaseModel::isArray( const QModelIndex & index ) const
 	return isArray( getItem( index ) );
 }
 
+inline bool BaseModel::checkVersion( quint32 version, quint32 since, quint32 until )
+{
+	return (( since == 0 || since <= version ) && ( until == 0 || version <= until ));
+}
 
 // Item getters
 

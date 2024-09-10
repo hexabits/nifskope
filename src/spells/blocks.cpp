@@ -346,6 +346,63 @@ void deserializeStrings( NifModel * nif, const QModelIndex & iBlock, const QStri
 		setStringsArray( nif, nif->getIndex( iBlock, "Material Data" ), strings, "Material Name" );
 }
 
+static void trySetLink( NifField linkField, NifFieldConst newLinkBlock )
+{
+	if ( linkField && newLinkBlock.inherits( linkField.templ() ) ) {
+		linkField.setLink( newLinkBlock );
+	}
+}
+
+static void tryAddLinkToArray( NifField arrayRoot, NifFieldConst blockToAdd, const QString & purgeOtherLinksOfType = QString() )
+{
+	if ( !arrayRoot )
+		return;
+
+	// TODO: verify that blockToAdd interits arrayRoot.templ()
+
+	auto linkToAdd = blockToAdd.toLink();
+	Q_ASSERT( linkToAdd >= 0 );
+	if ( linkToAdd < 0 )
+		return;
+
+	auto sizeField = arrayRoot.parent()[QString("Num ") + arrayRoot.name()];
+	if ( !sizeField )
+		return;
+
+	int oldSize = sizeField.value<int>();
+
+	bool doArrayUpdate = false;
+	bool doAddLink = true;
+	QVector<qint32> newLinks;
+	newLinks.reserve( std::max( arrayRoot.childCount(), oldSize ) + 1 );
+	for ( auto arrayEntry : arrayRoot.iter() ) {
+		auto link = arrayEntry.link();
+		if ( link == linkToAdd ) {
+			doAddLink = false;
+		} else if ( !purgeOtherLinksOfType.isEmpty() && arrayEntry.linkBlock( purgeOtherLinksOfType ).isValid() ) {
+			doArrayUpdate = true;
+			continue;
+		}
+		newLinks.append( link );
+	}
+	if ( doAddLink ) {
+		newLinks.append( linkToAdd );
+		doArrayUpdate = true;
+	}
+	int newSize = newLinks.count();
+	if ( newSize != oldSize ) {
+		// Pad newLinks with -1 up to oldSize if necessary
+		for ( ; newSize < oldSize; newSize++ ) newLinks.append( -1 );
+		doArrayUpdate = true;
+	}
+
+	if ( doArrayUpdate ) {
+		sizeField.setValue( newSize );
+		arrayRoot.updateArraySize();
+		arrayRoot.setLinkArray( newLinks );
+	}
+}
+
 //! Add a link to the specified block to a link array
 /*!
  * @param nif The model
@@ -407,6 +464,99 @@ void delLink( NifModel * nif, const QModelIndex & iParent, QString array, int li
 }
 
 
+static void linkBlocks( NifField parentField, NifField childBlock )
+{
+	if ( parentField.isLink() ) {
+		trySetLink( parentField, childBlock );
+	}
+
+	auto parentBlock = parentField.block();
+
+	if ( parentBlock.inherits("NiNode") && childBlock.inherits("NiAVObject") ) {
+		tryAddLinkToArray( parentBlock["Children"], childBlock );
+		
+		auto effectsRoot = parentBlock.child("Effects");
+		if ( effectsRoot && childBlock.inherits( effectsRoot.templ() ) ) {
+			tryAddLinkToArray( effectsRoot, childBlock );
+		}
+	}
+
+	if ( parentBlock.inherits("NiAVObject") ) {
+		if ( childBlock.inherits("NiProperty") ) {
+			auto propertiesRoot = parentBlock.child("Properties");
+			if ( propertiesRoot ) {
+				QString oldShaderType = "BSShaderLightingProperty";
+				QString replacePropType = childBlock.inherits(oldShaderType) ? oldShaderType : childBlock.name();
+				tryAddLinkToArray( propertiesRoot, childBlock, replacePropType );
+			} else {
+				trySetLink( parentBlock.child("Shader Property"), childBlock );
+				trySetLink( parentBlock.child("Alpha Property"), childBlock );
+			}
+		
+		} else if ( childBlock.inherits("NiExtraData") ) {
+			tryAddLinkToArray( parentBlock.child("Extra Data List"), childBlock );
+		
+		} else if ( childBlock.inherits("NiCollisionObject") ) {
+			parentBlock.child("Collision Object").setLink( childBlock );
+		
+		} else if ( childBlock.inherits("NiSkinInstance") ) {
+			parentBlock.child("Skin").setLink( childBlock );
+		}
+	}
+
+	if ( parentBlock.inherits("NiObjectNET") && childBlock.inherits("NiTimeController") ) {
+		auto ctrlField = parentBlock.child("Controller");
+		if ( ctrlField ) {
+			auto ctrlBlock = ctrlField.linkBlock();
+			if ( ctrlBlock && ctrlBlock != childBlock ) {
+				linkBlocks( ctrlBlock, childBlock );
+			} else {
+				ctrlField.setLink( childBlock );
+				childBlock["Target"].setLink( parentBlock );
+			}
+		}
+	}
+
+	if ( parentBlock.inherits("NiTimeController") && childBlock.inherits("NiTimeController") ) {
+		auto nextCtrlField = parentBlock["Next Controller"];
+		if ( nextCtrlField ) {
+			auto ctrlBlock = nextCtrlField.linkBlock();
+			if ( ctrlBlock && ctrlBlock != childBlock ) {
+				linkBlocks( ctrlBlock, childBlock );
+			} else {
+				nextCtrlField.setLink( childBlock );
+				childBlock["Target"].setLink( parentBlock["Target"].link() );
+			}
+		}
+	}
+
+	if ( parentBlock.inherits("NiGeometry") ) {
+		trySetLink( parentBlock.child("Data"), childBlock );
+		trySetLink( parentBlock.child("Skin Instance"), childBlock );
+	}
+
+	if ( parentBlock.inherits("NiSkinInstance") ) {
+		trySetLink( parentBlock.child("Data"), childBlock );
+		trySetLink( parentBlock.child("Skin Partition"), childBlock );
+	}
+
+	if ( parentBlock.inherits("BSShaderProperty") ) {
+		trySetLink( parentBlock.child("Texture Set"), childBlock );
+	}
+
+	if ( parentBlock.inherits("bhkNiCollisionObject") ) {
+		trySetLink( parentBlock["Body"], childBlock );
+	}
+
+	if ( parentBlock.inherits("bhkWorldObject", "bhkShape") ) {
+		trySetLink( parentBlock.child("Shape"), childBlock );
+	}
+
+	if ( parentBlock.inherits("bhkCompressedMeshShape") ) {
+		trySetLink( parentBlock["Data"], childBlock );
+	}
+}
+
 //! Link one block to another
 /*!
 * @param nif The model
@@ -415,44 +565,7 @@ void delLink( NifModel * nif, const QModelIndex & iParent, QString array, int li
 */
 void blockLink( NifModel * nif, const QModelIndex & index, const QModelIndex & iBlock )
 {
-	if ( nif->isLink( index ) && nif->blockInherits( iBlock, nif->itemTempl( index ) ) ) {
-		nif->setLink( index, nif->getBlockNumber( iBlock ) );
-	}
-
-	if ( nif->blockInherits( index, "NiNode" ) && nif->blockInherits( iBlock, "NiAVObject" ) ) {
-		addLink( nif, index, "Children", nif->getBlockNumber( iBlock ) );
-
-		if ( nif->blockInherits( iBlock, "NiDynamicEffect" ) ) {
-			addLink( nif, index, "Effects", nif->getBlockNumber( iBlock ) );
-		}
-	} else if ( nif->blockInherits( index, "NiAVObject" ) && nif->blockInherits( iBlock, "NiProperty" ) ) {
-		if ( !addLink( nif, index, "Properties", nif->getBlockNumber( iBlock ) ) ) {
-			// Absent in Bethesda 20.2.0.7 stream version > 34
-			if ( nif->inherits( nif->itemName( iBlock ), "BSShaderProperty" ) ) {
-				nif->setLink( index, "Shader Property", nif->getBlockNumber( iBlock ) );
-			} else if ( nif->itemName( iBlock ) == "NiAlphaProperty" ) {
-				nif->setLink( index, "Alpha Property", nif->getBlockNumber( iBlock ) );
-			}
-		}
-	} else if ( nif->blockInherits( index, "NiAVObject" ) && nif->blockInherits( iBlock, "NiExtraData" ) ) {
-		addLink( nif, index, "Extra Data List", nif->getBlockNumber( iBlock ) );
-	} else if ( nif->blockInherits( index, "NiObjectNET" ) && nif->blockInherits( iBlock, "NiTimeController" ) ) {
-		if ( nif->getLink( index, "Controller" ) > 0 ) {
-			blockLink( nif, nif->getBlockIndex( nif->getLink( index, "Controller" ) ), iBlock );
-		} else {
-			nif->setLink( index, "Controller", nif->getBlockNumber( iBlock ) );
-			nif->setLink( iBlock, "Target", nif->getBlockNumber( index ) );
-		}
-	} else if ( nif->blockInherits( index, "NiTimeController" ) && nif->blockInherits( iBlock, "NiTimeController" ) ) {
-		if ( nif->getLink( index, "Next Controller" ) > 0 ) {
-			blockLink( nif, nif->getBlockIndex( nif->getLink( index, "Next Controller" ) ), iBlock );
-		} else {
-			nif->setLink( index, "Next Controller", nif->getBlockNumber( iBlock ) );
-			nif->setLink( iBlock, "Target", nif->getLink( index, "Target" ) );
-		}
-	} else if ( nif->blockInherits( index, "NiAVObject" ) && nif->blockInherits( iBlock, "NiCollisionObject" ) ) {
-		nif->setLink( index, "Collision Object", nif->getBlockNumber( iBlock ) );
-	}
+	linkBlocks( nif->field( index ), nif->field( iBlock) );
 }
 
 //! Helper function for branch paste
